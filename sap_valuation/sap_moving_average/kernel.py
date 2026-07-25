@@ -754,6 +754,26 @@ def _apply_receipt(ipb, qty, rate):
 	return {"reason": "receipt_cross_zero", "receipt_value": receipt_value, "net_to_inventory": net, "prd": prd}
 
 
+def _guard_positive_value(ipb, item_code, reason):
+	"""Block a value-only posting that would drive inventory value negative
+	while positive stock remains — that produces a negative moving average,
+	which is never valid (WA-0003-01 item 14). Genuine negative *stock* (qty
+	< 0 with frozen MAP) is a separate, supported case and is not caught here.
+	"""
+	if flt(ipb.closing_qty) > 0 and flt(ipb.closing_value) < 0:
+		frappe.throw(
+			_(
+				"This {0} would make {1}'s inventory value negative ({2}) while "
+				"{3} units are still in stock, producing a negative moving average. "
+				"Posting is blocked — correct the cost or quantity first."
+			).format(
+				reason.replace("_", " "), item_code,
+				flt(ipb.closing_value, 2), flt(ipb.closing_qty),
+			),
+			title=_("Negative Valuation Blocked"),
+		)
+
+
 def _freeze_check(ipb):
 	if flt(ipb.closing_qty) < 0 and not ipb.is_negative:
 		ipb.is_negative = 1
@@ -1079,6 +1099,7 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	if reason == "count_diff":
 		# count difference never moves MAP
 		ipb.moving_avg_price = map_before if not ipb.is_negative else ipb.moving_avg_price
+	_guard_positive_value(ipb, item_code, reason)
 	_freeze_check(ipb)
 
 	sme, ive = write_events(

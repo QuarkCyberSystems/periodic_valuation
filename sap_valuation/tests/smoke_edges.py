@@ -400,6 +400,19 @@ def run(commit=False):
 	except frappe.ValidationError:
 		check("batch item blocked from SAP method", True)
 
+	# ============ negative-MAP guard (WA-0003-01 item 14): a value event that
+	# would drive inventory value < 0 while positive stock remains is blocked
+	from sap_valuation.sap_moving_average.kernel import post_value_event
+	ng = make_item("_SMK-NEGMAP")
+	make_pr(ng, wh, 100, 10); make_dn(ng, wh, 90)          # hold 10 @ value 100
+	srbnb = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
+	try:
+		post_value_event(COMPANY, ng, wh, source=("Purchase Invoice", "_NEG", "x"),
+			posting_date=nowdate(), reason="invoice_diff", value_delta=-300, offset_account=srbnb)
+		check("negative-MAP value event blocked", False, "posted")
+	except frappe.ValidationError as e:
+		check("negative-MAP value event blocked", "negative" in str(e).lower())
+
 	# ============ Stock Ageing works for routed items (OI-8 / DR-27):
 	# the report replays SLE-compatible rows FIFO by date — valuation-agnostic
 	age_it = make_item("_SMK-AGE")
