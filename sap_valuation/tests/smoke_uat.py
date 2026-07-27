@@ -573,7 +573,15 @@ def run_std(company, wh):
 	isvc.submit()
 	tc("STD TC-E2b", frappe.db.get_value("Item", fg, "settlement_view") == "YTD")
 
-	# --- F1 exact reversal at ORIGINAL cost after an SC change
+	# --- F1 exact reversal at ORIGINAL cost after an SC change.
+	# Uses a dedicated NON-invoiced receipt: reversing an invoiced receipt is
+	# now warn-and-blocked (WA-0003-01 #12 policy), so we isolate the reversal
+	# mechanics here. Receipt at SC 10 (1000/1200), then SC changes to 15 —
+	# the mirror must still reverse at the ORIGINAL 1000, not the current SC.
+	f1 = std_item("UAT-STD-F1")
+	release_scv(f1, 10)
+	pr = make_pr(f1, wh, 100, 12)
+	release_scv(f1, 15)
 	cxl = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr.name))
 	cxl.submit()
 	mirror = frappe.get_all("Inventory Valuation Event",

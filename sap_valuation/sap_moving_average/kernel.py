@@ -865,20 +865,32 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	original = controller.get("cancellation_against")
 	if not original:
 		frappe.throw(_("Cancellation document must reference the original via Cancellation Against."))
-	detail = sle.get("voucher_detail_no")
-	row = next((x for x in controller.get("items") or [] if x.name == detail), None)
-	orig_detail = row and (
-		row.get("purchase_receipt_item") or row.get("dn_detail") or row.get("delivery_note_item")
-	)
-	filters = {"source_doctype": controller.doctype, "source_docname": original, "is_cancelled": 0}
-	if orig_detail:
-		filters["source_detail_name"] = orig_detail
-	originals = frappe.get_all(
+	# Match the original event(s) by item within the original document. We do
+	# NOT filter by source_detail_name: on a copied Cancellation document the
+	# item rows are new, and a return's `purchase_receipt_item` points at the
+	# grand-original receipt, not the return's own event — so a detail-name
+	# filter wrongly finds nothing (WA-0003-01 item 9). Instead we take the
+	# original doc's events for this item, drop any already reversed by a live
+	# cancellation, and pair the line to one by matching quantity.
+	candidates = frappe.get_all(
 		"Inventory Valuation Event",
-		filters={**filters, "item_code": scope.item_code},
+		filters={"source_doctype": controller.doctype, "source_docname": original,
+			"item_code": scope.item_code, "is_cancelled": 0},
 		fields=["name", "value_delta", "qty_basis", "reason_code"],
+		order_by="creation",
 	)
-	if not originals:
+	unreversed = [
+		e for e in candidates
+		if not frappe.db.exists(
+			"Inventory Valuation Event", {"reversal_of": e.name, "is_cancelled": 0}
+		)
+	]
+	if not unreversed:
+		if candidates:
+			frappe.throw(
+				_("{0} is already reversed.").format(original),
+				title=_("Double Reversal Blocked"),
+			)
 		frappe.throw(_("No valuation events found for {0} to cancel.").format(original))
 
 	posting_date = sle.get("posting_date")
@@ -887,9 +899,8 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# the kernel posts the mirror
 	qty = -flt(sle.get("actual_qty"))
 
-	orig = originals[0]
-	if frappe.db.exists("Inventory Valuation Event", {"reversal_of": orig.name, "is_cancelled": 0}):
-		frappe.throw(_("{0} is already reversed.").format(orig.name), title=_("Double Reversal Blocked"))
+	want = abs(flt(sle.get("actual_qty")))
+	orig = next((e for e in unreversed if flt(e.qty_basis) == want), unreversed[0])
 
 	# Cancellation matrix (signed plan): a Cancellation document is only
 	# eligible while the ORIGINAL's period is still open or previous-open.

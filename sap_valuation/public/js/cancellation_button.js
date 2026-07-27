@@ -8,9 +8,38 @@
 		"Sales Invoice", "Subcontracting Receipt", "Landed Cost Voucher",
 	];
 
+	// A reversal (Cancellation) document is display-only: all fields are locked
+	// except the posting date, and a clear "Reversal of …" banner is shown
+	// (WA-0003-01 items 5 & 13). Applies in draft and after submit.
+	function lockReversal(frm) {
+		if (!frm.doc.is_cancellation) return;
+		const keep = new Set(["posting_date", "set_posting_time", "posting_time"]);
+		frm.fields.forEach((f) => {
+			if (!keep.has(f.df.fieldname)) frm.set_df_property(f.df.fieldname, "read_only", 1);
+		});
+		(frm.doc.items || []).forEach((row) => {
+			Object.keys(row).forEach((k) => {
+				const g = frm.fields_dict.items && frm.fields_dict.items.grid;
+				if (g) g.update_docfield_property(k, "read_only", 1);
+			});
+		});
+		if (frm.doc.cancellation_against) {
+			frm.dashboard.clear_headline();
+			frm.dashboard.set_headline(
+				__("Reversal of {0} — fields are locked; only the posting date may be changed.",
+					[frm.doc.cancellation_against]),
+				"orange"
+			);
+			if (frm.doc.docstatus === 1) {
+				frm.page.set_indicator(__("Reversal of {0}", [frm.doc.cancellation_against]), "orange");
+			}
+		}
+	}
+
 	for (const doctype of DOCTYPES) {
 		frappe.ui.form.on(doctype, {
 			refresh(frm) {
+				lockReversal(frm);
 				if (frm.doc.docstatus !== 1 || frm.doc.is_cancellation) return;
 
 				frm.add_custom_button(__("Create Cancellation"), () => {
