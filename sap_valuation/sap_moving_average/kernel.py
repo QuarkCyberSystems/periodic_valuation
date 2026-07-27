@@ -685,12 +685,21 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 		else:
 			rate, reference_event = (flt(ipb.frozen_map) if ipb.is_negative else flt(ipb.moving_avg_price)), None
 		value = r2(qty * rate)  # signed with qty
+		# Net returns against their ORIGIN bucket (WA-0003-01 item 6, "same
+		# behaviour STD"): a purchase return reverses a receipt, so it nets
+		# down the In/receipt side; a sales return reverses an issue, so it
+		# nets down the Out/issue side. This mirrors STD's PR in_flag / SR
+		# out_flag. Closing qty/value, MAP and GL are unchanged — only the
+		# period-balance In/Out breakdown differs (previously returns were
+		# bucketed by physical direction, inflating the wrong side).
 		if qty > 0:
-			ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
-			ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
-		else:
+			# sales return (goods in) -> reduce net issues (Out)
 			ipb.issue_qty = r6(flt(ipb.issue_qty) - qty)
 			ipb.issue_value = r6(flt(ipb.issue_value) - value)
+		else:
+			# purchase return (goods out) -> reduce net receipts (In)
+			ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
+			ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
 		recompute_closing(ipb)
 		_freeze_check(ipb)
 		reason = "return_with_ref" if reference_event else "return_no_ref"

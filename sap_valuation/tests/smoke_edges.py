@@ -400,6 +400,26 @@ def run(commit=False):
 	except frappe.ValidationError:
 		check("batch item blocked from SAP method", True)
 
+	# ============ returns net against origin bucket (WA-0003-01 item 6): a
+	# purchase return reduces net In/receipts, a sales return reduces net
+	# Out/issues (matches STD). Closing/MAP unchanged; only the breakdown.
+	rn = make_item("_SMK-RETNET")
+	make_pr(rn, wh, 100, 10)                    # In 100
+	make_dn(rn, wh, 40)                         # Out 40 -> hold 60
+	pr_ret = frappe.get_doc({"doctype": "Purchase Receipt", "company": COMPANY,
+		"supplier": "_SMK Supplier", "posting_date": nowdate(), "set_posting_time": 1,
+		"is_return": 1, "return_against": frappe.get_all("Purchase Receipt",
+			filters={"docstatus": 1}, order_by="creation desc", limit=1, pluck="name")[0],
+		"items": [{"item_code": rn, "warehouse": wh, "qty": -20, "rate": 10}]})
+	pr_ret.insert(ignore_permissions=True); pr_ret.submit()
+	rb = ipb(rn)
+	check("purchase return nets down In (receipt 80, not issue 60)",
+		flt(rb.receipt_qty) == 80 and flt(rb.issue_qty) == 40,
+		f"receipt {rb.receipt_qty} issue {rb.issue_qty}")
+	check("closing unchanged by netting (40 on hand @ 10)",
+		flt(rb.closing_qty) == 40 and flt(rb.closing_value, 2) == 400,
+		f"{rb.closing_qty}/{rb.closing_value}")
+
 	# ============ PI reversal is a debit note (WA-0003-01 item 10): reverses
 	# party GL + valuation, un-bills the receipt so it can be re-invoiced
 	from sap_valuation.sap_moving_average.cancellation import make_cancellation
