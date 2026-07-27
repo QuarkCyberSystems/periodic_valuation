@@ -125,6 +125,23 @@ def run(commit=False):
 	check("item 15 — remaining qty invoices normally at the receipt rate",
 		rem.docstatus == 1 and flt(frappe.db.get_value("Purchase Receipt", pr15b.name, "per_billed")) == 100)
 
+	# ---- item 15 (Option C): SAP items are billed by QUANTITY, not amount, so
+	# a partial-qty invoice at a higher rate no longer over-bills; the remaining
+	# qty is invoiceable; only exceeding the received quantity is blocked.
+	frappe.db.set_single_value("Accounts Settings", "over_billing_allowance", 0)
+	i15c = make_item("_WA-15C"); pr15c = make_pr(i15c, wh, 5000, 400)
+	_pi(co, i15c, wh, pr15c, 3000, 800)   # amount 2.4M > 2.0M receipt — used to block
+	check("item 15 (Opt C) — partial qty at higher rate now posts",
+		flt(frappe.db.get_value("Purchase Receipt", pr15c.name, "per_billed")) >= 100)
+	rem15 = _pi(co, i15c, wh, pr15c, 2000, 900)
+	check("item 15 (Opt C) — remaining qty invoices at any rate", rem15.docstatus == 1)
+	try:
+		_pi(co, i15c, wh, pr15c, 100, 500)   # 5100 > 5000 received
+		check("item 15 (Opt C) — over received-qty is still blocked", False, "posted")
+	except frappe.ValidationError:
+		check("item 15 (Opt C) — over received-qty is still blocked", True)
+	frappe.db.set_single_value("Accounts Settings", "over_billing_allowance", 50)
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} client error scenarios resolved")
 	frappe.db.commit() if (commit and not failed) else frappe.db.rollback()
