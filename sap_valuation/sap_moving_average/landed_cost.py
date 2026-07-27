@@ -69,7 +69,7 @@ def handle_landed_cost(lcv):
 			row.receipt_document_type + " Item", row.purchase_receipt_item, "warehouse"
 		) if row.get("purchase_receipt_item") else None
 
-		ratio = get_stock_ratio(lcv.company, row.item_code, warehouse)
+		ratio = get_stock_ratio(lcv.company, row.item_code, warehouse, as_of=lcv.get("posting_date"))
 		inventory_portion = flt(amount * ratio, 2)
 		expense_portion = flt(amount - inventory_portion, 2)
 

@@ -78,7 +78,7 @@ def on_purchase_invoice_submit(doc, method=None):
 			inventory_component = flt(unit_diff_foreign * qty * receipt_fx, 2)
 			fx_variance = flt(base_diff - inventory_component, 2)
 
-		ratio = get_stock_ratio(doc.company, item.item_code, pr_row.warehouse)
+		ratio = get_stock_ratio(doc.company, item.item_code, pr_row.warehouse, as_of=doc.posting_date)
 		inventory_portion = flt(inventory_component * ratio, 2)
 		expense_portion = flt(inventory_component - inventory_portion, 2)
 

@@ -1196,15 +1196,22 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	return ive
 
 
-def get_stock_ratio(company, item_code, warehouse):
+def get_stock_ratio(company, item_code, warehouse, as_of=None):
+	"""Stock ratio = closing_qty / total_received_since_zero (clamped [0,1]),
+	read AS OF the document's posting period — not the latest period. A
+	backdated invoice or landed cost must use the balance of its own period,
+	otherwise the split is computed against a future state (WA-0003-01)."""
 	scope = ScopeState(company, item_code, warehouse)
-	row = frappe.get_all(
+	rows = frappe.get_all(
 		"Inventory Period Balance",
 		filters={"company": company, "item_code": item_code, "warehouse": scope.warehouse or ""},
-		fields=["closing_qty", "total_received_since_zero"],
+		fields=["closing_qty", "total_received_since_zero", "period_year", "period_month"],
 		order_by="period_year desc, period_month desc",
-		limit=1,
+		limit=60,
 	)
-	if not row or not flt(row[0].total_received_since_zero):
+	if as_of:
+		d = getdate(as_of)
+		rows = [r for r in rows if (r.period_year, r.period_month) <= (d.year, d.month)]
+	if not rows or not flt(rows[0].total_received_since_zero):
 		return 0.0
-	return min(max(flt(row[0].closing_qty) / flt(row[0].total_received_since_zero), 0.0), 1.0)
+	return min(max(flt(rows[0].closing_qty) / flt(rows[0].total_received_since_zero), 0.0), 1.0)
