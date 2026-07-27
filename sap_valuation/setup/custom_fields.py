@@ -154,5 +154,20 @@ def apply_custom_fields():
 	create_custom_fields(get_custom_fields(), ignore_validate=True)
 
 
+def ensure_module_defs():
+	"""Create Module Def rows for any module in modules.txt that is missing.
+	When the app was first installed before a module existed (e.g. a site on an
+	older build), `bench migrate` will not sync that module's doctypes until its
+	Module Def exists — so a version jump silently skips the new doctypes. This
+	guard closes that gap on every migrate (idempotent)."""
+	app = "sap_valuation"
+	for module_name in frappe.get_module_list(app):
+		if not frappe.db.exists("Module Def", module_name):
+			frappe.get_doc({
+				"doctype": "Module Def", "module_name": module_name, "app_name": app,
+			}).insert(ignore_permissions=True)
+
+
 def after_migrate():
+	ensure_module_defs()
 	apply_custom_fields()
