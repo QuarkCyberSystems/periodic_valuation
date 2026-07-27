@@ -754,6 +754,32 @@ def _apply_receipt(ipb, qty, rate):
 	return {"reason": "receipt_cross_zero", "receipt_value": receipt_value, "net_to_inventory": net, "prd": prd}
 
 
+def _cascade_value_carryover(scope, period, *, qty_delta, value_delta, source):
+	"""Propagate a backdated value/count adjustment into every later period's
+	carryover buckets so the materialized balance chain stays consistent
+	(WA-0003-01 item 8). No-op when the event is in the latest period."""
+	if not (flt(qty_delta) or flt(value_delta)):
+		return
+	later = frappe.get_all(
+		"Inventory Period Balance",
+		filters={"company": scope.company, "item_code": scope.item_code,
+			"warehouse": scope.warehouse or ""},
+		fields=["name", "period_year", "period_month"],
+	)
+	later = sorted(
+		(x for x in later
+			if (x.period_year, x.period_month) > (period.period_year, period.period_month)),
+		key=lambda x: (x.period_year, x.period_month),
+	)
+	for row in later:
+		ipb = frappe.get_doc("Inventory Period Balance", row.name)
+		ipb.carryover_qty = r6(flt(ipb.carryover_qty) + flt(qty_delta))
+		ipb.carryover_value = r6(flt(ipb.carryover_value) + flt(value_delta))
+		recompute_closing(ipb)
+		_freeze_check(ipb)
+		scope.save(ipb, source=source)
+
+
 def _guard_positive_value(ipb, item_code, reason):
 	"""Block a value-only posting that would drive inventory value negative
 	while positive stock remains — that produces a negative moving average,
@@ -1121,6 +1147,18 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		affects_map=0 if reason == "count_diff" else 1,
 	)
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
+
+	# Backdated value event (e.g. a Stock Count dated in the previous period):
+	# the event lands in its own period correctly, but every LATER period's
+	# carryover must absorb the same qty/value delta or the current balance
+	# and MAP go stale (WA-0003-01 item 8). No extra GL — carryover is a pure
+	# balance-propagation bucket, as in the backdated receipt/issue path.
+	_cascade_value_carryover(
+		scope, period,
+		qty_delta=qty_delta if reason == "count_diff" else 0.0,
+		value_delta=value_delta,
+		source=source,
+	)
 
 	legs = [(inventory_account, value_delta, offset_account)]
 	total_offset = value_delta + (expense_portion or 0) + (fx_variance or 0)

@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import flt, getdate
 
 from sap_valuation.shared.accounts import get_offset_account
 from sap_valuation.shared.routing import SAP_VALUATION_METHODS
@@ -30,18 +30,27 @@ class StockCount(Document):
 			row.difference_amount = flt(flt(row.quantity_difference) * flt(row.valuation_rate), 2)
 
 	def set_current_state(self, row):
+		# Read the balance AS OF the count's posting period, not the latest one:
+		# a count dated in a prior month must compare against that month's
+		# on-hand, not today's total (WA-0003-01 item 8). Backdated adjustments
+		# then cascade forward via the kernel's carryover propagation.
 		include_wh = frappe.get_cached_value("Item", row.item_code, "valuation_includes_warehouse")
+		d = getdate(self.posting_date)
 		ipb = frappe.get_all(
 			"Inventory Period Balance",
 			filters={
 				"company": self.company,
 				"item_code": row.item_code,
 				"warehouse": (row.warehouse or "") if include_wh else "",
+				"period_year": ("<=", d.year),
 			},
-			fields=["closing_qty", "moving_avg_price", "is_negative", "frozen_map"],
+			fields=["closing_qty", "moving_avg_price", "is_negative", "frozen_map",
+				"period_year", "period_month"],
 			order_by="period_year desc, period_month desc",
-			limit=1,
+			limit=20,
 		)
+		# pick the newest period that is not after the posting period
+		ipb = [r for r in ipb if (r.period_year, r.period_month) <= (d.year, d.month)]
 		row.current_qty = flt(ipb[0].closing_qty) if ipb else 0
 		row.valuation_rate = (
 			flt(ipb[0].frozen_map) if ipb and ipb[0].is_negative else flt(ipb[0].moving_avg_price)

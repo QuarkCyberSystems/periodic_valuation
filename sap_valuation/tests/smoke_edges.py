@@ -400,6 +400,31 @@ def run(commit=False):
 	except frappe.ValidationError:
 		check("batch item blocked from SAP method", True)
 
+	# ============ backdated Stock Count carryover (WA-0003-01 item 8): a count
+	# dated in the previous period compares against THAT period's on-hand and
+	# cascades the adjustment into the current period's carryover
+	from sap_valuation.tests.smoke_kernel import get_company as _gc
+	_prior = get_first_day(add_months(nowdate(), -1))
+	if not frappe.db.exists("Inventory Period", {"company": COMPANY, "period_name": _prior.strftime("%Y-%m")}):
+		frappe.get_doc({"doctype": "Inventory Period", "company": COMPANY,
+			"start_date": _prior, "status": "PREV_OPEN_UNSETTLED"}).insert(ignore_permissions=True)
+	bc = make_item("_SMK-BDCOUNT")
+	make_pr(bc, wh, 100, 10, posting_date=str(_prior))    # prior: 100/1000
+	make_pr(bc, wh, 10, 10)                                # current: +10
+	scb = frappe.get_doc({"doctype": "Stock Count", "company": COMPANY,
+		"posting_date": str(_prior), "set_posting_time": 1,
+		"items": [{"item_code": bc, "warehouse": wh, "counted_qty": 90}]})
+	scb.insert(ignore_permissions=True)
+	check("backdated count compares to prior period (diff -10, not -20)",
+		flt(scb.items[0].quantity_difference) == -10, str(scb.items[0].quantity_difference))
+	scb.submit()
+	pbk = ipb_period(bc, _prior.year, _prior.month)
+	curk = ipb(bc)
+	check("backdated count: prior 90/900, current cascades to 100/1000",
+		flt(pbk.closing_qty) == 90 and flt(pbk.closing_value, 2) == 900
+		and flt(curk.closing_qty) == 100 and flt(curk.closing_value, 2) == 1000,
+		f"prior {pbk.closing_qty}/{pbk.closing_value} cur {curk.closing_qty}/{curk.closing_value}")
+
 	# ============ negative-MAP guard (WA-0003-01 item 14): a value event that
 	# would drive inventory value < 0 while positive stock remains is blocked
 	from sap_valuation.sap_moving_average.kernel import post_value_event
