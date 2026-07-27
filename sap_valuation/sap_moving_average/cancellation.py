@@ -47,7 +47,19 @@ def make_cancellation(doctype, name):
 
 	_block_if_has_dependents(doctype, name, original)
 
-	cancellation = frappe.copy_doc(original)
+	if doctype in ("Purchase Invoice", "Sales Invoice"):
+		# A PI/SI reversal is a debit/credit note: this reverses the party
+		# accounting (creditor/debtor, SRBNB/GRIR) and nets the receipt's
+		# billing status natively, so the receipt returns to 'To Bill' and can
+		# be re-invoiced (WA-0003-01 item 10). A positive copy would instead
+		# re-post the party GL and over-bill the receipt. The valuation-side
+		# events are still reversed by on_purchase_invoice_submit's
+		# is_cancellation branch.
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		cancellation = make_return_doc(doctype, name)
+	else:
+		cancellation = frappe.copy_doc(original)
 	cancellation.is_cancellation = 1
 	cancellation.cancellation_against = name
 	cancellation.posting_date = nowdate()

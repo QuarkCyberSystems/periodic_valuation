@@ -400,6 +400,34 @@ def run(commit=False):
 	except frappe.ValidationError:
 		check("batch item blocked from SAP method", True)
 
+	# ============ PI reversal is a debit note (WA-0003-01 item 10): reverses
+	# party GL + valuation, un-bills the receipt so it can be re-invoiced
+	from sap_valuation.sap_moving_average.cancellation import make_cancellation
+	iv = make_item("_SMK-INVREV")
+	prv = make_pr(iv, wh, 100, 10)
+	piv = frappe.get_doc({"doctype": "Purchase Invoice", "company": COMPANY,
+		"supplier": "_SMK Supplier", "posting_date": nowdate(),
+		"items": [{"item_code": iv, "qty": 100, "rate": 13, "warehouse": wh,
+			"purchase_receipt": prv.name, "pr_detail": prv.items[0].name}]})
+	piv.insert(ignore_permissions=True); piv.submit()
+	check("PI diff lifts MAP to 13", flt(ipb(iv).moving_avg_price, 2) == 13.00, str(ipb(iv).moving_avg_price))
+	cxv = frappe.get_doc("Purchase Invoice", make_cancellation("Purchase Invoice", piv.name))
+	cxv.submit()
+	pbv = frappe.db.get_value("Purchase Receipt", prv.name, ["per_billed", "status"])
+	check("PI reversal un-bills receipt (0 / To Bill) and restores MAP 10",
+		flt(pbv[0]) == 0 and pbv[1] == "To Bill" and flt(ipb(iv).moving_avg_price, 2) == 10.00,
+		f"{pbv} MAP {ipb(iv).moving_avg_price}")
+	credit = frappe.get_cached_value("Company", COMPANY, "default_payable_account")
+	cr_net = frappe.db.sql("""select coalesce(sum(debit-credit),0) from `tabGL Entry`
+		where voucher_no=%s and account=%s and is_cancelled=0""", (cxv.name, credit))[0][0]
+	check("PI reversal debits Creditors (party GL reversed)", flt(cr_net, 2) == 1300.00, str(cr_net))
+	prv2 = frappe.get_doc({"doctype": "Purchase Invoice", "company": COMPANY,
+		"supplier": "_SMK Supplier", "posting_date": nowdate(),
+		"items": [{"item_code": iv, "qty": 100, "rate": 13, "warehouse": wh,
+			"purchase_receipt": prv.name, "pr_detail": prv.items[0].name}]})
+	prv2.insert(ignore_permissions=True); prv2.submit()
+	check("receipt can be re-invoiced after reversal", prv2.docstatus == 1)
+
 	# ============ backdated Stock Count carryover (WA-0003-01 item 8): a count
 	# dated in the previous period compares against THAT period's on-hand and
 	# cascades the adjustment into the current period's carryover

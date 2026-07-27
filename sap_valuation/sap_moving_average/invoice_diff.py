@@ -20,6 +20,7 @@ the residue.
 """
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 from sap_valuation.sap_moving_average.kernel import get_stock_ratio, post_value_event
