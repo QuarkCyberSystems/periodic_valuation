@@ -400,6 +400,36 @@ def run(commit=False):
 	except frappe.ValidationError:
 		check("batch item blocked from SAP method", True)
 
+	# ============ Stock Reconciliation corrects Bin<->IPB drift (SR fix): the
+	# form reads current from the IPB, the posting SETS the Bin to the counted
+	# absolute, and the drift detector flags divergence.
+	from erpnext.stock.utils import get_or_make_bin
+	from sap_valuation.shared.integrity import check_bin_ipb_drift
+	dr = make_item("_SMK-SRDRIFT")
+	make_pr(dr, wh, 100, 10)                                    # IPB 100 @ 10
+	binname = get_or_make_bin(dr, wh)
+	frappe.db.set_value("Bin", binname, "actual_qty", 106, update_modified=False)  # drift
+	flagged = [x for x in check_bin_ipb_drift(COMPANY) if x["item_code"] == dr]
+	check("drift detector flags Bin!=IPB", flagged and flt(flagged[0]["drift"]) == 6, str(flagged))
+	diff_acct = (frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+		"account_name": ("like", "%Temporary%")}, limit=1, pluck="name")
+		or frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+		"account_name": ("like", "%Stock Adjustment%")}, limit=1, pluck="name"))[0]
+	sr = frappe.get_doc({"doctype": "Stock Reconciliation", "company": COMPANY,
+		"purpose": "Stock Reconciliation", "posting_date": nowdate(), "set_posting_time": 1,
+		"expense_account": diff_acct,
+		"items": [{"item_code": dr, "warehouse": wh, "qty": 120, "valuation_rate": 12}]})
+	sr.insert(ignore_permissions=True)
+	check("SR form current from IPB (100), not Bin (106): diff 120*12-100*10=440",
+		flt(sr.items[0].amount_difference, 2) == 440.00, str(sr.items[0].amount_difference))
+	sr.submit()
+	post_bin = flt(frappe.db.get_value("Bin", binname, "actual_qty"))
+	post_ipb = flt(ipb(dr).closing_qty)
+	check("SR sets Bin to counted absolute; Bin==IPB==120 (drift erased)",
+		post_bin == 120 and post_ipb == 120, f"Bin {post_bin} IPB {post_ipb}")
+	check("no residual drift after reconciliation",
+		not [x for x in check_bin_ipb_drift(COMPANY) if x["item_code"] == dr])
+
 	# ============ returns net against origin bucket (WA-0003-01 item 6): a
 	# purchase return reduces net In/receipts, a sales return reduces net
 	# Out/issues (matches STD). Closing/MAP unchanged; only the breakdown.

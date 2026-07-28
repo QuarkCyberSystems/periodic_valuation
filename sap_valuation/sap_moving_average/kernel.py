@@ -251,7 +251,7 @@ def write_events(scope, ipb, *, source, posting_date, movement_type, reason, qty
 	return sme_name, ive.name
 
 
-def write_sle(controller, sle_dict, scope, ipb, value_delta):
+def write_sle(controller, sle_dict, scope, ipb, value_delta, bin_absolute=None):
 	"""SLE-compatible row so Bin, reports and reconciliations keep working."""
 	args = dict(sle_dict)
 	args.update(
@@ -273,17 +273,24 @@ def write_sle(controller, sle_dict, scope, ipb, value_delta):
 	sle.via_landed_cost_voucher = False
 	sle.insert()
 	sle.submit()
-	update_bin(scope, ipb, sle_dict.get("actual_qty") or 0)
+	update_bin(scope, ipb, sle_dict.get("actual_qty") or 0, absolute=bin_absolute)
 	return sle.name
 
 
-def update_bin(scope, ipb, qty_delta):
+def update_bin(scope, ipb, qty_delta, absolute=None):
 	from erpnext.stock.utils import get_or_make_bin
 
 	if not scope.physical_warehouse:
 		return
 	bin_name = get_or_make_bin(scope.item_code, scope.physical_warehouse)
-	qty = flt(frappe.db.get_value("Bin", bin_name, "actual_qty")) + flt(qty_delta)
+	# `absolute` is the counted physical quantity for this warehouse — used by
+	# Stock Reconciliation to SET the Bin (correcting any prior Bin<->IPB drift)
+	# rather than applying a delta. Every other posting shifts the Bin by the
+	# movement quantity, keeping the shadow row in step with the ledger.
+	if absolute is not None:
+		qty = flt(absolute)
+	else:
+		qty = flt(frappe.db.get_value("Bin", bin_name, "actual_qty")) + flt(qty_delta)
 	values = {
 		"actual_qty": qty,
 		"valuation_rate": flt(ipb.moving_avg_price),
@@ -480,7 +487,10 @@ def _post_reconciliation(controller, scope, period, sle):
 
 	sle_row = dict(sle)
 	sle_row["actual_qty"] = qty_delta
-	write_sle(controller, sle_row, scope, ipb, total_delta)
+	# a reconciliation SETS the counted physical quantity for this warehouse,
+	# so the Bin is written to the absolute target (not shifted by the delta) —
+	# this is the lever that erases any prior Bin<->IPB drift.
+	write_sle(controller, sle_row, scope, ipb, total_delta, bin_absolute=target_qty)
 	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date)
 
 
