@@ -277,6 +277,34 @@ def write_sle(controller, sle_dict, scope, ipb, value_delta, bin_absolute=None):
 	return sle.name
 
 
+def _sync_bin_to_ledger(scope, qty_delta):
+	"""Shift the Bin by qty_delta and refresh its value/rate from the LATEST
+	IPB (so a backdated value event still reflects the current balance). Used
+	by value-only postings (count / revaluation / landed cost / invoice-diff),
+	which otherwise never touch the Bin and cause Bin<->IPB drift."""
+	from erpnext.stock.utils import get_or_make_bin
+
+	if not scope.physical_warehouse:
+		return
+	latest = frappe.get_all(
+		"Inventory Period Balance",
+		filters={"company": scope.company, "item_code": scope.item_code,
+			"warehouse": scope.warehouse or ""},
+		fields=["closing_value", "moving_avg_price"],
+		order_by="period_year desc, period_month desc", limit=1,
+	)
+	if not latest:
+		return
+	bin_name = get_or_make_bin(scope.item_code, scope.physical_warehouse)
+	new_qty = flt(frappe.db.get_value("Bin", bin_name, "actual_qty")) + flt(qty_delta)
+	frappe.db.set_value("Bin", bin_name, {
+		"actual_qty": new_qty,
+		"valuation_rate": flt(latest[0].moving_avg_price),
+		"stock_value": flt(latest[0].closing_value) if scope.include_warehouse
+			else flt(new_qty * flt(latest[0].moving_avg_price), 2),
+	}, update_modified=True)
+
+
 def update_bin(scope, ipb, qty_delta, absolute=None):
 	from erpnext.stock.utils import get_or_make_bin
 
@@ -1178,6 +1206,12 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		value_delta=value_delta,
 		source=source,
 	)
+
+	# Keep the Bin (physical shadow) in step with the ledger. A Stock Count
+	# moves quantity; revaluation / landed cost / invoice-diff move only value.
+	# Without this the Bin drifts from the IPB and Stock Balance disagrees with
+	# the valuation ledger (surfaced by shared.integrity.check_bin_ipb_drift).
+	_sync_bin_to_ledger(scope, qty_delta if reason == "count_diff" else 0.0)
 
 	legs = [(inventory_account, value_delta, offset_account)]
 	total_offset = value_delta + (expense_portion or 0) + (fx_variance or 0)
