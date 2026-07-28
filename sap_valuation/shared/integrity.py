@@ -64,6 +64,46 @@ def check_bin_ipb_drift(company=None, tolerance=0.001):
 	return drifts
 
 
+def align_bin_to_ledger(item_code=None, company=None, max_drift=None):
+	"""Repair the physical Bin to match the valuation ledger (IPB) — the IPB is
+	authoritative (built from the immutable event log), the Bin is the shadow.
+	This is a data repair, not a reconciliation document: it moves no GL and no
+	stock value in the ledger, only re-aligns the Bin quantity/value to the IPB.
+
+	`max_drift` (optional) skips scopes whose |drift| exceeds it, so a mildly
+	drifted shadow is fixed while a badly-corrupted item is left for review.
+	Returns the list of scopes it corrected.
+	"""
+	from erpnext.stock.utils import get_or_make_bin
+
+	targets = [d for d in check_bin_ipb_drift(company)
+		if (item_code is None or d["item_code"] == item_code)]
+	fixed = []
+	for d in targets:
+		if max_drift is not None and abs(d["drift"]) > max_drift:
+			continue
+		it = d["item_code"]
+		include_wh = frappe.get_cached_value("Item", it, "valuation_includes_warehouse")
+		ipb = frappe.get_all(
+			"Inventory Period Balance",
+			filters={"company": d["company"], "item_code": it},
+			fields=["closing_qty", "closing_value", "moving_avg_price", "warehouse"],
+			order_by="period_year desc, period_month desc", limit=1)[0]
+		# company-scope single-warehouse only: align the one Bin to the IPB total
+		bins = frappe.get_all("Bin", filters={"item_code": it}, pluck="name") if not include_wh \
+			else [frappe.db.get_value("Bin", {"item_code": it, "warehouse": ipb.warehouse})]
+		bins = [b for b in bins if b]
+		if len(bins) != 1:
+			continue  # multi-warehouse company-scope needs a per-warehouse decision
+		frappe.db.set_value("Bin", bins[0], {
+			"actual_qty": flt(ipb.closing_qty),
+			"valuation_rate": flt(ipb.moving_avg_price),
+			"stock_value": flt(ipb.closing_value),
+		}, update_modified=True)
+		fixed.append({**d, "aligned_to": flt(ipb.closing_qty)})
+	return fixed
+
+
 def report_drift(company=None):
 	"""Print a human-readable drift report."""
 	drifts = check_bin_ipb_drift(company)

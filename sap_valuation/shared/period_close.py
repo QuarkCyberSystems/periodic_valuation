@@ -170,6 +170,18 @@ def run_reconciliation_gate(period):
 	}
 
 
+def assert_bin_ledger_consistency(period):
+	"""Gate: the physical Bin quantity must match the valuation ledger (IPB)
+	for every SAP-valuation scope. The other gates reconcile GL<->IPB; this
+	closes the remaining SLE/Bin<->IPB gap so a period cannot be frozen while
+	the stock-balance shadow disagrees with the ledger. Resolve by running a
+	Stock Reconciliation on the flagged items."""
+	from sap_valuation.shared.integrity import check_bin_ipb_drift
+
+	drifts = check_bin_ipb_drift(period.company)
+	return {"ok": not drifts, "drifts": drifts}
+
+
 def seed_next_period_openings(period):
 	"""Create the next Inventory Period (OPEN) and seed its IPB openings from
 	this period's closings. Called only after every gate has passed."""

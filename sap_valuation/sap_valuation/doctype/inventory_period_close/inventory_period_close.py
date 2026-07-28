@@ -42,10 +42,13 @@ class InventoryPeriodClose(Document):
 
 		period = frappe.get_doc("Inventory Period", self.inventory_period)
 
+		from sap_valuation.shared.period_close import assert_bin_ledger_consistency
+
 		continuity = assert_continuity(period)
 		identity = assert_event_gl_identity(period)
 		orphans = assert_no_orphans(period)
 		recon = run_reconciliation_gate(period)
+		bin_ledger = assert_bin_ledger_consistency(period)
 
 		self.db_set(
 			{
@@ -83,6 +86,14 @@ class InventoryPeriodClose(Document):
 					"table (tolerance {1}). Investigate via Inventory Period Balance Snapshot and post a "
 					"manual reconciliation adjustment; automatic write-off is not permitted."
 				).format(recon["discrepancy"], recon["tolerance"])
+			)
+		if not bin_ledger["ok"]:
+			items = ", ".join(sorted({d["item_code"] for d in bin_ledger["drifts"]})[:10])
+			failures.append(
+				_(
+					"Stock balance (Bin) disagrees with the valuation ledger (IPB) for: {0}. "
+					"Run a Stock Reconciliation on these items to realign before closing."
+				).format(items)
 			)
 
 		if failures:
