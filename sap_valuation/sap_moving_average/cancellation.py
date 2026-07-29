@@ -82,7 +82,9 @@ def _block_if_has_dependents(doctype, name, original):
 	(WA-0003-01 #11 returns, #12 invoices). Prevents the dangling-invoice /
 	dangling-return corruption seen in UAT."""
 	# (a) returns raised against this document
-	if original.meta.has_field("is_return"):
+	# (Stock Entry has is_return but no return_against — guard on the
+	# field actually queried, or every Stock Entry reversal crashes.)
+	if original.meta.has_field("return_against"):
 		returns = frappe.get_all(
 			doctype,
 			filters={"return_against": name, "docstatus": 1, "is_cancellation": 0},
