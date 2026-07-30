@@ -55,6 +55,7 @@
    "fieldname": "snapshot_event_group",
    "fieldtype": "Data",
    "label": "Snapshot Event Group",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -64,6 +65,7 @@
    "in_list_view": 1,
    "label": "Image",
    "options": "Before\nAfter",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -76,25 +78,29 @@
    "in_list_view": 1,
    "label": "Caused By Valuation Event",
    "options": "Inventory Valuation Event",
+   "read_only": 1,
    "search_index": 1
   },
   {
    "fieldname": "movement_event_id",
    "fieldtype": "Link",
    "label": "Movement Event",
-   "options": "Stock Movement Event"
+   "options": "Stock Movement Event",
+   "read_only": 1
   },
   {
    "fieldname": "source_doctype",
    "fieldtype": "Link",
    "label": "Source DocType",
-   "options": "DocType"
+   "options": "DocType",
+   "read_only": 1
   },
   {
    "fieldname": "source_docname",
    "fieldtype": "Dynamic Link",
    "label": "Source Document",
-   "options": "source_doctype"
+   "options": "source_doctype",
+   "read_only": 1
   },
   {
    "fieldname": "sec_scope",
@@ -106,6 +112,7 @@
    "fieldtype": "Link",
    "label": "Company",
    "options": "Company",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -115,6 +122,7 @@
    "in_list_view": 1,
    "label": "Item",
    "options": "Item",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -123,6 +131,7 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -133,12 +142,14 @@
    "fieldname": "period_year",
    "fieldtype": "Int",
    "label": "Period Year",
+   "read_only": 1,
    "search_index": 1
   },
   {
    "fieldname": "period_month",
    "fieldtype": "Int",
    "label": "Period Month",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -277,7 +288,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-06 12:00:00.000000",
+ "modified": "2026-07-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "SAP Valuation",
  "name": "Inventory Period Balance Snapshot",

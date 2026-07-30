@@ -65,6 +65,7 @@
    "in_standard_filter": 1,
    "label": "Company",
    "options": "Company",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -75,6 +76,7 @@
    "in_standard_filter": 1,
    "label": "Item",
    "options": "Item",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -86,6 +88,7 @@
    "in_standard_filter": 1,
    "label": "Warehouse",
    "options": "Warehouse",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -98,6 +101,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Period Year",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -107,6 +111,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Period Month",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -325,25 +330,25 @@
    "read_only": 1
   },
   {
+   "description": "es_var settled into ending stock for this period",
    "fieldname": "settlement_inventory_total",
    "fieldtype": "Currency",
    "label": "Settlement Inventory Total",
-   "read_only": 1,
-   "description": "es_var settled into ending stock for this period"
+   "read_only": 1
   },
   {
+   "description": "out_var settled to consumption for this period",
    "fieldname": "settlement_consumption_total",
    "fieldtype": "Currency",
    "label": "Settlement Consumption Total",
-   "read_only": 1,
-   "description": "out_var settled to consumption for this period"
+   "read_only": 1
   },
   {
+   "description": "closing_qty x period standard cost (STD scopes)",
    "fieldname": "closing_reference_value",
    "fieldtype": "Currency",
    "label": "Closing Reference Value",
-   "read_only": 1,
-   "description": "closing_qty x period standard cost (STD scopes)"
+   "read_only": 1
   }
  ],
  "idx": 0,
@@ -352,7 +357,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-06 12:00:00.000000",
+ "modified": "2026-07-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "SAP Valuation",
  "name": "Inventory Period Balance",

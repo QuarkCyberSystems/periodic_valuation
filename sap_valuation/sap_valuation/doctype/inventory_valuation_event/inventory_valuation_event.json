@@ -77,6 +77,7 @@
    "in_standard_filter": 1,
    "label": "Company",
    "options": "Company",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -87,6 +88,7 @@
    "in_standard_filter": 1,
    "label": "Item",
    "options": "Item",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -97,6 +99,7 @@
    "in_standard_filter": 1,
    "label": "Warehouse",
    "options": "Warehouse",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -108,6 +111,7 @@
    "fieldtype": "Int",
    "in_standard_filter": 1,
    "label": "Period Year",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -115,6 +119,7 @@
    "fieldtype": "Int",
    "in_standard_filter": 1,
    "label": "Period Month",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -122,6 +127,7 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Posting Date",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -129,7 +135,8 @@
    "description": "When the row was actually written; differs from posting_date on backdated entries.",
    "fieldname": "entry_date",
    "fieldtype": "Datetime",
-   "label": "Entry Date"
+   "label": "Entry Date",
+   "read_only": 1
   },
   {
    "fieldname": "sec_source",
@@ -141,6 +148,7 @@
    "fieldtype": "Link",
    "label": "Source DocType",
    "options": "DocType",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -149,6 +157,7 @@
    "in_list_view": 1,
    "label": "Source Document",
    "options": "source_doctype",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -159,7 +168,8 @@
    "description": "Row-level reference (voucher_detail_no equivalent).",
    "fieldname": "source_detail_name",
    "fieldtype": "Data",
-   "label": "Source Row"
+   "label": "Source Row",
+   "read_only": 1
   },
   {
    "fieldname": "sec_valuation",
@@ -172,6 +182,7 @@
    "in_list_view": 1,
    "label": "Reason Code",
    "options": "\nreceipt\nissue\nlanded_cost\ninvoice_diff\ncount_diff\nrevaluation\nreturn_with_ref\nreturn_no_ref\ncancellation\ntransfer\nreceipt_neg\nreceipt_cross_zero\nprd_split\nfx_adjust\nrounding_cleanup\nstd_event\nsettlement\nsettlement_reverse",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -189,20 +200,23 @@
    "fieldname": "qty_basis",
    "fieldtype": "Float",
    "label": "Qty Basis",
-   "precision": "6"
+   "precision": "6",
+   "read_only": 1
   },
   {
    "description": "Signed inventory value change in company currency.",
    "fieldname": "value_delta",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Value Delta"
+   "label": "Value Delta",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "affects_map",
    "fieldtype": "Check",
-   "label": "Affects MAP"
+   "label": "Affects MAP",
+   "read_only": 1
   },
   {
    "fieldname": "col_valuation",
@@ -212,29 +226,34 @@
    "description": "Stock-ratio inventory share for landed_cost / invoice_diff.",
    "fieldname": "inventory_portion",
    "fieldtype": "Currency",
-   "label": "Inventory Portion"
+   "label": "Inventory Portion",
+   "read_only": 1
   },
   {
    "fieldname": "expense_portion",
    "fieldtype": "Currency",
-   "label": "Expense Portion"
+   "label": "Expense Portion",
+   "read_only": 1
   },
   {
    "description": "Price Revaluation Difference component (negative-stock receipts).",
    "fieldname": "prd_amount",
    "fieldtype": "Currency",
-   "label": "PRD Amount"
+   "label": "PRD Amount",
+   "read_only": 1
   },
   {
    "fieldname": "fx_variance",
    "fieldtype": "Currency",
-   "label": "FX Variance"
+   "label": "FX Variance",
+   "read_only": 1
   },
   {
    "fieldname": "exchange_rate_at_receipt",
    "fieldtype": "Float",
    "label": "Exchange Rate at Receipt",
-   "precision": "9"
+   "precision": "9",
+   "read_only": 1
   },
   {
    "fieldname": "sec_map",
@@ -276,6 +295,7 @@
    "fieldtype": "Link",
    "label": "Movement Event",
    "options": "Stock Movement Event",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -283,7 +303,8 @@
    "fieldname": "reference_receipt_event",
    "fieldtype": "Link",
    "label": "Reference Receipt Event",
-   "options": "Inventory Valuation Event"
+   "options": "Inventory Valuation Event",
+   "read_only": 1
   },
   {
    "fieldname": "col_links",
@@ -293,27 +314,31 @@
    "description": "Economic origin period for post-settlement forward corrections (e.g. 2026-04).",
    "fieldname": "original_period",
    "fieldtype": "Data",
-   "label": "Original Period"
+   "label": "Original Period",
+   "read_only": 1
   },
   {
    "description": "System-generated linkage (e.g. cross-period PRD absorb entries).",
    "fieldname": "caused_by_event_id",
    "fieldtype": "Link",
    "label": "Caused By Event",
-   "options": "Inventory Valuation Event"
+   "options": "Inventory Valuation Event",
+   "read_only": 1
   },
   {
    "fieldname": "reversal_of",
    "fieldtype": "Link",
    "label": "Reversal Of",
    "options": "Inventory Valuation Event",
+   "read_only": 1,
    "search_index": 1
   },
   {
    "default": "0",
    "fieldname": "is_cancelled",
    "fieldtype": "Check",
-   "label": "Is Cancelled"
+   "label": "Is Cancelled",
+   "read_only": 1
   },
   {
    "collapsible": 1,
@@ -326,25 +351,29 @@
    "fieldname": "std_trans",
    "fieldtype": "Data",
    "label": "STD Trans",
+   "read_only": 1,
    "search_index": 1
   },
   {
    "fieldname": "qty_adj",
    "fieldtype": "Float",
    "label": "Qty Adj (signed)",
-   "precision": "6"
+   "precision": "6",
+   "read_only": 1
   },
   {
    "fieldname": "standard_cost",
    "fieldtype": "Float",
    "label": "Standard Cost",
-   "precision": "6"
+   "precision": "6",
+   "read_only": 1
   },
   {
    "fieldname": "actual_cost",
    "fieldtype": "Float",
    "label": "Actual Cost",
-   "precision": "6"
+   "precision": "6",
+   "read_only": 1
   },
   {
    "fieldname": "cb_std1",
@@ -353,23 +382,27 @@
   {
    "fieldname": "total_sc",
    "fieldtype": "Currency",
-   "label": "Total at SC"
+   "label": "Total at SC",
+   "read_only": 1
   },
   {
    "fieldname": "total_ac",
    "fieldtype": "Currency",
-   "label": "Total at AC"
+   "label": "Total at AC",
+   "read_only": 1
   },
   {
    "fieldname": "cost_version",
    "fieldtype": "Link",
    "label": "Cost Version",
-   "options": "Item Standard Cost Version"
+   "options": "Item Standard Cost Version",
+   "read_only": 1
   },
   {
    "fieldname": "settlement_ref",
    "fieldtype": "Data",
    "label": "Settlement Ref",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -382,13 +415,15 @@
    "default": "0",
    "fieldname": "in_flag",
    "fieldtype": "Check",
-   "label": "In"
+   "label": "In",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "out_flag",
    "fieldtype": "Check",
-   "label": "Out"
+   "label": "Out",
+   "read_only": 1
   },
   {
    "fieldname": "cb_std2",
@@ -398,19 +433,22 @@
    "default": "0",
    "fieldname": "ppv_with_sett",
    "fieldtype": "Check",
-   "label": "PPV (with Sett)"
+   "label": "PPV (with Sett)",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "ppv_without_sett",
    "fieldtype": "Check",
-   "label": "PPV Pool"
+   "label": "PPV Pool",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "rev_flag",
    "fieldtype": "Check",
-   "label": "Reval Pool"
+   "label": "Reval Pool",
+   "read_only": 1
   }
  ],
  "idx": 0,
@@ -419,7 +457,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-06 12:00:00.000000",
+ "modified": "2026-07-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "SAP Valuation",
  "name": "Inventory Valuation Event",

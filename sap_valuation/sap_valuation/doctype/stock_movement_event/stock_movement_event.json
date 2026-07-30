@@ -42,6 +42,7 @@
    "in_standard_filter": 1,
    "label": "Company",
    "options": "Company",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -52,6 +53,7 @@
    "in_standard_filter": 1,
    "label": "Item",
    "options": "Item",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -62,6 +64,7 @@
    "in_standard_filter": 1,
    "label": "Warehouse",
    "options": "Warehouse",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -73,6 +76,7 @@
    "fieldtype": "Int",
    "in_standard_filter": 1,
    "label": "Period Year",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -80,6 +84,7 @@
    "fieldtype": "Int",
    "in_standard_filter": 1,
    "label": "Period Month",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -87,6 +92,7 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Posting Date",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -94,7 +100,8 @@
    "description": "When the row was actually written; differs from posting_date on backdated entries.",
    "fieldname": "entry_date",
    "fieldtype": "Datetime",
-   "label": "Entry Date"
+   "label": "Entry Date",
+   "read_only": 1
   },
   {
    "fieldname": "sec_source",
@@ -106,6 +113,7 @@
    "fieldtype": "Link",
    "label": "Source DocType",
    "options": "DocType",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -114,6 +122,7 @@
    "in_list_view": 1,
    "label": "Source Document",
    "options": "source_doctype",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -124,7 +133,8 @@
    "description": "Row-level reference (voucher_detail_no equivalent).",
    "fieldname": "source_detail_name",
    "fieldtype": "Data",
-   "label": "Source Row"
+   "label": "Source Row",
+   "read_only": 1
   },
   {
    "fieldname": "sec_movement",
@@ -137,6 +147,7 @@
    "in_list_view": 1,
    "label": "Movement Type",
    "options": "\nreceipt\nissue\ntransfer_in\ntransfer_out\nreturn_in\nreturn_out\ncount_gain\ncount_loss\ncancellation",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -146,13 +157,15 @@
    "in_list_view": 1,
    "label": "Qty Delta (Base UOM)",
    "precision": "6",
+   "read_only": 1,
    "reqd": 1
   },
   {
    "fieldname": "stock_uom",
    "fieldtype": "Link",
    "label": "Stock UOM",
-   "options": "UOM"
+   "options": "UOM",
+   "read_only": 1
   },
   {
    "fieldname": "col_movement",
@@ -163,13 +176,15 @@
    "fieldtype": "Link",
    "label": "Reversal Of",
    "options": "Stock Movement Event",
+   "read_only": 1,
    "search_index": 1
   },
   {
    "default": "0",
    "fieldname": "is_cancelled",
    "fieldtype": "Check",
-   "label": "Is Cancelled"
+   "label": "Is Cancelled",
+   "read_only": 1
   }
  ],
  "idx": 0,
@@ -178,7 +193,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-06 12:00:00.000000",
+ "modified": "2026-07-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "SAP Valuation",
  "name": "Stock Movement Event",
