@@ -1,0 +1,196 @@
+{
+ "allow_rename": 0,
+ "autoname": "format:PMA-SET-{company}",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "description": "Per-company Periodic Moving Average configuration and default accounts.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "sec_accounts",
+  "prd_account",
+  "fx_gain_loss_account",
+  "stock_rounding_adjustment_account",
+  "col_accounts",
+  "price_difference_account",
+  "inventory_variance_account",
+  "stock_revaluation_account",
+  "sec_behavior",
+  "negative_stock_allowed",
+  "default_return_valuation",
+  "return_valuation_overrides",
+  "col_behavior",
+  "enable_period_balance_audit_log",
+  "sec_precision",
+  "col_precision",
+  "rounding_tolerance",
+  "reconciliation_tolerance"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "sec_accounts",
+   "fieldtype": "Section Break",
+   "label": "Default Accounts (per Company)"
+  },
+  {
+   "fieldname": "prd_account",
+   "fieldtype": "Link",
+   "label": "PRD (Price Revaluation Difference) Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "fx_gain_loss_account",
+   "fieldtype": "Link",
+   "label": "Exchange Gain/Loss Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "stock_rounding_adjustment_account",
+   "fieldtype": "Link",
+   "label": "Stock Rounding Adjustment Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "col_accounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "price_difference_account",
+   "fieldtype": "Link",
+   "label": "Price Difference Account",
+   "options": "Account"
+  },
+  {
+   "description": "Credit side of cross-period PRD absorbing entries (backdated Case C).",
+   "fieldname": "inventory_variance_account",
+   "fieldtype": "Link",
+   "label": "Inventory Variance Account",
+   "options": "Account"
+  },
+  {
+   "description": "Final fallback for Stock Revaluation rows.",
+   "fieldname": "stock_revaluation_account",
+   "fieldtype": "Link",
+   "label": "Stock Revaluation Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "sec_behavior",
+   "fieldtype": "Section Break",
+   "label": "Behavior"
+  },
+  {
+   "default": "0",
+   "description": "When off, postings driving qty below zero are blocked outright.",
+   "fieldname": "negative_stock_allowed",
+   "fieldtype": "Check",
+   "label": "Negative Stock Allowed"
+  },
+  {
+   "default": "With Reference",
+   "fieldname": "default_return_valuation",
+   "fieldtype": "Select",
+   "label": "Default Return Valuation",
+   "options": "With Reference\nWithout Reference"
+  },
+  {
+   "fieldname": "return_valuation_overrides",
+   "fieldtype": "Table",
+   "label": "Per-DocType Return Valuation Overrides",
+   "options": "PMA Return Valuation Override"
+  },
+  {
+   "fieldname": "col_behavior",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "When on, every Inventory Period Balance mutation writes Before/After snapshot rows.",
+   "fieldname": "enable_period_balance_audit_log",
+   "fieldtype": "Check",
+   "label": "Enable Period Balance Audit Log"
+  },
+  {
+   "fieldname": "sec_precision",
+   "fieldtype": "Section Break",
+   "label": "Precision & Tolerances"
+  },
+  {
+   "fieldname": "col_precision",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0.01",
+   "description": "Residual value below which zero-qty balances auto-clean.",
+   "fieldname": "rounding_tolerance",
+   "fieldtype": "Currency",
+   "label": "Rounding Tolerance"
+  },
+  {
+   "default": "0",
+   "description": "Period-close GL vs movement-table gate tolerance. Default 0.00 = strict.",
+   "fieldname": "reconciliation_tolerance",
+   "fieldtype": "Currency",
+   "label": "Reconciliation Tolerance"
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Moving Average",
+ "name": "Periodic Moving Average Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

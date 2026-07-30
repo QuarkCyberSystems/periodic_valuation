@@ -1,0 +1,405 @@
+{
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "description": "Per item-warehouse period state. Opening fixed; backdated deltas via carryover.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_scope",
+  "company",
+  "item_code",
+  "warehouse",
+  "col_scope",
+  "period_year",
+  "period_month",
+  "sec_opening",
+  "opening_qty",
+  "opening_value",
+  "col_opening",
+  "carryover_qty",
+  "carryover_value",
+  "sec_buckets",
+  "receipt_qty",
+  "receipt_value",
+  "issue_qty",
+  "issue_value",
+  "col_buckets",
+  "adjust_qty",
+  "adjust_value",
+  "reval_value",
+  "prd_value",
+  "sec_closing",
+  "closing_qty",
+  "closing_value",
+  "col_closing",
+  "moving_avg_price",
+  "sec_map_state",
+  "total_received_since_zero",
+  "col_map_state",
+  "is_negative",
+  "frozen_map",
+  "sec_std",
+  "period_standard_cost",
+  "ppv_pool",
+  "cb_std",
+  "rev_pool",
+  "settlement",
+  "active_cost_version",
+  "resolved_settlement_view",
+  "settlement_inventory_total",
+  "settlement_consumption_total",
+  "closing_reference_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "sec_scope",
+   "fieldtype": "Section Break",
+   "label": "Scope"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Item",
+   "options": "Item",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Empty when the item's valuation scope is (company, item).",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_year",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Period Year",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Period Month",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sec_opening",
+   "fieldtype": "Section Break",
+   "label": "Opening (Fixed at Period Creation)"
+  },
+  {
+   "description": "FIXED at period creation, never modified.",
+   "fieldname": "opening_qty",
+   "fieldtype": "Float",
+   "label": "Opening Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "opening_value",
+   "fieldtype": "Currency",
+   "label": "Opening Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_opening",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Backdated postings affecting this period append here; opening stays fixed.",
+   "fieldname": "carryover_qty",
+   "fieldtype": "Float",
+   "label": "Carryover Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "carryover_value",
+   "fieldtype": "Currency",
+   "label": "Carryover Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_buckets",
+   "fieldtype": "Section Break",
+   "label": "Period Buckets"
+  },
+  {
+   "fieldname": "receipt_qty",
+   "fieldtype": "Float",
+   "label": "Receipt Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "receipt_value",
+   "fieldtype": "Currency",
+   "label": "Receipt Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issue_qty",
+   "fieldtype": "Float",
+   "label": "Issue Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issue_value",
+   "fieldtype": "Currency",
+   "label": "Issue Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_buckets",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "adjust_qty",
+   "fieldtype": "Float",
+   "label": "Adjust Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "adjust_value",
+   "fieldtype": "Currency",
+   "label": "Adjust Value",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of revaluation + landed_cost + invoice_diff + fx_adjust + rounding_cleanup.",
+   "fieldname": "reval_value",
+   "fieldtype": "Currency",
+   "label": "Reval Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prd_value",
+   "fieldtype": "Currency",
+   "label": "PRD Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_closing",
+   "fieldtype": "Section Break",
+   "label": "Closing"
+  },
+  {
+   "fieldname": "closing_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Closing Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closing_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Closing Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_closing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "moving_avg_price",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Moving Average Price",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_map_state",
+   "fieldtype": "Section Break",
+   "label": "MAP State"
+  },
+  {
+   "description": "Running receipt total since closing_qty last hit 0; drives the Stock Ratio.",
+   "fieldname": "total_received_since_zero",
+   "fieldtype": "Float",
+   "label": "Total Received Since Zero",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_map_state",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_negative",
+   "fieldtype": "Check",
+   "label": "Is Negative",
+   "read_only": 1
+  },
+  {
+   "description": "MAP frozen at the moment qty went negative; cleared on cross-zero.",
+   "fieldname": "frozen_map",
+   "fieldtype": "Float",
+   "label": "Frozen MAP",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_std",
+   "fieldtype": "Section Break",
+   "label": "STD State"
+  },
+  {
+   "description": "Active standard cost for STD scopes (MAP scopes leave this empty).",
+   "fieldname": "period_standard_cost",
+   "fieldtype": "Float",
+   "label": "Period Standard Cost",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "description": "Snapshot at last settlement of this period.",
+   "fieldname": "ppv_pool",
+   "fieldtype": "Currency",
+   "label": "PPV Pool",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_std",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rev_pool",
+   "fieldtype": "Currency",
+   "label": "Reval Pool",
+   "read_only": 1
+  },
+  {
+   "fieldname": "settlement",
+   "fieldtype": "Link",
+   "label": "Settlement",
+   "options": "Inventory Period Settlement",
+   "read_only": 1
+  },
+  {
+   "fieldname": "active_cost_version",
+   "fieldtype": "Link",
+   "label": "Active Cost Version",
+   "options": "Item Standard Cost Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_settlement_view",
+   "fieldtype": "Select",
+   "label": "Resolved Settlement View",
+   "options": "\nMTD\nYTD",
+   "read_only": 1
+  },
+  {
+   "description": "es_var settled into ending stock for this period",
+   "fieldname": "settlement_inventory_total",
+   "fieldtype": "Currency",
+   "label": "Settlement Inventory Total",
+   "read_only": 1
+  },
+  {
+   "description": "out_var settled to consumption for this period",
+   "fieldname": "settlement_consumption_total",
+   "fieldtype": "Currency",
+   "label": "Settlement Consumption Total",
+   "read_only": 1
+  },
+  {
+   "description": "closing_qty x period standard cost (STD scopes)",
+   "fieldname": "closing_reference_value",
+   "fieldtype": "Currency",
+   "label": "Closing Reference Value",
+   "read_only": 1
+  }
+ ],
+ "idx": 0,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Inventory Period Balance",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

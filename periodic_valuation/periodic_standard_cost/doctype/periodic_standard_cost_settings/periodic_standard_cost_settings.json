@@ -1,0 +1,159 @@
+{
+ "allow_rename": 0,
+ "autoname": "format:STD-SET-{company}",
+ "creation": "2026-07-09 12:00:00.000000",
+ "custom": 0,
+ "description": "Per-company Periodic Standard Cost configuration and accounts.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "sec1",
+  "ppv_account",
+  "std_reval_reserve_account",
+  "cogs_adjustment_account",
+  "cb1",
+  "customer_cogs_account",
+  "fy_carry_forward_account",
+  "sec2",
+  "default_settlement_view",
+  "block_negative_stock_std",
+  "cb2",
+  "view_default_locked",
+  "mark_release_separation_required"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "sec1",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "ppv_account",
+   "fieldtype": "Link",
+   "label": "PPV (Purchase Price Variance) Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "std_reval_reserve_account",
+   "fieldtype": "Link",
+   "label": "STD Cost Revaluation Reserve Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cogs_adjustment_account",
+   "fieldtype": "Link",
+   "label": "COGS Adjustment Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer_cogs_account",
+   "fieldtype": "Link",
+   "label": "Customer COGS (Sales Return) Account",
+   "options": "Account"
+  },
+  {
+   "description": "Contra account for YTD fiscal-year opening (Beg) events.",
+   "fieldname": "fy_carry_forward_account",
+   "fieldtype": "Link",
+   "label": "FY Carry Forward Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "sec2",
+   "fieldtype": "Section Break",
+   "label": "Behavior"
+  },
+  {
+   "default": "MTD",
+   "description": "Item -> Item Group -> this default. Write-once after any item resolves through it.",
+   "fieldname": "default_settlement_view",
+   "fieldtype": "Select",
+   "label": "Default Settlement View",
+   "options": "MTD\nYTD"
+  },
+  {
+   "default": "1",
+   "fieldname": "block_negative_stock_std",
+   "fieldtype": "Check",
+   "label": "Block Negative Stock"
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "view_default_locked",
+   "fieldtype": "Check",
+   "label": "Default View Locked",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mark_release_separation_required",
+   "fieldtype": "Check",
+   "label": "Mark/Release Separation Required",
+   "default": "0",
+   "description": "When ON, the user who Marked a Standard Cost Estimate cannot also Release it (segregation of duties)."
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-09 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Standard Cost",
+ "name": "Periodic Standard Cost Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

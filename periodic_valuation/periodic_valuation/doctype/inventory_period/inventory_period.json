@@ -1,0 +1,152 @@
+{
+ "allow_rename": 0,
+ "autoname": "",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "description": "Inventory period control; governs which periods accept postings.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "period_name",
+  "period_year",
+  "period_month",
+  "col_1",
+  "start_date",
+  "end_date",
+  "status",
+  "sec_close",
+  "closed_by",
+  "col_close",
+  "closed_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "e.g. \"2026-03\"",
+   "fieldname": "period_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Period Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "period_year",
+   "fieldtype": "Int",
+   "label": "Period Year",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Int",
+   "label": "Period Month",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "reqd": 1
+  },
+  {
+   "default": "OPEN",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "OPEN\nPREV_OPEN_UNSETTLED\nSETTLED_FROZEN",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_close",
+   "fieldtype": "Section Break",
+   "label": "Close Info"
+  },
+  {
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_close",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "closed_on",
+   "fieldtype": "Datetime",
+   "label": "Closed On",
+   "read_only": 1
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Inventory Period",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

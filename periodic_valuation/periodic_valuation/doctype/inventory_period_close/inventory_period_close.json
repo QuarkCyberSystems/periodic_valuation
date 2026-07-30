@@ -1,0 +1,204 @@
+{
+ "allow_rename": 0,
+ "autoname": "IPC-.YYYY.-.#####",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "description": "Period close ceremony: consistency checks + GL reconciliation gate.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "inventory_period",
+  "col_1",
+  "posting_date",
+  "sec_recon",
+  "gl_inventory_balance",
+  "movement_table_total",
+  "col_recon",
+  "discrepancy",
+  "reconciliation_tolerance",
+  "reconciliation_passed",
+  "sec_checks",
+  "continuity_ok",
+  "identity_ok",
+  "col_checks",
+  "no_orphan_gl",
+  "no_orphan_events",
+  "sec_remarks",
+  "remarks",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "inventory_period",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Inventory Period",
+   "options": "Inventory Period",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_recon",
+   "fieldtype": "Section Break",
+   "label": "Reconciliation Gate"
+  },
+  {
+   "fieldname": "gl_inventory_balance",
+   "fieldtype": "Currency",
+   "label": "GL Inventory Balance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "movement_table_total",
+   "fieldtype": "Currency",
+   "label": "Movement Table Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_recon",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "discrepancy",
+   "fieldtype": "Currency",
+   "label": "Discrepancy",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconciliation_tolerance",
+   "fieldtype": "Currency",
+   "label": "Tolerance Applied",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "reconciliation_passed",
+   "fieldtype": "Check",
+   "label": "Reconciliation Passed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_checks",
+   "fieldtype": "Section Break",
+   "label": "Consistency Checks"
+  },
+  {
+   "default": "0",
+   "fieldname": "continuity_ok",
+   "fieldtype": "Check",
+   "label": "Opening/Closing Continuity OK",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "identity_ok",
+   "fieldtype": "Check",
+   "label": "Inventory-to-GL Identity OK",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_checks",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "no_orphan_gl",
+   "fieldtype": "Check",
+   "label": "No Orphan GL Lines",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "no_orphan_events",
+   "fieldtype": "Check",
+   "label": "No Orphan Valuation Events",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_remarks",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Inventory Period Close",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Inventory Period Close",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

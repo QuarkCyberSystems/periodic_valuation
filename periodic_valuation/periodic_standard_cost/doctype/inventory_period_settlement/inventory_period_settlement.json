@@ -1,0 +1,317 @@
+{
+ "allow_rename": 0,
+ "autoname": "SETT-.YYYY.-.#####",
+ "creation": "2026-07-09 12:00:00.000000",
+ "custom": 0,
+ "description": "One settlement per scope per close. Frozen basis snapshot; cancellation posts mirrors, never mutates.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "item_code",
+  "warehouse",
+  "cb1",
+  "period_year",
+  "period_month",
+  "settlement_view",
+  "settlement_run",
+  "sec2",
+  "beg_qty",
+  "beg_value_sc",
+  "standard_cost",
+  "in_qty",
+  "in_value_sc",
+  "cb2",
+  "ppv_pool",
+  "rev_pool",
+  "total_ac",
+  "variance",
+  "sec3",
+  "es_qty",
+  "es_var",
+  "ppv_es",
+  "rev_es",
+  "cb3",
+  "out_qty",
+  "out_var",
+  "ppv_cons",
+  "rev_cons",
+  "sec4",
+  "cancelled",
+  "sett_event",
+  "sett_rev_event",
+  "cb4",
+  "reversed_by_events",
+  "es_qty_override"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_year",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Period Year",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Period Month",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "settlement_view",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Settlement View",
+   "options": "MTD\nYTD",
+   "reqd": 1
+  },
+  {
+   "fieldname": "settlement_run",
+   "fieldtype": "Link",
+   "label": "Settlement Run",
+   "options": "Inventory Period Settlement Run"
+  },
+  {
+   "fieldname": "sec2",
+   "fieldtype": "Section Break",
+   "label": "Basis (frozen at close)"
+  },
+  {
+   "fieldname": "beg_qty",
+   "fieldtype": "Float",
+   "label": "Beg Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "beg_value_sc",
+   "fieldtype": "Currency",
+   "label": "Beg Value at SC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "standard_cost",
+   "fieldtype": "Float",
+   "label": "Standard Cost",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "in_qty",
+   "fieldtype": "Float",
+   "label": "In Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "in_value_sc",
+   "fieldtype": "Currency",
+   "label": "In Value at SC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ppv_pool",
+   "fieldtype": "Currency",
+   "label": "PPV Pool",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rev_pool",
+   "fieldtype": "Currency",
+   "label": "Reval Pool",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_ac",
+   "fieldtype": "Currency",
+   "label": "Total at Actual",
+   "read_only": 1
+  },
+  {
+   "fieldname": "variance",
+   "fieldtype": "Currency",
+   "label": "Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec3",
+   "fieldtype": "Section Break",
+   "label": "Allocation"
+  },
+  {
+   "fieldname": "es_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Ending Stock Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "es_var",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Ending Stock Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ppv_es",
+   "fieldtype": "Currency",
+   "label": "PPV Inv Share",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rev_es",
+   "fieldtype": "Currency",
+   "label": "Reval Inv Share",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "out_qty",
+   "fieldtype": "Float",
+   "label": "Consumption Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "out_var",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Consumption Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ppv_cons",
+   "fieldtype": "Currency",
+   "label": "PPV Cons Share",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rev_cons",
+   "fieldtype": "Currency",
+   "label": "Reval Cons Share",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec4",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle"
+  },
+  {
+   "default": "0",
+   "fieldname": "cancelled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Cancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sett_event",
+   "fieldtype": "Link",
+   "label": "Sett Event",
+   "options": "Inventory Valuation Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sett_rev_event",
+   "fieldtype": "Link",
+   "label": "Sett-Rev Event",
+   "options": "Inventory Valuation Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reversed_by_events",
+   "fieldtype": "Data",
+   "label": "Reversed By Events",
+   "read_only": 1
+  },
+  {
+   "description": "Frozen snapshot used when re-settling after a cancellation.",
+   "fieldname": "es_qty_override",
+   "fieldtype": "Float",
+   "label": "ES Qty Override",
+   "precision": "6",
+   "read_only": 1
+  }
+ ],
+ "idx": 0,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-09 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Standard Cost",
+ "name": "Inventory Period Settlement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

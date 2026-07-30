@@ -1,0 +1,106 @@
+{
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "warehouse",
+  "default_inventory_account",
+  "expense_account",
+  "income_account",
+  "revaluation_account",
+  "variance_account",
+  "price_difference_account",
+  "buying_cost_center",
+  "selling_cost_center"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fieldname": "default_inventory_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Default Inventory Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "income_account",
+   "fieldtype": "Link",
+   "label": "Income Account",
+   "options": "Account"
+  },
+  {
+   "description": "Offset for MR21-style revaluations; NOT a generic expense account.",
+   "fieldname": "revaluation_account",
+   "fieldtype": "Link",
+   "label": "Revaluation Account",
+   "options": "Account"
+  },
+  {
+   "description": "Offset for count differences; keeps them out of WIP/expense.",
+   "fieldname": "variance_account",
+   "fieldtype": "Link",
+   "label": "Variance Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "price_difference_account",
+   "fieldtype": "Link",
+   "label": "Price Difference Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "buying_cost_center",
+   "fieldtype": "Link",
+   "label": "Buying Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "selling_cost_center",
+   "fieldtype": "Link",
+   "label": "Selling Cost Center",
+   "options": "Cost Center"
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Item Group Default Warehouse Account",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

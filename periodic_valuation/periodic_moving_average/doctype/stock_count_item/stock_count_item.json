@@ -1,0 +1,115 @@
+{
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "item_name",
+  "warehouse",
+  "stock_uom",
+  "current_qty",
+  "counted_qty",
+  "quantity_difference",
+  "valuation_rate",
+  "difference_amount",
+  "variance_account"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "item_code.item_name",
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "item_code.stock_uom",
+   "fieldname": "stock_uom",
+   "fieldtype": "Link",
+   "label": "Stock UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "System Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "counted_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Counted Qty",
+   "precision": "6",
+   "reqd": 1
+  },
+  {
+   "fieldname": "quantity_difference",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty Difference",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "description": "System-derived from the period MAP. Not user-editable (client rule).",
+   "fieldname": "valuation_rate",
+   "fieldtype": "Float",
+   "label": "Valuation Rate (Period MAP)",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "difference_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Difference Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Offset account. Resolved via Item Default -> PMA Settings when blank.",
+   "fieldname": "variance_account",
+   "fieldtype": "Link",
+   "label": "Variance Account",
+   "options": "Account"
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Moving Average",
+ "name": "Stock Count Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

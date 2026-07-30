@@ -1,0 +1,209 @@
+{
+ "allow_rename": 0,
+ "autoname": "ISCV-.YYYY.-.#####",
+ "creation": "2026-07-09 12:00:00.000000",
+ "custom": 0,
+ "description": "Immutable per-period standard cost catalog. Release supersedes the prior version and posts the boundary revaluation triplet.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "item_code",
+  "warehouse",
+  "cb1",
+  "valid_from_year",
+  "valid_from_month",
+  "effective_from",
+  "sec2",
+  "standard_cost",
+  "price_unit",
+  "cb2",
+  "source_type",
+  "status",
+  "supersedes_version",
+  "sec3",
+  "released_on",
+  "released_by",
+  "cb3",
+  "revaluation_posted",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "description": "Set only when the item's valuation scope includes warehouse.",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "valid_from_year",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Valid From Year",
+   "reqd": 1
+  },
+  {
+   "description": "1-12. Standard cost versions take effect at period boundaries.",
+   "fieldname": "valid_from_month",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Valid From Month",
+   "reqd": 1
+  },
+  {
+   "description": "Derived: first day of the valid-from period. Mid-period releases post a dated revaluation triplet instead.",
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "label": "Effective From",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec2",
+   "fieldtype": "Section Break",
+   "label": "Cost"
+  },
+  {
+   "fieldname": "standard_cost",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Standard Cost",
+   "precision": "6",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "price_unit",
+   "fieldtype": "Float",
+   "label": "Price Unit",
+   "precision": "6"
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "MANUAL_OVERRIDE",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "label": "Source Type",
+   "options": "MANUAL_OVERRIDE\nSCE\nMIGRATION_OPENING",
+   "reqd": 1
+  },
+  {
+   "default": "DRAFT",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "DRAFT\nRELEASED\nSUPERSEDED",
+   "reqd": 1
+  },
+  {
+   "fieldname": "supersedes_version",
+   "fieldtype": "Link",
+   "label": "Supersedes Version",
+   "options": "Item Standard Cost Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec3",
+   "fieldtype": "Section Break",
+   "label": "Release"
+  },
+  {
+   "fieldname": "released_on",
+   "fieldtype": "Datetime",
+   "label": "Released On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "released_by",
+   "fieldtype": "Link",
+   "label": "Released By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "revaluation_posted",
+   "fieldtype": "Check",
+   "label": "Revaluation Posted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-09 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Standard Cost",
+ "name": "Item Standard Cost Version",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

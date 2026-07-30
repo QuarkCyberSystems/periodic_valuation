@@ -1,0 +1,46 @@
+{
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "document_type",
+  "default_return_valuation"
+ ],
+ "fields": [
+  {
+   "fieldname": "document_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Document Type",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "default_return_valuation",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Default Return Valuation",
+   "options": "With Reference\nWithout Reference",
+   "reqd": 1
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Moving Average",
+ "name": "PMA Return Valuation Override",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

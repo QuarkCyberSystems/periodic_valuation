@@ -1,0 +1,154 @@
+{
+ "allow_rename": 0,
+ "autoname": "SRUN-.YYYY.-.#####",
+ "creation": "2026-07-09 12:00:00.000000",
+ "custom": 0,
+ "description": "Batch settlement of all STD scopes for a period.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "period_year",
+  "period_month",
+  "cb1",
+  "run_type",
+  "status",
+  "sec2",
+  "scopes_settled",
+  "total_es_var",
+  "cb2",
+  "total_out_var",
+  "remarks",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "period_year",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Period Year",
+   "reqd": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Period Month",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "INITIAL_CLOSE",
+   "fieldname": "run_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Run Type",
+   "options": "INITIAL_CLOSE\nREVERSAL",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec2",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "scopes_settled",
+   "fieldtype": "Int",
+   "label": "Scopes Settled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_es_var",
+   "fieldtype": "Currency",
+   "label": "Total Ending-Stock Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_out_var",
+   "fieldtype": "Currency",
+   "label": "Total Consumption Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Inventory Period Settlement Run",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-09 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Standard Cost",
+ "name": "Inventory Period Settlement Run",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

@@ -1,0 +1,194 @@
+{
+ "allow_rename": 0,
+ "autoname": "SCE-.YYYY.-.#####",
+ "creation": "2026-07-09 12:00:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "item_code",
+  "bom",
+  "cb1",
+  "valid_from_year",
+  "valid_from_month",
+  "status",
+  "marked_by",
+  "marked_on",
+  "sec2",
+  "components",
+  "sec3",
+  "material_cost",
+  "overhead_percent",
+  "cb3",
+  "overhead_amount",
+  "standard_cost",
+  "cost_version",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bom",
+   "fieldtype": "Link",
+   "label": "BOM",
+   "options": "BOM"
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "valid_from_year",
+   "fieldtype": "Int",
+   "label": "Target Valid-From Year",
+   "reqd": 1
+  },
+  {
+   "fieldname": "valid_from_month",
+   "fieldtype": "Int",
+   "label": "Target Valid-From Month",
+   "reqd": 1
+  },
+  {
+   "default": "DRAFT",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "DRAFT\nCALCULATED\nMARKED\nRELEASED\nSUPERSEDED",
+   "read_only": 1
+  },
+  {
+   "fieldname": "marked_by",
+   "fieldtype": "Link",
+   "label": "Marked By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "marked_on",
+   "fieldtype": "Datetime",
+   "label": "Marked On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec2",
+   "fieldtype": "Section Break",
+   "label": "Components"
+  },
+  {
+   "fieldname": "components",
+   "fieldtype": "Table",
+   "label": "Components",
+   "options": "Standard Cost Estimate Component"
+  },
+  {
+   "fieldname": "sec3",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "material_cost",
+   "fieldtype": "Currency",
+   "label": "Material Cost",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "overhead_percent",
+   "fieldtype": "Float",
+   "label": "Overhead %",
+   "precision": "2"
+  },
+  {
+   "fieldname": "cb3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "overhead_amount",
+   "fieldtype": "Currency",
+   "label": "Overhead Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "standard_cost",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Resulting Standard Cost",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_version",
+   "fieldtype": "Link",
+   "label": "Released Cost Version",
+   "options": "Item Standard Cost Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-09 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Standard Cost",
+ "name": "Standard Cost Estimate",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

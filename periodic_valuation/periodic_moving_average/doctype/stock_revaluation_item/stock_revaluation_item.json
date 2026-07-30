@@ -1,0 +1,113 @@
+{
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "item_name",
+  "warehouse",
+  "stock_uom",
+  "current_qty",
+  "current_valuation_rate",
+  "current_stock_value",
+  "new_valuation_rate",
+  "difference_amount",
+  "revaluation_account"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "item_code.item_name",
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "item_code.stock_uom",
+   "fieldname": "stock_uom",
+   "fieldtype": "Link",
+   "label": "Stock UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Current Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_valuation_rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Current MAP",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_stock_value",
+   "fieldtype": "Currency",
+   "label": "Current Stock Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_valuation_rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "New Valuation Rate",
+   "precision": "6",
+   "reqd": 1
+  },
+  {
+   "fieldname": "difference_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Difference Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Credit/debit offset. Resolved Item Default -> Item Group -> PMA Settings when blank.",
+   "fieldname": "revaluation_account",
+   "fieldtype": "Link",
+   "label": "Revaluation Account",
+   "options": "Account"
+  }
+ ],
+ "idx": 0,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-06 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Moving Average",
+ "name": "Stock Revaluation Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

@@ -1,0 +1,336 @@
+{
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-06 12:00:00.000000",
+ "custom": 0,
+ "description": "Before/After audit images of Inventory Period Balance mutations.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_id",
+  "snapshot_event_group",
+  "image",
+  "col_id",
+  "caused_by_event_id",
+  "movement_event_id",
+  "source_doctype",
+  "source_docname",
+  "sec_scope",
+  "company",
+  "item_code",
+  "warehouse",
+  "col_scope",
+  "period_year",
+  "period_month",
+  "sec_buckets",
+  "opening_qty",
+  "opening_value",
+  "carryover_qty",
+  "carryover_value",
+  "receipt_qty",
+  "receipt_value",
+  "issue_qty",
+  "issue_value",
+  "col_buckets",
+  "adjust_qty",
+  "adjust_value",
+  "reval_value",
+  "prd_value",
+  "closing_qty",
+  "closing_value",
+  "moving_avg_price",
+  "total_received_since_zero",
+  "is_negative",
+  "frozen_map"
+ ],
+ "fields": [
+  {
+   "fieldname": "sec_id",
+   "fieldtype": "Section Break",
+   "label": "Snapshot Identity"
+  },
+  {
+   "description": "Shared id linking the Before and After rows of one mutation.",
+   "fieldname": "snapshot_event_group",
+   "fieldtype": "Data",
+   "label": "Snapshot Event Group",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Image",
+   "options": "Before\nAfter",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_id",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "caused_by_event_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Caused By Valuation Event",
+   "options": "Inventory Valuation Event",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "movement_event_id",
+   "fieldtype": "Link",
+   "label": "Movement Event",
+   "options": "Stock Movement Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_doctype",
+   "fieldtype": "Link",
+   "label": "Source DocType",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Source Document",
+   "options": "source_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_scope",
+   "fieldtype": "Section Break",
+   "label": "Scope"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_year",
+   "fieldtype": "Int",
+   "label": "Period Year",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "period_month",
+   "fieldtype": "Int",
+   "label": "Period Month",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sec_buckets",
+   "fieldtype": "Section Break",
+   "label": "Period Balance Image"
+  },
+  {
+   "fieldname": "opening_qty",
+   "fieldtype": "Float",
+   "label": "Opening Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "opening_value",
+   "fieldtype": "Currency",
+   "label": "Opening Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "carryover_qty",
+   "fieldtype": "Float",
+   "label": "Carryover Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "carryover_value",
+   "fieldtype": "Currency",
+   "label": "Carryover Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "receipt_qty",
+   "fieldtype": "Float",
+   "label": "Receipt Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "receipt_value",
+   "fieldtype": "Currency",
+   "label": "Receipt Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issue_qty",
+   "fieldtype": "Float",
+   "label": "Issue Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issue_value",
+   "fieldtype": "Currency",
+   "label": "Issue Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_buckets",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "adjust_qty",
+   "fieldtype": "Float",
+   "label": "Adjust Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "adjust_value",
+   "fieldtype": "Currency",
+   "label": "Adjust Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reval_value",
+   "fieldtype": "Currency",
+   "label": "Reval Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prd_value",
+   "fieldtype": "Currency",
+   "label": "PRD Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closing_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Closing Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closing_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Closing Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "moving_avg_price",
+   "fieldtype": "Float",
+   "label": "MAP",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_received_since_zero",
+   "fieldtype": "Float",
+   "label": "Total Received Since Zero",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_negative",
+   "fieldtype": "Check",
+   "label": "Is Negative",
+   "read_only": 1
+  },
+  {
+   "fieldname": "frozen_map",
+   "fieldtype": "Float",
+   "label": "Frozen MAP",
+   "precision": "6",
+   "read_only": 1
+  }
+ ],
+ "idx": 0,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Inventory Period Balance Snapshot",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

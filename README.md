@@ -1,10 +1,10 @@
-# SAP Inspired Valuation
+# Periodic Valuation
 
-SAP-inspired **Moving Average** and **Standard Cost** valuation kernels for ERPNext,
+Periodic **Moving Average** and **Standard Cost** valuation kernels for ERPNext,
 built on an **immutable stock ledger**: posted events are never modified or
 deleted — every correction is a new, dated, linked event.
 
-The SAP Moving Average (MAP) kernel is complete. The SAP Standard Cost kernel
+The Periodic Moving Average (MAP) kernel is complete. The Periodic Standard Cost kernel
 (monthly/year-to-date variance settlement) is the next phase and plugs into
 the same foundation.
 
@@ -26,8 +26,8 @@ and GL entries are deleted and recreated to match. That design has real costs:
 - **Unbounded propagation** — one backdated document can silently re-value
   months of downstream transactions.
 
-The approach popularised by SAP takes the opposite stance: *first correct the
-past explicitly, then value the future*. Prices are period-based; backdated postings
+The periodic-settlement model used by the major enterprise ERPs takes the
+opposite stance: *first correct the past explicitly, then value the future*. Prices are period-based; backdated postings
 update their own period and flow forward through opening balances; price gaps
 against negative stock post to a dedicated difference account (PRD); nothing is
 ever recomputed retroactively.
@@ -50,7 +50,7 @@ This app implements that model for ERPNext:
 ### Routing, not replacement
 
 Nothing changes for existing items. Items opt in per item via
-`valuation_method = "SAP Moving Average"` (or, later, `"SAP Standard Cost"`).
+`valuation_method = "Periodic Moving Average"` (or, later, `"Periodic Standard Cost"`).
 There is deliberately **no global toggle**.
 
 ```
@@ -58,7 +58,7 @@ stock voucher submit
         │
 StockController.make_sl_entries          (companion fork branch)
         │
-        ├── item has a registered kernel? ──► SAP posting kernel (this app)
+        ├── item has a registered kernel? ──► periodic posting kernel (this app)
         │                                       Validate period → Lock balances
         │                                       → Compute → Write, atomically:
         │                                       SME + IVE + period balance
@@ -68,7 +68,7 @@ StockController.make_sl_entries          (companion fork branch)
 ```
 
 The kernel still writes **SLE-compatible rows** (flagged
-`posted_via_sap_kernel`) with correct quantities and values, so Bin, stock
+`posted_via_valuation_kernel`) with correct quantities and values, so Bin, stock
 reports and reconciliations keep working — but the core engine never recomputes
 them, and no Repost Item Valuation is ever created for routed items.
 
@@ -124,16 +124,16 @@ Before/After images of every balance mutation.
 
 ```bash
 cd $PATH_TO_YOUR_BENCH
-bench get-app https://github.com/QuarkCyberSystems/sap_valuation
-bench --site <site> install-app sap_valuation
+bench get-app https://github.com/QuarkCyberSystems/periodic_valuation
+bench --site <site> install-app periodic_valuation
 ```
 
 - Requires the companion ERPNext fork branch carrying the (deliberately
   minimal, ~190 line) core integration: the valuation-method options, the
-  kernel-registry dispatch, the `posted_via_sap_kernel` guards, repost opt-out
+  kernel-registry dispatch, the `posted_via_valuation_kernel` guards, repost opt-out
   and stock-GL suppression for routed items. Every fork change is a no-op when
   this app is not installed.
-- Per company, before the first posting: a **SAP Moving Average Settings**
+- Per company, before the first posting: a **Periodic Moving Average Settings**
   record (difference/variance accounts, precision, tolerances, negative-stock
   policy, return-valuation policy) and an **OPEN Inventory Period**.
 - For the invoice-difference flow: Buying Settings → *Maintain Same Rate* off,
@@ -145,11 +145,11 @@ Kernels register through hooks — no further core edits:
 
 ```python
 # hooks.py
-sap_valuation_kernels = {
-    "SAP Moving Average": "sap_valuation.sap_moving_average.kernel.post_via_sap_ma_kernel",
+valuation_kernels = {
+    "Periodic Moving Average": "periodic_valuation.periodic_moving_average.kernel.post_via_pma_kernel",
 }
-sap_valuation_incoming_rate = "sap_valuation.shared.routing.get_incoming_rate"
-sap_valuation_landed_cost = "sap_valuation.sap_moving_average.landed_cost.handle_landed_cost"
+valuation_incoming_rate = "periodic_valuation.shared.routing.get_incoming_rate"
+valuation_landed_cost = "periodic_valuation.periodic_moving_average.landed_cost.handle_landed_cost"
 ```
 
 A kernel receives the submitting controller and its SLE dicts, and owns the
@@ -160,16 +160,16 @@ complete atomic write (events, period balances, SLE-compatible rows, GL).
 The behavioral spec is executable. Every rule above is enforced by:
 
 - a **pure-Python reference simulator**
-  (`sap_valuation/sap_moving_average/reference/`) with conformance tests
+  (`periodic_valuation/periodic_moving_average/reference/`) with conformance tests
   reproducing the signed workbook anchors to the penny — run with
-  `pytest sap_valuation/sap_moving_average/reference/`;
+  `pytest periodic_valuation/periodic_moving_average/reference/`;
 - three end-to-end smoke suites that drive **real vouchers** on a site and
   roll back:
 
 ```bash
-bench --site <site> execute sap_valuation.tests.smoke_kernel.run   # core posting flow
-bench --site <site> execute sap_valuation.tests.smoke_matrix.run   # full signed test matrix
-bench --site <site> execute sap_valuation.tests.smoke_edges.run    # backdated/negative/FX/transfer edges
+bench --site <site> execute periodic_valuation.tests.smoke_kernel.run   # core posting flow
+bench --site <site> execute periodic_valuation.tests.smoke_matrix.run   # full signed test matrix
+bench --site <site> execute periodic_valuation.tests.smoke_edges.run    # backdated/negative/FX/transfer edges
 ```
 
 All suites assert the GL-inventory identity (sum of tagged GL = period-balance
@@ -180,15 +180,15 @@ closing value) after every scenario.
 | Component | State |
 |---|---|
 | Shared foundation (events, periods, close gate, settings, routing) | ✅ complete |
-| SAP Moving Average kernel + MR21/MI07 + cancellation + UI | ✅ complete |
-| SAP Standard Cost kernel (MTD/YTD settlement) | 🔜 next phase |
+| Periodic Moving Average kernel + MR21/MI07 + cancellation + UI | ✅ complete |
+| Periodic Standard Cost kernel (MTD/YTD settlement) | 🔜 next phase |
 
 ## Contributing
 
 This app uses `pre-commit` (ruff, eslint, prettier, pyupgrade):
 
 ```bash
-cd apps/sap_valuation
+cd apps/periodic_valuation
 pre-commit install
 ```
 
