@@ -864,7 +864,15 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date):
 	reset MAP. Called after any posting that can zero the quantity."""
 	if flt(ipb.closing_qty) != 0:
 		return
-	residual = r2(flt(ipb.closing_value))
+	# WA-0003-01 #17: measure the residual at FULL stored precision (r6). The
+	# earlier r2() here rounded sub-cent residuals (e.g. -0.0015 left by an
+	# r6 issue at a repeating-decimal MAP) to 0.00, so they were never
+	# cleaned; the next receipt then blended against the leftover and the
+	# fresh MAP came out 399.9995 instead of the receipt price 400 (client's
+	# IPB co9dsrrq3p). GL legs are only posted when the residual is
+	# representable at GL precision - a sub-cent cleanup is value-side only
+	# (the IVE keeps the audit trail; a 0.00 GL row is meaningless).
+	residual = r6(flt(ipb.closing_value))
 	tolerance = flt(get_pma_setting(scope.company, "rounding_tolerance")) or 0.01
 	map_before = flt(ipb.moving_avg_price)
 	if residual and abs(residual) <= tolerance:
@@ -877,15 +885,17 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date):
 			value_delta=-residual, map_before=map_before,
 		)
 		scope.save(ipb, caused_by=ive, source=source)
-		inventory_account = get_inventory_account(scope.company, scope.item_code, scope.physical_warehouse)
-		rounding_account = get_offset_account(
-			scope.company, scope.item_code, scope.physical_warehouse, "rounding_cleanup"
-		)
-		post_gl(
-			controller, posting_date,
-			[(rounding_account, residual, inventory_account), (inventory_account, -residual, rounding_account)],
-			ive,
-		)
+		gl_residual = r2(residual)
+		if gl_residual:
+			inventory_account = get_inventory_account(scope.company, scope.item_code, scope.physical_warehouse)
+			rounding_account = get_offset_account(
+				scope.company, scope.item_code, scope.physical_warehouse, "rounding_cleanup"
+			)
+			post_gl(
+				controller, posting_date,
+				[(rounding_account, gl_residual, inventory_account), (inventory_account, -gl_residual, rounding_account)],
+				ive,
+			)
 	elif not residual:
 		if map_before:
 			ipb.moving_avg_price = 0
@@ -1121,7 +1131,12 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		absorb = r2(should_have - result["net_to_inventory"])
 
 	crossed_current_zero = ipb_cur.is_negative and flt(ipb_cur.closing_qty) + qty >= 0
-	ipb_cur.total_received_since_zero = r6(flt(ipb_cur.total_received_since_zero) + qty)
+	if crossed_current_zero:
+		# Fresh cycle on zero-crossing (signed rule; mirrors _apply_receipt):
+		# only the excess above the deficit counts as "received since zero".
+		ipb_cur.total_received_since_zero = r6(qty + flt(ipb_cur.closing_qty))
+	else:
+		ipb_cur.total_received_since_zero = r6(flt(ipb_cur.total_received_since_zero) + qty)
 
 	if absorb:
 		ipb_cur.adjust_value = r6(flt(ipb_cur.adjust_value) + absorb)
