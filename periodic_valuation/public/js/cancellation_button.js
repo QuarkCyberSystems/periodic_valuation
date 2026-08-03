@@ -41,17 +41,34 @@
 	// produces an error dialog. Standard-item documents keep core Cancel.
 	function hideCoreCancel(frm) {
 		const label = __("Cancel");
+		const enc = encodeURIComponent(label);
+		// menu entries carry data-label (encoded); fall back to a
+		// starts-with text match because the entry text includes the
+		// keyboard-shortcut suffix.
+		frm.page.menu
+			.find(`a[data-label="${enc}"]`)
+			.closest("li")
+			.hide();
 		frm.page.menu
 			.find(".dropdown-item")
-			.filter((_, el) => el.textContent.trim() === label)
+			.filter((_, el) => el.textContent.trim().startsWith(label))
+			.closest("li")
 			.hide();
 	}
 
 	function applyRoutedUx(frm) {
 		frm.add_custom_button(__("Create Cancellation"), () => make_cancellation_dialog(frm));
+		// the toolbar menu is (re)built asynchronously around refresh —
+		// apply now, retry shortly after, and re-apply every time the
+		// menu dropdown is opened.
 		hideCoreCancel(frm);
-		// menu is re-rendered after refresh cycles; hide again on next tick
-		setTimeout(() => hideCoreCancel(frm), 300);
+		for (const delay of [250, 750, 1500]) {
+			setTimeout(() => hideCoreCancel(frm), delay);
+		}
+		if (!frm._pv_menu_hook) {
+			frm._pv_menu_hook = true;
+			frm.page.wrapper.on("click", ".menu-btn-group", () => hideCoreCancel(frm));
+		}
 	}
 
 	for (const doctype of DOCTYPES) {
