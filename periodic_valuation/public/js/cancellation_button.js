@@ -42,6 +42,9 @@
 	function hideCoreCancel(frm) {
 		const label = __("Cancel");
 		const enc = encodeURIComponent(label);
+		// toolbar secondary-action button ("Cancel" on submitted docs)
+		const sec = frm.page.btn_secondary;
+		if (sec && sec.text().trim() === label) sec.hide();
 		// menu entries carry data-label (encoded); fall back to a
 		// starts-with text match because the entry text includes the
 		// keyboard-shortcut suffix.
@@ -58,11 +61,17 @@
 
 	function applyRoutedUx(frm) {
 		frm.add_custom_button(__("Create Cancellation"), () => make_cancellation_dialog(frm));
-		// the toolbar menu is (re)built asynchronously around refresh —
-		// apply now, retry shortly after, and re-apply every time the
-		// menu dropdown is opened.
+		// Revoke the client-side cancel permission: frappe's own toolbar
+		// logic then omits Cancel wherever it renders it (page action
+		// button, menu entry, keyboard shortcut) — no DOM chasing. The
+		// server guard remains the actual enforcement.
+		if (frm.perm && frm.perm[0] && frm.perm[0].cancel) {
+			frm.perm[0].cancel = 0;
+			if (frm.toolbar && frm.toolbar.refresh) frm.toolbar.refresh();
+		}
+		// belt-and-braces for any straggler renders
 		hideCoreCancel(frm);
-		for (const delay of [250, 750, 1500]) {
+		for (const delay of [250, 750]) {
 			setTimeout(() => hideCoreCancel(frm), delay);
 		}
 		if (!frm._pv_menu_hook) {
