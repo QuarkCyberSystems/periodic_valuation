@@ -33,7 +33,11 @@ DOCTYPES = {
 def execute():
 	for old, new in MODULES.items():
 		if frappe.db.exists("Module Def", old) and not frappe.db.exists("Module Def", new):
+			# Module Def refuses to rename non-custom modules; flip the flag
+			# for the duration so rename_doc updates every module link.
+			frappe.db.set_value("Module Def", old, "custom", 1)
 			frappe.rename_doc("Module Def", old, new, force=True, show_alert=False)
+			frappe.db.set_value("Module Def", new, {"custom": 0, "app_name": "periodic_valuation"})
 	for old, new in DOCTYPES.items():
 		if frappe.db.exists("DocType", old) and not frappe.db.exists("DocType", new):
 			frappe.rename_doc("DocType", old, new, force=True, show_alert=False)
