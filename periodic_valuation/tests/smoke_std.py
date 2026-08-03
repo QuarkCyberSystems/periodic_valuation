@@ -206,13 +206,18 @@ def run(commit=False):
 	orig_item = ITEM
 	ITEM = item2
 	try:
-		v1 = make_scv(company, 2026, 6, 10)
+		# The triplet posts at nowdate() (DR-23), so the scenario must live in
+		# the current month — hardcoded months go stale when the calendar rolls.
+		from frappe.utils import getdate, nowdate
+		today = getdate(nowdate())
+		prev_y, prev_m = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+		v1 = make_scv(company, prev_y, prev_m, 10)
 		v1.release()
 		e2 = StdEngine(company, item2)
 		s2 = ("Item Standard Cost Version", v1.name)
-		e2.post(trans="Rec", qty=100, sc=10, ac=10, posting_date="2026-07-05", source=s2)
-		e2.post(trans="Iss", qty=30, sc=10, posting_date="2026-07-06", source=s2)
-		v2 = make_scv(company, 2026, 7, 12)
+		e2.post(trans="Rec", qty=100, sc=10, ac=10, posting_date=str(today), source=s2)
+		e2.post(trans="Iss", qty=30, sc=10, posting_date=str(today), source=s2)
+		v2 = make_scv(company, today.year, today.month, 12)
 		v2.release()
 		trips = frappe.get_all("Inventory Valuation Event",
 			filters={"item_code": item2, "std_trans": ("in", ["Rev Beg", "REV In", "REV out"])},
