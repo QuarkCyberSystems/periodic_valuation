@@ -36,28 +36,61 @@
 		}
 	}
 
+	// Hide core ERPNext Cancel for routed documents: direct cancel is blocked
+	// server-side anyway (immutable ledger); showing the menu entry only
+	// produces an error dialog. Standard-item documents keep core Cancel.
+	function hideCoreCancel(frm) {
+		const label = __("Cancel");
+		frm.page.menu
+			.find(".dropdown-item")
+			.filter((_, el) => el.textContent.trim() === label)
+			.hide();
+	}
+
+	function applyRoutedUx(frm) {
+		frm.add_custom_button(__("Create Cancellation"), () => make_cancellation_dialog(frm));
+		hideCoreCancel(frm);
+		// menu is re-rendered after refresh cycles; hide again on next tick
+		setTimeout(() => hideCoreCancel(frm), 300);
+	}
+
 	for (const doctype of DOCTYPES) {
 		frappe.ui.form.on(doctype, {
 			refresh(frm) {
 				lockReversal(frm);
 				if (frm.doc.docstatus !== 1 || frm.doc.is_cancellation) return;
 
-				frm.add_custom_button(__("Create Cancellation"), () => {
-					frappe.confirm(
-						__("Post a dated reversal document for {0}? The original stays submitted; GL mirrors on today's date.", [frm.doc.name]),
-						() => {
-							frappe.call({
-								method: "periodic_valuation.periodic_moving_average.cancellation.make_cancellation",
-								args: { doctype: frm.doc.doctype, name: frm.doc.name },
-								freeze: true,
-								callback(r) {
-									if (r.message) frappe.set_route("Form", frm.doc.doctype, r.message);
-								},
-							});
-						}
-					);
-				}, __("Periodic Valuation"));
+				// one routed-check per form load, cached on the frm
+				if (frm._pv_routed === undefined) {
+					frappe.call({
+						method: "periodic_valuation.overrides.cancel_guard.is_routed_document",
+						args: { doctype: frm.doc.doctype, name: frm.doc.name },
+						callback: (r) => {
+							frm._pv_routed = !!r.message;
+							if (frm._pv_routed) applyRoutedUx(frm);
+						},
+					});
+				} else if (frm._pv_routed) {
+					applyRoutedUx(frm);
+				}
+				return;
 			},
 		});
+	}
+
+	function make_cancellation_dialog(frm) {
+		frappe.confirm(
+			__("Post a dated reversal document for {0}? The original stays submitted; GL mirrors on today's date.", [frm.doc.name]),
+			() => {
+				frappe.call({
+					method: "periodic_valuation.periodic_moving_average.cancellation.make_cancellation",
+					args: { doctype: frm.doc.doctype, name: frm.doc.name },
+					freeze: true,
+					callback(r) {
+						if (r.message) frappe.set_route("Form", frm.doc.doctype, r.message);
+					},
+				});
+			}
+		);
 	}
 })();

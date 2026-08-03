@@ -33,6 +33,17 @@ def has_routed_items(doc):
 	return False
 
 
+@frappe.whitelist()
+def is_routed_document(doctype: str, name: str) -> bool:
+	"""True when the submitted document carries at least one periodic-valuation
+	item. Used by the client to swap the cancellation UX: routed documents hide
+	core Cancel and show Create Cancellation; standard documents keep core
+	ERPNext behaviour untouched."""
+	doc = frappe.get_doc(doctype, name)
+	doc.check_permission("read")
+	return has_routed_items(doc)
+
+
 def block_direct_cancel(doc, method=None):
 	if not has_routed_items(doc):
 		return
