@@ -784,6 +784,11 @@ def _apply_receipt(ipb, qty, rate):
 		ipb.prd_value = r6(flt(ipb.prd_value) - prd)
 		ipb.total_received_since_zero = r6(flt(ipb.total_received_since_zero) + qty)
 		recompute_closing(ipb)
+		# Landing exactly on zero ends the negative excursion: clear the frozen
+		# state and reset the since-zero counter. MAP is deliberately NOT touched
+		# — it stays at the previous (frozen) value until a real crossing receipt
+		# re-prices the pool (WA-0003-01 item 22).
+		_freeze_check(ipb)
 		return {"reason": "receipt_neg", "receipt_value": receipt_value, "net_to_inventory": net, "prd": prd}
 
 	clearing = r6(-closing)
@@ -1130,7 +1135,12 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 			should_have = r6(clearing_c * flt(ipb_cur.frozen_map) + excess_c * rate)  # C2
 		absorb = r2(should_have - result["net_to_inventory"])
 
-	crossed_current_zero = ipb_cur.is_negative and flt(ipb_cur.closing_qty) + qty >= 0
+	# Strictly ABOVE zero is a crossing; landing exactly on zero is not. This has
+	# to mirror _apply_receipt's `closing + qty <= 0` boundary — when the two
+	# disagree, a backdated receipt that lands the current period on exactly zero
+	# re-prices MAP to its own rate instead of keeping the frozen MAP
+	# (WA-0003-01 item 22). _freeze_check below still clears the frozen state.
+	crossed_current_zero = ipb_cur.is_negative and flt(ipb_cur.closing_qty) + qty > 0
 	if crossed_current_zero:
 		# Fresh cycle on zero-crossing (signed rule; mirrors _apply_receipt):
 		# only the excess above the deficit counts as "received since zero".
