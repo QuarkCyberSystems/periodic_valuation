@@ -87,13 +87,27 @@ class InventoryPeriodClose(Document):
 					"manual reconciliation adjustment; automatic write-off is not permitted."
 				).format(recon["discrepancy"], recon["tolerance"])
 			)
-		if not bin_ledger["ok"]:
+		if bin_ledger["drifts"]:
 			items = ", ".join(sorted({d["item_code"] for d in bin_ledger["drifts"]})[:10])
 			failures.append(
 				_(
 					"Stock balance (Bin) disagrees with the valuation ledger (IPB) for: {0}. "
 					"Run a Stock Reconciliation on these items to realign before closing."
 				).format(items)
+			)
+		if bin_ledger.get("value_drifts"):
+			detail = ", ".join(
+				"{0} (ledger {1} vs stock ledger {2})".format(
+					d["item_code"], flt(d["ipb_value"], 2), flt(d["sle_value"], 2)
+				)
+				for d in bin_ledger["value_drifts"][:10]
+			)
+			failures.append(
+				_(
+					"Stock Ledger value disagrees with the valuation ledger (IPB) for: {0}. "
+					"A value event did not write its SLE row, so core stock reports "
+					"under-state inventory by the difference."
+				).format(detail)
 			)
 
 		if failures:

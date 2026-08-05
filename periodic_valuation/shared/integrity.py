@@ -17,6 +17,64 @@ import frappe
 from frappe.utils import flt
 
 
+def check_sle_ipb_value_drift(company=None, tolerance=0.01):
+	"""Return a list of scopes whose Stock Ledger value disagrees with the IPB.
+
+	The Bin check below compares *quantity*; this compares *value*. Core stock
+	reporting (Stock Balance, Stock Analytics, Gross Profit) sums SLE
+	``stock_value_difference``, so a value event that never wrote an SLE leaves
+	the ledger correct while every core report under-states inventory by that
+	amount — silently, because nothing asserted the identity (DR-02).
+
+	Warehouse-scope items compare per warehouse; company-scope items compare
+	the IPB total against the sum of SLE value across all warehouses.
+	"""
+	from periodic_valuation.shared.routing import KERNEL_VALUATION_METHODS
+
+	drifts = []
+	items = frappe.get_all(
+		"Item",
+		filters={"valuation_method": ("in", tuple(KERNEL_VALUATION_METHODS)), "is_stock_item": 1},
+		fields=["name", "valuation_includes_warehouse"],
+	)
+	for it in items:
+		latest = frappe.get_all(
+			"Inventory Period Balance",
+			filters={"item_code": it.name, **({"company": company} if company else {})},
+			fields=["company", "warehouse", "closing_value", "period_year", "period_month"],
+			order_by="period_year desc, period_month desc",
+		)
+		if not latest:
+			continue
+		seen = set()
+		for row in latest:
+			key = (row.company, row.warehouse or "")
+			if key in seen:
+				continue
+			seen.add(key)
+			ipb_value = flt(row.closing_value)
+			conds = ["item_code = %(item)s", "is_cancelled = 0", "company = %(company)s"]
+			params = {"item": it.name, "company": row.company}
+			if it.valuation_includes_warehouse and row.warehouse:
+				conds.append("warehouse = %(warehouse)s")
+				params["warehouse"] = row.warehouse
+			sle_value = flt(
+				frappe.db.sql(
+					"select sum(stock_value_difference) from `tabStock Ledger Entry` where "
+					+ " and ".join(conds),
+					params,
+				)[0][0] or 0
+			)
+			drift = flt(sle_value - ipb_value, 6)
+			if abs(drift) > tolerance:
+				drifts.append({
+					"item_code": it.name, "company": row.company,
+					"warehouse": row.warehouse or "(company scope)",
+					"ipb_value": ipb_value, "sle_value": sle_value, "drift": drift,
+				})
+	return drifts
+
+
 def check_bin_ipb_drift(company=None, tolerance=0.001):
 	"""Return a list of {item_code, warehouse, ipb_qty, bin_qty, drift} for
 	every periodic-valuation scope whose latest IPB closing quantity disagrees with

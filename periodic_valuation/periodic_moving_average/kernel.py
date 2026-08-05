@@ -277,6 +277,57 @@ def write_sle(controller, sle_dict, scope, ipb, value_delta, bin_absolute=None):
 	return sle.name
 
 
+def write_value_sle(scope, ipb, *, source, posting_date, value_delta, qty_delta=0.0,
+		stock_uom=None):
+	"""Zero-quantity SLE carrying a value-only movement (DR-02).
+
+	Value events — invoice difference, landed cost, revaluation, count difference,
+	FX — move inventory value without a receipt or issue. They already write the
+	IVE, the IPB, the GL and the Bin, but without an SLE the ~30 core consumers
+	that read the Stock Ledger (Stock Balance, Stock Ledger, Stock Analytics,
+	Gross Profit, valuation-rate lookups) never see the value and under-report
+	inventory by exactly the event amount.
+
+	Mirrors core's own zero-qty convention (Landed Cost Voucher, Stock
+	Reconciliation). Flagged `posted_via_valuation_kernel` so `process_sle()`
+	early-exits and core never recomputes what the kernel already decided.
+	"""
+	if not scope.physical_warehouse:
+		return None          # company-scope rows have no physical warehouse to post against
+	if not flt(value_delta) and not flt(qty_delta):
+		return None
+
+	voucher_type, voucher_no, voucher_detail_no = source
+	args = {
+		"doctype": "Stock Ledger Entry",
+		"item_code": scope.item_code,
+		"warehouse": scope.physical_warehouse,
+		"company": scope.company,
+		"posting_date": posting_date,
+		"posting_time": frappe.utils.nowtime(),
+		"voucher_type": voucher_type,
+		"voucher_no": voucher_no,
+		"voucher_detail_no": voucher_detail_no,
+		"stock_uom": stock_uom or frappe.get_cached_value("Item", scope.item_code, "stock_uom"),
+		"posted_via_valuation_kernel": 1,
+		"is_adjustment_entry": 1,
+		"actual_qty": flt(qty_delta),
+		"incoming_rate": 0,
+		"valuation_rate": flt(ipb.moving_avg_price),
+		"qty_after_transaction": flt(ipb.closing_qty),
+		"stock_value": flt(ipb.closing_value),
+		"stock_value_difference": r2(value_delta),
+		"stock_queue": "[]",
+	}
+	sle = frappe.get_doc(args)
+	sle.flags.ignore_permissions = True
+	sle.allow_negative_stock = True
+	sle.via_landed_cost_voucher = False
+	sle.insert()
+	sle.submit()
+	return sle.name
+
+
 def _sync_bin_to_ledger(scope, qty_delta):
 	"""Shift the Bin by qty_delta and refresh its value/rate from the LATEST
 	IPB (so a backdated value event still reflects the current balance). Used
@@ -1237,6 +1288,16 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	# Without this the Bin drifts from the IPB and Stock Balance disagrees with
 	# the valuation ledger (surfaced by shared.integrity.check_bin_ipb_drift).
 	_sync_bin_to_ledger(scope, qty_delta if reason == "count_diff" else 0.0)
+
+	# ...and keep the Stock Ledger in step too (DR-02). The Bin alone is not
+	# enough: Stock Balance and the other core reports sum SLE
+	# stock_value_difference, so without this row they under-report inventory
+	# value by exactly this event's amount.
+	write_value_sle(
+		scope, ipb, source=source, posting_date=posting_date,
+		value_delta=value_delta,
+		qty_delta=qty_delta if reason == "count_diff" else 0.0,
+	)
 
 	legs = [(inventory_account, value_delta, offset_account)]
 	total_offset = value_delta + (expense_portion or 0) + (fx_variance or 0)

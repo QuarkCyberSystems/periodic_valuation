@@ -171,15 +171,28 @@ def run_reconciliation_gate(period):
 
 
 def assert_bin_ledger_consistency(period):
-	"""Gate: the physical Bin quantity must match the valuation ledger (IPB)
-	for every periodic-valuation scope. The other gates reconcile GL<->IPB; this
-	closes the remaining SLE/Bin<->IPB gap so a period cannot be frozen while
-	the stock-balance shadow disagrees with the ledger. Resolve by running a
-	Stock Reconciliation on the flagged items."""
-	from periodic_valuation.shared.integrity import check_bin_ipb_drift
+	"""Gate: the shadow stores must match the valuation ledger (IPB) for every
+	periodic-valuation scope — the Bin on *quantity*, the Stock Ledger on
+	*value*. The other gates reconcile GL<->IPB; this closes the SLE/Bin<->IPB
+	gap so a period cannot be frozen while the stock-balance shadows disagree
+	with the ledger.
+
+	Resolve quantity drift with a Stock Reconciliation on the flagged items.
+	Value drift means a value event did not write its SLE row (DR-02) — that is
+	a code defect, not a data one, and reposting the voucher is the lever.
+	"""
+	from periodic_valuation.shared.integrity import (
+		check_bin_ipb_drift,
+		check_sle_ipb_value_drift,
+	)
 
 	drifts = check_bin_ipb_drift(period.company)
-	return {"ok": not drifts, "drifts": drifts}
+	value_drifts = check_sle_ipb_value_drift(period.company)
+	return {
+		"ok": not drifts and not value_drifts,
+		"drifts": drifts,
+		"value_drifts": value_drifts,
+	}
 
 
 def seed_next_period_openings(period):
