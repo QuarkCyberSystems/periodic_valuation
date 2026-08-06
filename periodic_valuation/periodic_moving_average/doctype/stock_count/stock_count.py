@@ -34,27 +34,18 @@ class StockCount(Document):
 		# a count dated in a prior month must compare against that month's
 		# on-hand, not today's total (WA-0003-01 item 8). Backdated adjustments
 		# then cascade forward via the kernel's carryover propagation.
-		include_wh = frappe.get_cached_value("Item", row.item_code, "valuation_includes_warehouse")
-		d = getdate(self.posting_date)
-		ipb = frappe.get_all(
-			"Inventory Period Balance",
-			filters={
-				"company": self.company,
-				"item_code": row.item_code,
-				"warehouse": (row.warehouse or "") if include_wh else "",
-				"period_year": ("<=", d.year),
-			},
-			fields=["closing_qty", "moving_avg_price", "is_negative", "frozen_map",
-				"period_year", "period_month"],
-			order_by="period_year desc, period_month desc",
-			limit=20,
+		#
+		# Shared with the form helper (api.get_current_state) so what the user
+		# sees on screen is the same figure the posting uses.
+		from periodic_valuation.periodic_moving_average.api import get_current_state
+
+		state = get_current_state(
+			self.company, row.item_code, row.warehouse, posting_date=self.posting_date
 		)
-		# pick the newest period that is not after the posting period
-		ipb = [r for r in ipb if (r.period_year, r.period_month) <= (d.year, d.month)]
-		row.current_qty = flt(ipb[0].closing_qty) if ipb else 0
-		row.valuation_rate = (
-			flt(ipb[0].frozen_map) if ipb and ipb[0].is_negative else flt(ipb[0].moving_avg_price)
-		) if ipb else 0
+		row.current_qty = flt(state["closing_qty"])
+		row.valuation_rate = flt(
+			state["frozen_map"] if state["is_negative"] else state["moving_avg_price"]
+		)
 
 	def on_submit(self):
 		from erpnext.stock.utils import get_valuation_method
