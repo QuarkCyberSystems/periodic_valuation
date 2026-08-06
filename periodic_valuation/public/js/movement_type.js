@@ -27,26 +27,16 @@
 			callback(r) {
 				const label = r.message && r.message.label;
 				if (!label) return;           // not a routed document — say nothing
-				// NB: frm.dashboard.add_indicator() renders nothing on these
-				// forms — the dashboard's indicator area is not instantiated on
-				// a submitted stock document, so the call succeeds silently and
-				// the user sees no label. set_headline is what lockReversal
-				// already uses successfully on the very same form, so use that.
-				const existing = (frm.dashboard.frm && frm.dashboard._pv_headline) || "";
-				const line = __("Movement: {0}", [label]);
-				// a reversal already sets its own headline; append rather than
-				// overwrite it, so both messages survive
-				const current = (frm.dashboard.wrapper &&
-					frm.dashboard.wrapper.find(".form-message").text()) || "";
-				if (current && current.indexOf(label) === -1) {
-					frm.dashboard.set_headline(
-						`${frappe.utils.escape_html(current)}<br>${frappe.utils.escape_html(line)}`,
-						"blue"
-					);
-				} else if (!current) {
-					frm.dashboard.set_headline(frappe.utils.escape_html(line), "blue");
-				}
-				frm.dashboard._pv_headline = line;
+				// Two earlier attempts failed here, both silently:
+				//   1. frm.dashboard.add_indicator() draws nothing on a submitted
+				//      stock document — the indicator area is not instantiated.
+				//   2. set_headline collides with lockReversal, which owns that
+				//      slot on a reversal and re-applies it on delayed passes,
+				//      wiping anything appended to it.
+				// set_intro is a separate region, so the two never fight: the
+				// reversal keeps its "fields are locked" banner AND the movement
+				// line is shown.
+				frm.set_intro(__("Movement: {0}", [label]), "blue");
 			},
 		});
 	}
