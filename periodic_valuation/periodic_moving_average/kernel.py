@@ -789,6 +789,19 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 			# purchase return (goods out) -> reduce net receipts (In)
 			ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
 			ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
+			# ...and the since-zero counter, which measures the SAME receipts
+			# (WA-0003-01 item 7). Once a purchase return nets down the receipt
+			# bucket, leaving the counter untouched makes the Period Balance
+			# contradict itself: receipt_qty says 800 received while
+			# total_received_since_zero says 1,000 for the same movements, and
+			# the stock ratio is then taken against a denominator that includes
+			# goods sent back to the supplier. Floored at zero — a return can
+			# never imply negative receipts. A SALES return is deliberately not
+			# counted here: it reverses an issue, so it never entered this
+			# counter in the first place.
+			ipb.total_received_since_zero = r6(
+				max(0.0, flt(ipb.total_received_since_zero) + qty)
+			)
 		recompute_closing(ipb)
 		_freeze_check(ipb)
 		reason = "return_with_ref" if reference_event else "return_no_ref"
@@ -1041,9 +1054,10 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	want = abs(flt(sle.get("actual_qty")))
 	orig = next((e for e in unreversed if flt(e.qty_basis) == want), unreversed[0])
 
-	# Cancellation matrix (signed plan): a Cancellation document is only
-	# eligible while the ORIGINAL's period is still open or previous-open.
-	# Settled/frozen periods take forward corrections instead.
+	# A Create Cancellation is only eligible while the original's period is
+	# still OPEN or PREV_OPEN_UNSETTLED. Once the period is closed it stays
+	# closed (DR-21) — there is no settlement to reverse in Moving Average, so
+	# the correction is a fresh current-period entry, not a reach-back.
 	orig_period = frappe.db.get_value(
 		"Inventory Valuation Event", orig.name, ["period_year", "period_month"], as_dict=True
 	)
@@ -1056,8 +1070,10 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	if orig_period_status not in ("OPEN", "PREV_OPEN_UNSETTLED"):
 		frappe.throw(
 			_(
-				"The original posting's period {0}-{1:02d} is {2}; it can no longer be cancelled. "
-				"Post a forward correction in the current open period with Original Period set."
+				"The original posting's period {0}-{1:02d} is {2}, so it can no longer be cancelled "
+				"— a closed period is not reopened. To correct its effect, post a new entry (e.g. "
+				"Stock Count or Stock Reconciliation) in the current open period; it is valued at "
+				"the current moving average."
 			).format(orig_period.period_year, orig_period.period_month, orig_period_status or _("closed")),
 			title=_("Cancellation Not Eligible"),
 		)

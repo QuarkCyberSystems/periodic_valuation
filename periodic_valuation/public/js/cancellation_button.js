@@ -11,6 +11,47 @@
 	// A reversal (Cancellation) document is display-only: all fields are locked
 	// except the posting date, and a clear "Reversal of …" banner is shown
 	// (WA-0003-01 items 5 & 13). Applies in draft and after submit.
+	// ONE writer for the form-message slot. frm.set_intro and
+	// frm.dashboard.set_headline both render into .form-message, so two
+	// independent writers silently overwrite each other — the movement label
+	// showed on a plain return but vanished on a reversal, because
+	// lockReversal re-applies its banner on delayed passes and won the race.
+	// Compose both lines here and set them once.
+	function renderMessage(frm) {
+		const lines = [];
+		if (frm.doc.is_cancellation && frm.doc.cancellation_against) {
+			lines.push(__("Reversal of {0} — fields are locked; only the posting date may be changed.",
+				[frm.doc.cancellation_against]));
+		}
+		if (frm._pv_movement) {
+			lines.push(__("Movement: {0}", [frm._pv_movement]));
+		}
+		if (!lines.length) return;
+		frm.dashboard.clear_headline();
+		frm.dashboard.set_headline(
+			lines.map((l) => frappe.utils.escape_html(l)).join("<br>"),
+			frm.doc.is_cancellation ? "orange" : "blue"
+		);
+	}
+
+	// What movement did this document post? Derived from the Stock Movement
+	// Event, cached on the frm so the delayed re-renders do not re-query.
+	function fetchMovement(frm) {
+		if (frm.doc.docstatus !== 1 || frm._pv_movement !== undefined) {
+			renderMessage(frm);
+			return;
+		}
+		frm._pv_movement = null;
+		frappe.call({
+			method: "periodic_valuation.periodic_moving_average.api.get_movement_summary",
+			args: { doctype: frm.doc.doctype, docname: frm.doc.name },
+			callback(r) {
+				frm._pv_movement = (r.message && r.message.label) || null;
+				renderMessage(frm);
+			},
+		});
+	}
+
 	function lockReversal(frm) {
 		if (!frm.doc.is_cancellation) return;
 		const keep = new Set(["posting_date", "set_posting_time", "posting_time"]);
@@ -36,12 +77,7 @@
 			if (grid.refresh) grid.refresh();
 		}
 		if (frm.doc.cancellation_against) {
-			frm.dashboard.clear_headline();
-			frm.dashboard.set_headline(
-				__("Reversal of {0} — fields are locked; only the posting date may be changed.",
-					[frm.doc.cancellation_against]),
-				"orange"
-			);
+			renderMessage(frm);
 			if (frm.doc.docstatus === 1) {
 				frm.page.set_indicator(__("Reversal of {0}", [frm.doc.cancellation_against]), "orange");
 			}
@@ -95,6 +131,7 @@
 	for (const doctype of DOCTYPES) {
 		frappe.ui.form.on(doctype, {
 			refresh(frm) {
+				fetchMovement(frm);
 				lockReversal(frm);
 				// A reversal is itself immutable: hide core Cancel there too.
 				// It offers an action the server always refuses, and it must

@@ -195,6 +195,44 @@ def run(commit=False):
 	check("backdated GL posts on prior date",
 		gl_prior and all(str(g.posting_date) == str(prior_date) for g in gl_prior))
 
+	# ---- WA-0003-01 item 7: a purchase return nets the since-zero counter
+	# The counter and receipt_qty measure the same receipts. Once a purchase
+	# return nets down the receipt bucket (item 6), leaving the counter alone
+	# makes the Period Balance contradict itself and takes the stock ratio
+	# against a denominator that includes goods sent back to the supplier.
+	# The workbook asserts qty/value/MAP after its purchase-return step but
+	# never the counter, so nothing guarded this until now.
+	ret_item = ITEM
+	before = ipb()
+	rq_before = flt(before.receipt_qty)
+	rsz_before = flt(before.total_received_since_zero)
+	pr_ret = make_pr(wh, 200, 12)
+	mid = ipb()
+	check("counter advances on a receipt",
+		flt(mid.total_received_since_zero) == rsz_before + 200,
+		f"{rsz_before} -> {mid.total_received_since_zero}")
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+	ret = make_return_doc("Purchase Receipt", pr_ret.name)
+	ret.posting_date = nowdate()
+	ret.set_posting_time = 1
+	ret.items = [ret.items[0]]
+	ret.items[0].qty = -50
+	if ret.items[0].meta.has_field("received_qty"):
+		ret.items[0].received_qty = -50
+	ret.insert(ignore_permissions=True)
+	ret.submit()
+	after = ipb()
+	check("purchase return nets the receipt bucket",
+		flt(after.receipt_qty) == flt(mid.receipt_qty) - 50,
+		f"{mid.receipt_qty} -> {after.receipt_qty}")
+	check("purchase return nets the since-zero counter (item 7)",
+		flt(after.total_received_since_zero) == flt(mid.total_received_since_zero) - 50,
+		f"{mid.total_received_since_zero} -> {after.total_received_since_zero}")
+	# NB: receipt_qty and the counter are NOT equal in general — receipt_qty is
+	# per PERIOD, the counter is since the last ZERO, so a zero-crossing inside
+	# the period legitimately separates them. They coincide only when stock has
+	# not touched zero, which is the case the client reported.
+
 	# ---- GL identity across everything posted so far
 	from periodic_valuation.shared.accounts import get_inventory_account
 	inv_acc = get_inventory_account(COMPANY, ITEM, wh)
