@@ -102,8 +102,15 @@
 				// reversal) — so hide only, then stop.
 				if (frm.doc.docstatus === 1 && frm.doc.is_cancellation) {
 					hideCoreCancel(frm);
+					// ERPNext's own Stock Entry refresh re-derives the warehouse
+					// fields' read-only state from the purpose and runs after
+					// this handler, re-enabling s_warehouse on a locked
+					// reversal. Re-apply the lock behind it.
 					for (const delay of [250, 750]) {
-						setTimeout(() => hideCoreCancel(frm), delay);
+						setTimeout(() => {
+							lockReversal(frm);
+							hideCoreCancel(frm);
+						}, delay);
 					}
 					return;
 				}
