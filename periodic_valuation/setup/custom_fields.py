@@ -169,6 +169,42 @@ def ensure_module_defs():
 			}).insert(ignore_permissions=True)
 
 
+# Stock Entry Types used by reversal documents. A Cancellation of a Material
+# Issue is still mechanically an issue-shaped Stock Entry (the kernel decides
+# direction from `is_cancellation`, not from the purpose), but showing
+# "Material Issue" on a reversal misreads to users - the client asked for the
+# transaction type not to say "issue" (WA-0003-01 item 5).
+#
+# A Stock Entry Type is just a named record carrying a `purpose`, and Stock
+# Entry.purpose is read-only and fetched from it. So a dedicated type changes
+# the label only and leaves every ERPNext validation and warehouse rule intact.
+REVERSAL_STOCK_ENTRY_TYPES = {
+	"Reversal of Issue": "Material Issue",
+	"Reversal of Receipt": "Material Receipt",
+	"Reversal of Transfer": "Material Transfer",
+}
+
+
+def ensure_reversal_stock_entry_types():
+	"""Create the reversal Stock Entry Types if missing (idempotent)."""
+	for name, purpose in REVERSAL_STOCK_ENTRY_TYPES.items():
+		if frappe.db.exists("Stock Entry Type", name):
+			continue
+		doc = frappe.get_doc({
+			"doctype": "Stock Entry Type",
+			"purpose": purpose,
+			"is_standard": 0,
+		})
+		doc.name = name
+		doc.insert(ignore_permissions=True)
+
+
+def after_install():
+	apply_custom_fields()
+	ensure_reversal_stock_entry_types()
+
+
 def after_migrate():
 	ensure_module_defs()
 	apply_custom_fields()
+	ensure_reversal_stock_entry_types()

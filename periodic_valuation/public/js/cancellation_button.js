@@ -17,12 +17,24 @@
 		frm.fields.forEach((f) => {
 			if (!keep.has(f.df.fieldname)) frm.set_df_property(f.df.fieldname, "read_only", 1);
 		});
-		(frm.doc.items || []).forEach((row) => {
-			Object.keys(row).forEach((k) => {
-				const g = frm.fields_dict.items && frm.fields_dict.items.grid;
-				if (g) g.update_docfield_property(k, "read_only", 1);
+		// Lock the child table by walking the grid's DOCFIELDS. Iterating the
+		// row object's keys instead walks framework metadata too (name, owner,
+		// creation, docstatus, idx ...); update_docfield_property throws
+		// "field <x> not found" on the first of those, which aborted this
+		// function before the grid was locked AND before the banner below ever
+		// rendered (WA-0003-01 item 5b).
+		const grid = frm.fields_dict.items && frm.fields_dict.items.grid;
+		if (grid) {
+			const fields = (grid.docfields || []).map((df) => df.fieldname);
+			fields.forEach((fieldname) => {
+				try {
+					grid.update_docfield_property(fieldname, "read_only", 1);
+				} catch (e) {
+					// never let one unknown field stop the rest of the lock
+				}
 			});
-		});
+			if (grid.refresh) grid.refresh();
+		}
 		if (frm.doc.cancellation_against) {
 			frm.dashboard.clear_headline();
 			frm.dashboard.set_headline(
@@ -84,6 +96,17 @@
 		frappe.ui.form.on(doctype, {
 			refresh(frm) {
 				lockReversal(frm);
+				// A reversal is itself immutable: hide core Cancel there too.
+				// It offers an action the server always refuses, and it must
+				// not gain a "Create Cancellation" button (no reversing a
+				// reversal) — so hide only, then stop.
+				if (frm.doc.docstatus === 1 && frm.doc.is_cancellation) {
+					hideCoreCancel(frm);
+					for (const delay of [250, 750]) {
+						setTimeout(() => hideCoreCancel(frm), delay);
+					}
+					return;
+				}
 				if (frm.doc.docstatus !== 1 || frm.doc.is_cancellation) return;
 
 				// one routed-check per form load, cached on the frm

@@ -63,6 +63,7 @@ def make_cancellation(doctype, name):
 	cancellation.is_cancellation = 1
 	cancellation.cancellation_against = name
 	cancellation.posting_date = nowdate()
+	_retype_reversal(cancellation)
 	if cancellation.meta.has_field("set_posting_time"):
 		cancellation.set_posting_time = 1
 	# a reversal carries the ORIGINAL's dates for valuation, but its own
@@ -74,6 +75,29 @@ def make_cancellation(doctype, name):
 	cancellation.flags.ignore_permissions = False
 	cancellation.insert()
 	return cancellation.name
+
+
+def _retype_reversal(cancellation):
+	"""Label a Stock Entry reversal with its own transaction type.
+
+	A reversal of a Material Issue is mechanically still an issue-shaped Stock
+	Entry — the kernel decides direction from `is_cancellation`, not from the
+	purpose — but a document that reverses an issue should not announce itself
+	as "Material Issue" (WA-0003-01 item 5).
+
+	The reversal Stock Entry Types carry the SAME `purpose` as the originals
+	(Stock Entry.purpose is read-only and fetched from the type), so this
+	changes the label only: every ERPNext validation, warehouse rule and
+	downstream report behaves exactly as before.
+	"""
+	if cancellation.doctype != "Stock Entry":
+		return
+	from periodic_valuation.setup.custom_fields import REVERSAL_STOCK_ENTRY_TYPES
+
+	target = {v: k for k, v in REVERSAL_STOCK_ENTRY_TYPES.items()}.get(cancellation.purpose)
+	if not target or not frappe.db.exists("Stock Entry Type", target):
+		return          # type not seeded (older site) — keep the original label
+	cancellation.stock_entry_type = target
 
 
 def _block_if_has_dependents(doctype, name, original):
