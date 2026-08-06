@@ -59,15 +59,18 @@ def get_current_state(company, item_code, warehouse=None, posting_date=None):
 # authoritatively. Copying it onto the document would be a third shadow to keep
 # in step, and today's SLE gap is what happens when a shadow is not maintained.
 # Deriving also means every historical document gets a label with no migration.
+# ERPNext vocabulary, not SAP's. "Return Delivery" is SAP's term for movement
+# type 122 (return to vendor), but in ERPNext it reads as something to do with a
+# Delivery Note — i.e. a sales return, the opposite of what it is.
 MOVEMENT_LABELS = {
-	"receipt": "Goods Receipt",
-	"issue": "Goods Issue",
-	"transfer_in": "Transfer In",
-	"transfer_out": "Transfer Out",
-	"return_in": "Customer Return",
-	"return_out": "Return Delivery",
-	"count_gain": "Physical Count (gain)",
-	"count_loss": "Physical Count (loss)",
+	"receipt": "Material Receipt",
+	"issue": "Material Issue",
+	"transfer_in": "Material Transfer (In)",
+	"transfer_out": "Material Transfer (Out)",
+	"return_in": "Sales Return",
+	"return_out": "Purchase Return",
+	"count_gain": "Stock Count (Gain)",
+	"count_loss": "Stock Count (Loss)",
 	"cancellation": "Cancellation",
 }
 
