@@ -26,7 +26,10 @@ valuation_landed_cost = "periodic_valuation.periodic_moving_average.landed_cost.
 after_migrate = ["periodic_valuation.setup.custom_fields.after_migrate"]
 after_install = ["periodic_valuation.setup.custom_fields.after_install"]
 
-app_include_js = "/assets/periodic_valuation/js/cancellation_button.js"
+app_include_js = [
+	"/assets/periodic_valuation/js/cancellation_button.js",
+	"/assets/periodic_valuation/js/movement_type.js",
+]
 
 # boundary revaluations for advance-released cost versions (M11/DR-12)
 scheduler_events = {
