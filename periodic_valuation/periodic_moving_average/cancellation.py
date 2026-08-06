@@ -100,6 +100,28 @@ def _retype_reversal(cancellation):
 	cancellation.stock_entry_type = target
 
 
+def _still_standing(doctype, names):
+	"""Of `names`, the ones not already reversed.
+
+	A dependent that has itself been reversed no longer stands, so it must not
+	block the parent — otherwise the sanctioned order the client asked for
+	("reverse the return, then reverse the original") is impossible: the return
+	stays docstatus 1 forever (immutable ledger), so a guard keyed on docstatus
+	alone never clears (WA-0003-01 item 11).
+	"""
+	if not names:
+		return []
+	reversed_ones = set(
+		frappe.get_all(
+			doctype,
+			filters={"cancellation_against": ("in", list(names)), "is_cancellation": 1,
+				"docstatus": 1},
+			pluck="cancellation_against",
+		)
+	)
+	return [n for n in names if n not in reversed_ones]
+
+
 def _block_if_has_dependents(doctype, name, original):
 	"""Warn-and-block (client decision 2026-07): a document cannot be reversed
 	while dependent documents still stand — the user must reverse those first
@@ -114,6 +136,7 @@ def _block_if_has_dependents(doctype, name, original):
 			filters={"return_against": name, "docstatus": 1, "is_cancellation": 0},
 			pluck="name",
 		)
+		returns = _still_standing(doctype, returns)
 		if returns:
 			frappe.throw(
 				_(
@@ -136,7 +159,7 @@ def _block_if_has_dependents(doctype, name, original):
 				filters={link: name, "docstatus": 1},
 				pluck="parent",
 			)
-			invoices = sorted(set(invoices))
+			invoices = _still_standing(child_dt.replace(" Item", ""), sorted(set(invoices)))
 			if invoices:
 				frappe.throw(
 					_(
