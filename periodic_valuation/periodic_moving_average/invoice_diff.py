@@ -112,7 +112,12 @@ def _reverse_invoice_diff(doc):
 def _reverse_source_events(doc, original):
 	from erpnext.accounts.general_ledger import make_gl_entries
 
-	from periodic_valuation.periodic_moving_average.kernel import ScopeState, r2, recompute_closing
+	from periodic_valuation.periodic_moving_average.kernel import (
+		ScopeState,
+		_cascade_value_carryover,
+		r2,
+		recompute_closing,
+	)
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 	from periodic_valuation.shared.periods import assert_posting_allowed
 
@@ -174,3 +179,17 @@ def _reverse_source_events(doc, original):
 			ipb.reval_value = r2(flt(ipb.reval_value) - flt(orig.value_delta))
 			recompute_closing(ipb)
 			scope.save(ipb, source=("Purchase Invoice", doc.name))
+			# ...and push the same delta through every LATER period's carryover,
+			# exactly as the forward posting does. Without this the reversal
+			# lands only in its own period: the original invoice-diff cascaded
+			# forward, its reversal did not, and every later period stayed
+			# overstated by the reversed amount — GL and the Period Balance
+			# then disagree permanently (WA-0003-01 item 20 follow-up; found
+			# replaying the client's MH #7 chain, where a reversed 100,000
+			# invoice difference left the next period 100,000 high).
+			_cascade_value_carryover(
+				scope, period,
+				qty_delta=0.0,
+				value_delta=-flt(orig.value_delta),
+				source=("Purchase Invoice", doc.name),
+			)
