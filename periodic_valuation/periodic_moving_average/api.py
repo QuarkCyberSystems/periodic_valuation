@@ -127,3 +127,52 @@ def get_movement_summary(doctype, docname):
 			for r in rows
 		],
 	}
+
+
+@frappe.whitelist()
+def get_uninvoiced_qty(purchase_receipt):
+	"""How many units of a receipt are still uninvoiced, by QUANTITY.
+
+	ERPNext derives per_billed from billed AMOUNT
+	(purchase_receipt.py: percent_billed = 100 * billed_amount / amount), and
+	the form only offers Create > Purchase Invoice while per_billed < 100. So
+	invoicing part of the quantity at a higher rate can cover the receipt's
+	whole value, mark it 100% billed, and strip the action off the form while
+	units remain uninvoiced — the receipt becomes impossible to finish billing
+	from the UI (WA-0003-01 item 15; the client's MAT-PRE-2026-00039 invoiced
+	3,000 of 5,000 at double rate).
+
+	Quantity is the honest measure of "is there anything left to bill", so it
+	is what the button is gated on. Reversal credit notes carry negative qty
+	against the same pr_detail, so they net off here exactly as they do in
+	per_billed.
+	"""
+	frappe.has_permission("Purchase Receipt", "read", doc=purchase_receipt, throw=True)
+	rows = frappe.get_all(
+		"Purchase Receipt Item",
+		filters={"parent": purchase_receipt, "docstatus": 1},
+		fields=["name", "item_code", "qty"],
+	)
+	if not rows:
+		return {"remaining": 0.0, "rows": []}
+
+	invoiced = {}
+	for r in frappe.get_all(
+		"Purchase Invoice Item",
+		filters={"pr_detail": ("in", [r.name for r in rows]), "docstatus": 1},
+		fields=["pr_detail", "qty"],
+	):
+		invoiced[r.pr_detail] = flt(invoiced.get(r.pr_detail, 0)) + flt(r.qty)
+
+	detail, remaining = [], 0.0
+	for r in rows:
+		left = flt(r.qty) - flt(invoiced.get(r.name, 0))
+		if left > 0:
+			remaining += left
+		detail.append({
+			"item_code": r.item_code,
+			"received_qty": flt(r.qty),
+			"invoiced_qty": flt(invoiced.get(r.name, 0)),
+			"remaining_qty": left,
+		})
+	return {"remaining": remaining, "rows": detail}
