@@ -154,12 +154,23 @@ def _block_if_has_dependents(doctype, name, original):
 		}
 		if doctype in child_map:
 			child_dt, link = child_map[doctype]
+			parent_dt = child_dt.replace(" Item", "")
 			invoices = frappe.get_all(
 				child_dt,
 				filters={link: name, "docstatus": 1},
 				pluck="parent",
 			)
-			invoices = _still_standing(child_dt.replace(" Item", ""), sorted(set(invoices)))
+			# A reversal credit note also carries the receipt link, so it
+			# comes back from the query above. Listing it tells the user to
+			# reverse a reversal — which the loop guard refuses. Drop the
+			# reversal documents themselves, then drop the originals they
+			# have already reversed (WA-0003-01 item 12).
+			invoices = frappe.get_all(
+				parent_dt,
+				filters={"name": ("in", sorted(set(invoices))), "is_cancellation": 0},
+				pluck="name",
+			) if invoices else []
+			invoices = _still_standing(parent_dt, sorted(set(invoices)))
 			if invoices:
 				frappe.throw(
 					_(
