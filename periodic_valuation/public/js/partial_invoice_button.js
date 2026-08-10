@@ -16,6 +16,7 @@
 
 frappe.ui.form.on("Purchase Receipt", {
 	refresh(frm) {
+		frm._pv_notice = null;   // recompute per load; never show a stale line
 		if (frm.doc.docstatus !== 1) return;
 		if (frm.doc.is_return || frm.doc.is_cancellation) return;
 		// core already offers it — nothing to restore
@@ -39,12 +40,13 @@ frappe.ui.form.on("Purchase Receipt", {
 				);
 				// Say why the action is back: the receipt reads "Completed"
 				// and 100% billed, so an unexplained button looks like a bug.
-				frm.dashboard.add_comment(
-					__("{0} unit(s) on this receipt are still uninvoiced even though its value is fully billed — use Create > Purchase Invoice to bill the remainder.",
-						[format_number(left)]),
-					"blue",
-					true
+				// Routed through the shared writer — .form-message has one
+				// owner, and set_intro/add_comment here render nothing.
+				frm._pv_notice = __(
+					"{0} unit(s) on this receipt are still uninvoiced even though its value is fully billed — use Create > Purchase Invoice to bill the remainder.",
+					[format_number(left)]
 				);
+				if (window.pv_render_message) window.pv_render_message(frm);
 			},
 		});
 	},

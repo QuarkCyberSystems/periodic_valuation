@@ -26,6 +26,13 @@
 		if (frm._pv_movement) {
 			lines.push(__("Movement: {0}", [frm._pv_movement]));
 		}
+		// Any other app-owned notice for this form. It goes through THIS
+		// function rather than set_intro/add_comment because .form-message has
+		// exactly one writer — anything else is silently overwritten by
+		// whichever pass runs last.
+		if (frm._pv_notice) {
+			lines.push(frm._pv_notice);
+		}
 		if (!lines.length) return;
 		frm.dashboard.clear_headline();
 		frm.dashboard.set_headline(
@@ -170,6 +177,10 @@
 			},
 		});
 	}
+
+	// Other app scripts set frm._pv_notice and call this, so every line in
+	// .form-message is composed by one writer (see renderMessage).
+	window.pv_render_message = renderMessage;
 
 	function make_cancellation_dialog(frm) {
 		frappe.confirm(
