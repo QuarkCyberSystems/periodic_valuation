@@ -19,6 +19,20 @@ Inventory account resolution order (most specific first):
 """
 
 import frappe
+from frappe import _
+
+# Offset accounts whose absence must stop the posting rather than silently
+# collapse the leg onto SRBNB. "expense" is deliberately absent: its caller
+# falls back to the Company default expense account by design.
+REQUIRED_OFFSETS = {
+	"price_difference",
+	"prd",
+	"fx_gain_loss",
+	"rounding_cleanup",
+	"revaluation",
+	"count_diff",
+	"negative_stock_adjustment",
+}
 
 
 def _child_account(parenttype, parent, company, warehouse, fieldname):
@@ -116,7 +130,24 @@ def get_offset_account(company, item_code, warehouse, transaction_type, row_over
 	}
 	key = settings_map.get(transaction_type)
 	if key:
-		return get_pma_setting(company, key)
+		account = get_pma_setting(company, key)
+		if not account and transaction_type in REQUIRED_OFFSETS:
+			# Fail loudly. An unresolved account leaves the GL leg with no
+			# account, and the posting then collapses onto the offset account
+			# (SRBNB): the ledger still balances, so nothing complains, but the
+			# expense never reaches P&L and SRBNB carries a permanent
+			# imbalance. The client's ACC-PINV-2026-00018 lost a 60,000 price
+			# difference exactly this way (WA-0003-01 item 21).
+			frappe.throw(
+				_(
+					"No {0} is configured for {1}. Set it in Periodic Moving Average "
+					"Settings, or on the Item / Item Group defaults, before posting "
+					"this transaction — posting without it would silently absorb the "
+					"amount into Stock Received But Not Billed."
+				).format(frappe.unscrub(key), company),
+				title=_("Valuation Account Not Configured"),
+			)
+		return account
 	return None
 
 
