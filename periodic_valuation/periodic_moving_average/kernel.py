@@ -1282,6 +1282,16 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		scope, ipb, source=source, posting_date=posting_date,
 		movement_type=movement_type, reason=reason, qty_delta=qty_delta,
 		value_delta=value_delta, map_before=map_before,
+		# Record BOTH halves of the stock-ratio split. value_delta already
+		# carries the inventory share, but the audit field was never passed and
+		# so every event showed "inventory portion 0" beside a populated
+		# expense portion — a split that reads as broken to anyone reviewing
+		# the Inventory Valuation Event, even though the posting is correct
+		# (plan §IVE: "inventory_portion — for invoice_diff/landed_cost:
+		# allocated to inventory via stock ratio").
+		inventory_portion=(
+			value_delta if reason in ("landed_cost", "invoice_diff", "fx_adjust") else 0
+		),
 		expense_portion=expense_portion, fx_variance=fx_variance,
 		affects_map=0 if reason == "count_diff" else 1,
 	)
