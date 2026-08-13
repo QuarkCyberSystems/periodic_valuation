@@ -65,6 +65,17 @@ class StockCount(Document):
 				frappe.throw(
 					_("Row {0}: no variance account resolvable for {1}.").format(row.idx, row.item_code)
 				)
+			# The picker is company-filtered client-side; enforce it here too so
+			# an imported or API-created row cannot post another company's
+			# account (client meeting 2026-08-12: "Stock Adjustment - WP"
+			# offered on a Badia Cement count).
+			acct_company = frappe.get_cached_value("Account", account, "company")
+			if acct_company != self.company:
+				frappe.throw(
+					_("Row {0}: variance account {1} belongs to {2}, not {3}.").format(
+						row.idx, account, acct_company, self.company
+					)
+				)
 			post_value_event(
 				self.company,
 				row.item_code,

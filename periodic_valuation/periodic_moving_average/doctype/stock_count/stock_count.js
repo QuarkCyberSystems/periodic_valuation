@@ -1,6 +1,34 @@
 // Copyright (c) 2026, Quark Cyber Systems
 
 frappe.ui.form.on("Stock Count", {
+	setup(frm) {
+		// Company-scope the child links. Without these the pickers offer every
+		// company's accounts and warehouses -- the client was shown
+		// "Stock Adjustment - WP" on a Badia Cement count (meeting 2026-08-12).
+		frm.set_query("variance_account", "items", () => ({
+			filters: {
+				company: frm.doc.company,
+				is_group: 0,
+				root_type: ["in", ["Expense", "Income"]],
+			},
+		}));
+		frm.set_query("warehouse", "items", () => ({
+			filters: { company: frm.doc.company, is_group: 0 },
+		}));
+	},
+
+	company(frm) {
+		// company changed -> previously chosen rows may now be out of scope
+		(frm.doc.items || []).forEach((row) => {
+			if (row.variance_account || row.warehouse) {
+				frappe.model.set_value(row.doctype, row.name, {
+					variance_account: null,
+					warehouse: null,
+				});
+			}
+		});
+	},
+
 	// A count dated in a prior period must show THAT period's on-hand. Changing
 	// the posting date therefore has to re-fetch every row, otherwise the form
 	// keeps showing the balance for whichever date was set when the item was
