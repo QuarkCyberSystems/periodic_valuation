@@ -396,6 +396,16 @@ def post_gl(controller, posting_date, legs, ive_name, remarks=None):
 					"against": against,
 					"debit": amount if amount > 0 else 0,
 					"credit": -amount if amount < 0 else 0,
+					# Inventory and its valuation offsets are always company
+					# currency (design: "inventory always base currency"), so
+					# the account-currency figures are the same numbers. The
+					# General Ledger report renders THESE fields — leaving them
+					# unset stores 0 and every kernel leg displays as $0.00,
+					# which finance reads as "no accounting entries" even
+					# though the base debit/credit are correct and balanced
+					# (client meeting 2026-08-12, screenshot of ACC-PINV GL).
+					"debit_in_account_currency": amount if amount > 0 else 0,
+					"credit_in_account_currency": -amount if amount < 0 else 0,
 					"posting_date": posting_date,
 					"remarks": remarks or _("PMA valuation event {0}").format(ive_name),
 					"valuation_event_id": ive_name,
