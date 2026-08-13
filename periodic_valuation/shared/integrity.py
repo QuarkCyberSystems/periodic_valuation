@@ -202,12 +202,18 @@ def check_billing_consistency(company):
 				pr.name,
 			)
 		)
+		from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
+			get_item_wise_returned_qty,
+		)
+
+		returned = get_item_wise_returned_qty(doc)
 		total_ref = total_billed = 0.0
 		for item in doc.items:
 			ref = abs(flt(item.amount))
 			total_ref += ref
 			if item.item_code in routed:
-				eff = flt(item.qty)
+				# net of returns, exactly as the per_billed writer computes it
+				eff = flt(item.qty) - flt(returned.get(item.name))
 				frac = 1.0 if eff <= 0 else min(flt(billed.get(item.name)) / eff, 1.0)
 				total_billed += frac * ref
 			else:
