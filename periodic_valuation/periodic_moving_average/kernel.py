@@ -531,15 +531,25 @@ def _post_reconciliation(controller, scope, period, sle):
 	last_ive = None
 
 	if qty_delta:
-		qty_value = r2(qty_delta * rate)
+		# A count difference is valued at the CURRENT period MAP (frozen MAP
+		# while negative) and never moves MAP — the rate change, if any, is
+		# entirely the revaluation residual below. Valuing the count at the
+		# TARGET rate overstated the count leg and understated the
+		# revaluation by qty x (target - MAP), and moved MAP on a count
+		# event, which the design forbids (client meeting 2026-08-12,
+		# MAT-RECO-2026-00010: 500 x 1,000 posted where 500 x 996 belongs).
+		count_rate = flt(ipb.frozen_map) if ipb.is_negative else map_before
+		qty_value = r2(qty_delta * count_rate)
 		ipb.adjust_qty = r6(flt(ipb.adjust_qty) + qty_delta)
 		ipb.adjust_value = r6(flt(ipb.adjust_value) + qty_value)
 		recompute_closing(ipb)
+		if not ipb.is_negative and flt(ipb.closing_qty) > 0:
+			ipb.moving_avg_price = map_before  # count never moves MAP
 		sme, last_ive = write_events(
 			scope, ipb, source=source, posting_date=posting_date,
 			movement_type="count_gain" if qty_delta > 0 else "count_loss",
 			reason="count_diff", qty_delta=qty_delta, value_delta=qty_value,
-			map_before=map_before, affects_map=1 if has_rate else 0,
+			map_before=map_before, affects_map=0,
 			stock_uom=sle.get("stock_uom"),
 		)
 		post_gl(
@@ -573,6 +583,15 @@ def _post_reconciliation(controller, scope, period, sle):
 		ipb.moving_avg_price = rate
 	_freeze_check(ipb)
 	scope.save(ipb, caused_by=last_ive, source=source)
+
+	# Backdated reconciliation: every LATER period's carryover must absorb the
+	# same qty/value delta, exactly as receipts, issues and value events do —
+	# otherwise the next period's opening no longer chains from this period's
+	# closing and period close refuses (client meeting 2026-08-12; MH #9:
+	# July closed 3,000/2,988,930 while August still carried 1,490/1,370,800).
+	_cascade_value_carryover(
+		scope, period, qty_delta=qty_delta, value_delta=total_delta, source=source,
+	)
 
 	sle_row = dict(sle)
 	sle_row["actual_qty"] = qty_delta
