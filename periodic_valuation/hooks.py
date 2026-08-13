@@ -23,6 +23,10 @@ valuation_incoming_rate = "periodic_valuation.shared.routing.get_incoming_rate"
 # SLE revaluation (consulted by the fork's update_landed_cost).
 valuation_landed_cost = "periodic_valuation.periodic_moving_average.landed_cost.handle_landed_cost"
 
+# Period-aware balance resolver (qty + period MAP) for forms that show the
+# current state of a routed item — Stock Reconciliation, Stock Count.
+valuation_current_state = "periodic_valuation.periodic_moving_average.api.get_current_state"
+
 after_migrate = ["periodic_valuation.setup.custom_fields.after_migrate"]
 after_install = ["periodic_valuation.setup.custom_fields.after_install"]
 
