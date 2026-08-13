@@ -8,7 +8,7 @@ and SI update_stock issues. Rolled back unless commit=True.
 """
 
 import frappe
-from frappe.utils import add_days, add_months, flt, get_first_day, nowdate
+from frappe.utils import add_days, add_months, flt, get_first_day, getdate, nowdate
 
 from periodic_valuation.tests.smoke_kernel import COMPANY, ensure_masters
 
@@ -536,11 +536,57 @@ def run(commit=False):
 	else:
 		check("Stock Ageing: FIFO ages exact for routed item", False, "item missing from report")
 
+	# ============ period-aware rate resolution (client meeting 2026-08-12)
+	# A backdated issue must be valued -- and displayed -- at the MAP of ITS
+	# OWN period, not the latest one. Prior period MAP 920, current 1072.
+	it = make_item("_SMK-PERIODRATE")
+	make_pr(it, wh, 100, 920, posting_date=str(prior))
+	make_pr(it, wh, 100, 1072)
+	pp = ipb_period(it, prior.year, prior.month)
+	cur = getdate(nowdate())
+	cp = ipb_period(it, cur.year, cur.month)
+	check("period rate: prior MAP 920, current MAP 996",
+		flt(pp.moving_avg_price) == 920 and flt(cp.moving_avg_price) == 996,
+		f"{pp.moving_avg_price}/{cp.moving_avg_price}")
+
+	from periodic_valuation.shared.routing import get_incoming_rate
+
+	check("period rate: resolver as of prior period returns 920",
+		flt(get_incoming_rate({"item_code": it, "company": COMPANY, "warehouse": wh,
+			"posting_date": str(prior)}, "Periodic Moving Average")) == 920,
+		str(get_incoming_rate({"item_code": it, "company": COMPANY, "warehouse": wh,
+			"posting_date": str(prior)}, "Periodic Moving Average")))
+	check("period rate: resolver as of today returns 996",
+		flt(get_incoming_rate({"item_code": it, "company": COMPANY, "warehouse": wh,
+			"posting_date": nowdate()}, "Periodic Moving Average")) == 996,
+		str(get_incoming_rate({"item_code": it, "company": COMPANY, "warehouse": wh,
+			"posting_date": nowdate()}, "Periodic Moving Average")))
+
+	dn = make_dn(it, wh, 10, posting_date=str(prior))
+	ive = frappe.get_all("Inventory Valuation Event", filters={"source_docname": dn.name},
+		fields=["value_delta", "map_before"])[0]
+	check("period rate: backdated issue valued at 920, not 996",
+		flt(ive.value_delta, 2) == -9200 and flt(ive.map_before) == 920,
+		f"{ive.value_delta}/{ive.map_before}")
+	sle = frappe.get_all("Stock Ledger Entry",
+		filters={"voucher_no": dn.name, "is_cancelled": 0},
+		fields=["stock_value_difference"])[0]
+	check("period rate: backdated issue SLE value is -9,200",
+		flt(sle.stock_value_difference, 2) == -9200, str(sle.stock_value_difference))
+
+	# Stock Reconciliation prefill reads the same period balance
+	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_stock_balance_for
+
+	bal = get_stock_balance_for(it, wh, str(prior), "12:00:00")
+	check("period rate: reconciliation prefill uses the period MAP",
+		flt(bal["rate"]) == 920, str(bal["rate"]))
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if commit and not failed:
 		frappe.db.commit()
 	else:
 		frappe.db.rollback()
+
 	if failed:
 		raise Exception("edge smoke failures: " + "; ".join(x[0] for x in failed))
