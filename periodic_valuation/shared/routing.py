@@ -68,13 +68,23 @@ def get_incoming_rate(args, valuation_method):
 	filters = {"company": company, "item_code": item_code}
 	filters["warehouse"] = (args.get("warehouse") or "") if include_warehouse else ""
 
-	row = frappe.get_all(
+	# AS OF the document's posting period — a backdated issue is valued (and
+	# its form rate displayed) at that period's MAP, not the latest one
+	# (client meeting 2026-08-12: issue posted 09-07 showed 996, the August
+	# MAP, where July's 920 belongs).
+	rows = frappe.get_all(
 		"Inventory Period Balance",
 		filters=filters,
-		fields=["moving_avg_price", "frozen_map", "is_negative"],
+		fields=["moving_avg_price", "frozen_map", "is_negative", "period_year", "period_month"],
 		order_by="period_year desc, period_month desc",
-		limit=1,
+		limit=60,
 	)
+	if args.get("posting_date"):
+		from frappe.utils import getdate
+
+		d = getdate(args.get("posting_date"))
+		rows = [r for r in rows if (r.period_year, r.period_month) <= (d.year, d.month)] or rows
+	row = rows[:1]
 	if not row:
 		return 0.0
 	if row[0].is_negative:
