@@ -173,3 +173,46 @@ def report_drift(company=None):
 	for d in drifts:
 		print(f"{d['item_code']:<32} {d['warehouse']:<24} {d['ipb_qty']:>10} {d['bin_qty']:>10} {d['drift']:>10}")
 	return drifts
+
+
+def check_billing_consistency(company):
+	"""per_billed on routed receipts must equal quantity coverage.
+
+	The billing writers derive per_billed from qty coverage for kernel-routed
+	rows (SAP GR/IR semantics). This asserts no receipt has drifted back to an
+	amount-based figure — the drift that let a half-invoiced receipt read
+	"Completed" and disappear from every billing flow (client meeting
+	2026-08-12, MAT-PRE-2026-00281). Returns drift rows; empty means clean.
+	"""
+	drifts = []
+	for pr in frappe.get_all(
+		"Purchase Receipt",
+		filters={"company": company, "docstatus": 1, "is_cancellation": 0, "is_return": 0},
+		fields=["name", "per_billed"],
+	):
+		doc = frappe.get_doc("Purchase Receipt", pr.name)
+		routed = doc.get_kernel_routed_items() if hasattr(doc, "get_kernel_routed_items") else set()
+		if not routed:
+			continue
+		billed = dict(
+			frappe.db.sql(
+				"""select pr_detail, sum(qty) from `tabPurchase Invoice Item`
+				where purchase_receipt=%s and docstatus=1 and ifnull(pr_detail,'') != ''
+				group by pr_detail""",
+				pr.name,
+			)
+		)
+		total_ref = total_billed = 0.0
+		for item in doc.items:
+			ref = abs(flt(item.amount))
+			total_ref += ref
+			if item.item_code in routed:
+				eff = flt(item.qty)
+				frac = 1.0 if eff <= 0 else min(flt(billed.get(item.name)) / eff, 1.0)
+				total_billed += frac * ref
+			else:
+				total_billed += min(abs(flt(item.billed_amt)), ref)
+		expected = round(100.0 * total_billed / (total_ref or 1), 6)
+		if abs(flt(pr.per_billed) - expected) > 0.01:
+			drifts.append({"receipt": pr.name, "per_billed": flt(pr.per_billed), "expected": expected})
+	return drifts
