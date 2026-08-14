@@ -17,6 +17,55 @@ frappe.ui.form.on("Stock Count", {
 		}));
 	},
 
+	refresh(frm) {
+		// After submit, offer the same View > Stock Ledger / Accounting Ledger
+		// shortcuts every core stock document has. Stock Count posted GL and
+		// SLE rows with no way to reach them from the document, which is why
+		// the entries looked absent (client meeting 2026-08-12).
+		if (frm.doc.docstatus === 0) return;
+		const to_date = moment(frm.doc.modified).format("YYYY-MM-DD");
+		const route_args = (extra) => ({
+			voucher_no: frm.doc.name,
+			from_date: frm.doc.posting_date,
+			to_date: to_date,
+			company: frm.doc.company,
+			show_cancelled_entries: frm.doc.docstatus === 2,
+			ignore_prepared_report: true,
+			...extra,
+		});
+		frm.add_custom_button(
+			__("Stock Ledger"),
+			() => {
+				frappe.route_options = route_args({});
+				frappe.set_route("query-report", "Stock Ledger");
+			},
+			__("View")
+		);
+		if (erpnext.is_perpetual_inventory_enabled(frm.doc.company)) {
+			frm.add_custom_button(
+				__("Accounting Ledger"),
+				() => {
+					frappe.route_options = route_args({
+						categorize_by: "Categorize by Voucher (Consolidated)",
+					});
+					frappe.set_route("query-report", "General Ledger");
+				},
+				__("View")
+			);
+		}
+		// the valuation events this count produced -- the kernel's own audit trail
+		frm.add_custom_button(
+			__("Valuation Events"),
+			() => {
+				frappe.set_route("List", "Inventory Valuation Event", {
+					source_doctype: "Stock Count",
+					source_docname: frm.doc.name,
+				});
+			},
+			__("View")
+		);
+	},
+
 	company(frm) {
 		// company changed -> previously chosen rows may now be out of scope
 		(frm.doc.items || []).forEach((row) => {
