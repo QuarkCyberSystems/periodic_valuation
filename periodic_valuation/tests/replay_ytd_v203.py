@@ -25,6 +25,15 @@ from frappe.utils import flt
 CHECKS = []
 
 
+def _fy_covered(fy):
+	"""A differently-named Fiscal Year may already span this year on a shared
+	site (e.g. `_Test Fiscal Year 2025` from framework fixtures). Creating our
+	own would overlap and be rejected, so reuse whatever is already there."""
+	return bool(frappe.db.exists("Fiscal Year", {
+		"year_start_date": ("<=", f"{fy}-01-01"),
+		"year_end_date": (">=", f"{fy}-12-31"),
+	}))
+
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
 	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
@@ -57,7 +66,7 @@ class Co:
 				"create_chart_of_accounts_based_on": "Standard Template",
 			}).insert(ignore_permissions=True)
 		for fy in ("2025", "2026"):
-			if not frappe.db.exists("Fiscal Year", fy):
+			if not frappe.db.exists("Fiscal Year", fy) and not _fy_covered(fy):
 				frappe.get_doc({"doctype": "Fiscal Year", "year": fy,
 					"year_start_date": f"{fy}-01-01", "year_end_date": f"{fy}-12-31",
 				}).insert(ignore_permissions=True)
