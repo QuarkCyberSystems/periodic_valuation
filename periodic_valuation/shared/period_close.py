@@ -30,6 +30,42 @@ def _ipb_rows(period):
 	)
 
 
+def _scope_rows_as_of(period):
+	"""Every valuation scope's LATEST balance as of this period end.
+
+	A scope that last transacted in an earlier month has no row in this period,
+	but its value is still on the inventory account. The reconciliation gate
+	sums the GL cumulatively, so it has to sum the balance side the same way —
+	counting only in-period rows makes every dormant scope look like a
+	discrepancy. On the client's bench 70 dormant items produced a reported
+	29,899,841.66 mismatch with no data fault at all, and no period could be
+	closed.
+	"""
+	period_key = period.period_year * 100 + period.period_month
+	return frappe.db.sql(
+		"""
+		SELECT b.name, b.item_code, b.warehouse, b.closing_qty, b.closing_value,
+			b.period_year, b.period_month
+		FROM `tabInventory Period Balance` b
+		JOIN (
+			SELECT company, item_code, warehouse,
+				MAX(period_year * 100 + period_month) AS period_key
+			FROM `tabInventory Period Balance`
+			WHERE company = %(company)s
+				AND (period_year * 100 + period_month) <= %(period_key)s
+			GROUP BY company, item_code, warehouse
+		) latest
+			ON latest.company = b.company
+			AND latest.item_code = b.item_code
+			AND latest.warehouse = b.warehouse
+			AND (b.period_year * 100 + b.period_month) = latest.period_key
+		WHERE b.company = %(company)s
+		""",
+		{"company": period.company, "period_key": period_key},
+		as_dict=True,
+	)
+
+
 def _previous_period_key(period):
 	if period.period_month == 1:
 		return period.period_year - 1, 12
@@ -138,8 +174,12 @@ def run_reconciliation_gate(period):
 	inventory account any in-scope IPB row resolves to, up to period end.
 	Manual drift into stock accounts is blocked at posting time, so the two
 	sides must match to the configured tolerance (default 0.00 — strict).
+
+	Both sides are measured over the same population: every scope's latest
+	balance as of the period end, not only the scopes that moved this period
+	(see _scope_rows_as_of).
 	"""
-	rows = _ipb_rows(period)
+	rows = _scope_rows_as_of(period)
 	movement_total = flt(sum(flt(r.closing_value) for r in rows), 2)
 
 	inventory_accounts = get_all_inventory_accounts(period.company, rows)
@@ -168,6 +208,37 @@ def run_reconciliation_gate(period):
 		"tolerance": tolerance,
 		"passed": abs(discrepancy) <= tolerance,
 	}
+
+
+def assert_no_stranded_value(period):
+	"""Gate: no scope may carry inventory value on zero quantity.
+
+	When a posting takes quantity to zero, any residual within
+	`rounding_tolerance` is swept to Stock Rounding Adjustment automatically
+	(kernel.maybe_rounding_cleanup). A residual ABOVE tolerance is a real
+	amount, not rounding noise — most often a late cost (landed cost, invoice
+	difference) allocated by stock ratio to a period where the goods were still
+	on hand, posted after they had all been issued. Writing that off
+	automatically is never permitted (Apr 22 decision), so the period cannot
+	close until finance resolves it.
+
+	Without this check the condition is invisible: GL and the movement table
+	both carry the same stranded amount, so the reconciliation gate balances,
+	the Bin agrees on quantity (zero), and the Stock Ledger agrees on value.
+	Every gate passes while inventory reports value for stock that is gone.
+	"""
+	tolerance = flt(get_pma_setting(period.company, "rounding_tolerance")) or 0.01
+	stranded = [
+		{
+			"item_code": row.item_code,
+			"warehouse": row.warehouse or "(company scope)",
+			"closing_value": flt(row.closing_value, 2),
+			"period": f"{row.period_year}-{row.period_month:02d}",
+		}
+		for row in _scope_rows_as_of(period)
+		if flt(row.closing_qty, 6) == 0 and abs(flt(row.closing_value, 6)) > tolerance
+	]
+	return {"ok": not stranded, "stranded": stranded, "tolerance": tolerance}
 
 
 def assert_bin_ledger_consistency(period):

@@ -42,13 +42,17 @@ class InventoryPeriodClose(Document):
 
 		period = frappe.get_doc("Inventory Period", self.inventory_period)
 
-		from periodic_valuation.shared.period_close import assert_bin_ledger_consistency
+		from periodic_valuation.shared.period_close import (
+			assert_bin_ledger_consistency,
+			assert_no_stranded_value,
+		)
 
 		continuity = assert_continuity(period)
 		identity = assert_event_gl_identity(period)
 		orphans = assert_no_orphans(period)
 		recon = run_reconciliation_gate(period)
 		bin_ledger = assert_bin_ledger_consistency(period)
+		stranded = assert_no_stranded_value(period)
 
 		self.db_set(
 			{
@@ -94,6 +98,23 @@ class InventoryPeriodClose(Document):
 					"Stock balance (Bin) disagrees with the valuation ledger (IPB) for: {0}. "
 					"Run a Stock Reconciliation on these items to realign before closing."
 				).format(items)
+			)
+		if stranded["stranded"]:
+			detail = ", ".join(
+				"{0} {1} carrying {2} on zero stock (since {3})".format(
+					d["item_code"], d["warehouse"], flt(d["closing_value"], 2), d["period"]
+				)
+				for d in stranded["stranded"][:10]
+			)
+			failures.append(
+				_(
+					"Inventory value is held against zero quantity for: {0}. Residuals within "
+					"{1} clear automatically; these are larger, so they are a real cost sitting "
+					"on stock that is gone — most often a late landed cost or invoice difference "
+					"allocated to a period where the goods were still on hand. Post a Stock "
+					"Revaluation or a correcting entry to move it to the right account; automatic "
+					"write-off is not permitted."
+				).format(detail, flt(stranded["tolerance"], 2))
 			)
 		if bin_ledger.get("value_drifts"):
 			detail = ", ".join(

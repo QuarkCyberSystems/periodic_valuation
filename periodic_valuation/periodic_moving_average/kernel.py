@@ -599,7 +599,7 @@ def _post_reconciliation(controller, scope, period, sle):
 	# so the Bin is written to the absolute target (not shifted by the delta) —
 	# this is the lever that erases any prior Bin<->IPB drift.
 	write_sle(controller, sle_row, scope, ipb, total_delta, bin_absolute=target_qty)
-	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date)
+	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=qty_delta)
 
 
 def _reconciliation_offset_account(controller, sle):
@@ -693,6 +693,7 @@ def _post_transfer(controller, out_sle, in_sle):
 	ipb_out.issue_qty = r6(flt(ipb_out.issue_qty) + qty)
 	ipb_out.issue_value = r6(flt(ipb_out.issue_value) + value)
 	recompute_closing(ipb_out)
+	_pin_map(ipb_out, map_before_out)  # the outbound leg is an issue at source MAP
 	_freeze_check(ipb_out)
 	sme_out, ive_out = write_events(
 		out_scope, ipb_out, source=source, posting_date=posting_date,
@@ -722,7 +723,7 @@ def _post_transfer(controller, out_sle, in_sle):
 			ive_in,
 		)
 
-	maybe_rounding_cleanup(controller, out_scope, ipb_out, source, posting_date)
+	maybe_rounding_cleanup(controller, out_scope, ipb_out, source, posting_date, qty_scale=qty)
 
 
 def _classify(controller, sle, is_cancellation, is_return):
@@ -782,6 +783,7 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 		ipb.issue_qty = r6(flt(ipb.issue_qty) - qty)
 		ipb.issue_value = r6(flt(ipb.issue_value) + issue_value)
 		recompute_closing(ipb)
+		_pin_map(ipb, map_before)  # an issue never moves the MAP
 		_freeze_check(ipb)
 		sme, ive = write_events(
 			scope, ipb, source=source, posting_date=posting_date,
@@ -798,7 +800,14 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 
 	elif kind in ("return_in", "return_out"):
 		policy = get_return_valuation(scope.company, controller.doctype)
-		if policy == "With Reference" and controller.get("return_against"):
+		# Whether the return is valued at the ORIGINAL cost is decided by the
+		# policy, not by whether the original event row could be located:
+		# _original_rate falls back to the return row's own rate (copied from the
+		# original document) when the event lookup misses, and that is still a
+		# with-reference valuation. The MAP rule below keys on this, so it must
+		# not be conflated with `reference_event` being found.
+		valued_at_reference = policy == "With Reference" and bool(controller.get("return_against"))
+		if valued_at_reference:
 			rate, reference_event = _original_rate(controller, sle)
 		else:
 			rate, reference_event = (flt(ipb.frozen_map) if ipb.is_negative else flt(ipb.moving_avg_price)), None
@@ -832,6 +841,10 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 				max(0.0, flt(ipb.total_received_since_zero) + qty)
 			)
 		recompute_closing(ipb)
+		if not valued_at_reference:
+			# valued at the current MAP, so it cannot move it (RET-02); a return
+			# at the original cost re-blends like a receipt and does move it
+			_pin_map(ipb, map_before)
 		_freeze_check(ipb)
 		reason = "return_with_ref" if reference_event else "return_no_ref"
 		movement = "return_in" if qty > 0 else "return_out"
@@ -853,7 +866,7 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 	elif kind == "cancellation":
 		_post_cancellation(controller, scope, period, ipb, sle, source, inventory_account, expense)
 
-	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date)
+	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=qty)
 
 
 def _apply_receipt(ipb, qty, rate):
@@ -945,6 +958,24 @@ def _guard_positive_value(ipb, item_code, reason):
 		)
 
 
+def _pin_map(ipb, map_before):
+	"""Hold the MAP for an event the design says never moves it.
+
+	`recompute_closing` derives MAP = closing_value / closing_qty, but
+	closing_value is carried at GL precision (the issue leg is rounded to 2dp so
+	it equals the posted amount). Re-deriving the MAP from that rounded figure
+	nudges it: an issue of 20 against a MAP of 13.333333 leaves 13.333308, and 7
+	of 11 issue quantities moved a MAP the design fixes as unchanged (FM-02,
+	RET-02). The drift accumulates over every issue and makes the MAP
+	irreproducible from the documented formula.
+
+	Counts and reconciliations already pin the MAP this way; issues and
+	returns-without-reference now follow the same rule.
+	"""
+	if flt(ipb.closing_qty) > 0:
+		ipb.moving_avg_price = r6(map_before)
+
+
 def _freeze_check(ipb):
 	if flt(ipb.closing_qty) < 0 and not ipb.is_negative:
 		ipb.is_negative = 1
@@ -956,10 +987,16 @@ def _freeze_check(ipb):
 		ipb.total_received_since_zero = 0
 
 
-def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date):
+def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=0):
 	"""Mandatory zero-qty cleanup (signed plan): when closing_qty hits 0 with a
 	residual value within tolerance, clear it to Stock Rounding Adjustment and
-	reset MAP. Called after any posting that can zero the quantity."""
+	reset MAP. Called after any posting that can zero the quantity.
+
+	Residuals LARGER than that are deliberately not swept here: they are real
+	amounts, not rounding, and the Apr-22 rule forbids writing anything off
+	automatically. `period_close.assert_no_stranded_value` refuses to close the
+	period while one exists, so it is surfaced instead of buried.
+	"""
 	if flt(ipb.closing_qty) != 0:
 		return
 	# WA-0003-01 #17: measure the residual at FULL stored precision (r6). The
@@ -972,8 +1009,14 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date):
 	# (the IVE keeps the audit trail; a 0.00 GL row is meaningless).
 	residual = r6(flt(ipb.closing_value))
 	tolerance = flt(get_pma_setting(scope.company, "rounding_tolerance")) or 0.01
+	# The arithmetic residual scales with the movement: an r6 MAP multiplied by
+	# a quantity can only be wrong by qty x 5e-7, so a 3,000,000-unit issue
+	# legitimately leaves up to 1.50 of pure rounding. Measuring that against a
+	# flat 0.01 would classify ordinary bulk movements as stranded value and
+	# refuse every month-end close — cement quantities are in tonnes and kg.
+	limit = max(tolerance, abs(flt(qty_scale)) * 5e-7)
 	map_before = flt(ipb.moving_avg_price)
-	if residual and abs(residual) <= tolerance:
+	if residual and abs(residual) <= limit:
 		ipb.reval_value = r6(flt(ipb.reval_value) - residual)
 		recompute_closing(ipb)
 		ipb.moving_avg_price = 0
@@ -1107,7 +1150,17 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 			title=_("Cancellation Not Eligible"),
 		)
 
-	value = r6(-flt(orig.value_delta) * (abs(qty) / flt(orig.qty_basis)) if flt(orig.qty_basis) else -flt(orig.value_delta))
+	# A Cancellation draft carries the original's quantities, but the user can
+	# edit them down before submitting, so the reversal may cover only part of
+	# the original event. The ledger value is pro-rated on that share — and the
+	# mirrored GL below has to be pro-rated by the SAME share. Mirroring the
+	# original's full GL amounts against a pro-rated ledger value left inventory
+	# overstated by the difference, permanently, with nothing to point at: on the
+	# client's bench a 60%-quantity cancellation of a 5,000 issue wrote 3,000 to
+	# the ledger and 5,000 to GL, and the resulting 2,000 gap made the
+	# reconciliation gate unpassable (MAT-STE-2026-00023).
+	share = (abs(qty) / flt(orig.qty_basis)) if flt(orig.qty_basis) else 1.0
+	value = r6(-flt(orig.value_delta) * share)
 	if qty > 0:
 		ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
 		ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
@@ -1130,14 +1183,15 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	mirrored_sle = dict(sle)
 	mirrored_sle["actual_qty"] = qty
 	write_sle(controller, mirrored_sle, scope, ipb, value)
-	# mirror the original event's GL with swapped sides on the cancellation date
+	# mirror the original event's GL with swapped sides on the cancellation date,
+	# scaled to the share of the original this cancellation actually reverses
 	legs = []
 	for g in frappe.get_all(
 		"GL Entry",
 		filters={"valuation_event_id": orig.name, "is_cancelled": 0},
 		fields=["account", "debit", "credit"],
 	):
-		legs.append((g.account, flt(g.credit) - flt(g.debit), inventory_account))
+		legs.append((g.account, r2((flt(g.credit) - flt(g.debit)) * share), inventory_account))
 	post_gl(controller, posting_date, legs, ive)
 
 
@@ -1172,6 +1226,7 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		ipb_prior.issue_qty = r6(flt(ipb_prior.issue_qty) - qty)
 		ipb_prior.issue_value = r6(flt(ipb_prior.issue_value) + issue_value)
 		recompute_closing(ipb_prior)
+		_pin_map(ipb_prior, map_before_prior)  # an issue never moves the MAP
 		_freeze_check(ipb_prior)
 		sme, ive = write_events(
 			scope, ipb_prior, source=source, posting_date=posting_date,
@@ -1179,9 +1234,11 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 			value_delta=-issue_value, map_before=map_before_prior, stock_uom=sle.get("stock_uom"),
 		)
 		scope.save(ipb_prior, caused_by=ive, movement_event=sme, source=source)
+		map_before_cur = flt(ipb_cur.moving_avg_price)
 		ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
 		ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) - issue_value)
 		recompute_closing(ipb_cur)
+		_pin_map(ipb_cur, map_before_cur)  # still an issue in the current period's eyes
 		_freeze_check(ipb_cur)
 		scope.save(ipb_cur, caused_by=ive, source=source)
 		write_sle(controller, sle, scope, ipb_cur, -issue_value)
