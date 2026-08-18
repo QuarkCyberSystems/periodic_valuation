@@ -131,6 +131,7 @@ def _reverse_landed_cost(lcv):
 				"reason_code": "cancellation", "std_trans": orig.std_trans,
 				"qty_basis": 0,
 				"value_delta": -flt(orig.value_delta),
+				"inventory_portion": -flt(orig.inventory_portion),
 				"expense_portion": -flt(orig.expense_portion),
 				"total_sc": -flt(orig.total_sc or 0), "total_ac": -flt(orig.total_ac or 0),
 				"in_flag": orig.in_flag, "out_flag": orig.out_flag,

@@ -144,6 +144,7 @@ def _reverse_source_events(doc, original):
 				"source_detail_name": orig.source_detail_name,
 				"reason_code": "cancellation", "std_trans": orig.std_trans,
 				"qty_basis": 0, "value_delta": -flt(orig.value_delta),
+				"inventory_portion": -flt(orig.inventory_portion),
 				"expense_portion": -flt(orig.expense_portion),
 				"fx_variance": -flt(orig.fx_variance),
 				"total_sc": -flt(orig.total_sc or 0), "total_ac": -flt(orig.total_ac or 0),

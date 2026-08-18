@@ -756,6 +756,82 @@ def run(commit=False):
 	except frappe.ValidationError:
 		check("rate on a multi-warehouse company scope is refused", True)
 
+	# ============ inventory / P&L decomposition on EVERY event row (client
+	# approval comment 2, 2026-08-18: portions "populated in each relevant
+	# transaction, not only in the LC transaction"). Display-only; the rule is
+	# inventory_portion = net inventory effect, expense_portion = signed P&L
+	# side (positive = debit), zero when the offset is balance-sheet (GR/IR).
+	def portions(docname, reason=None):
+		f = {"source_docname": docname}
+		if reason:
+			f["reason_code"] = reason
+		e = frappe.get_all("Inventory Valuation Event", filters=f,
+			fields=["reason_code", "value_delta", "inventory_portion", "expense_portion",
+				"prd_amount"], order_by="creation")[0]
+		return e
+
+	it = make_item("_SMK-PORTIONS")
+	pr = make_pr(it, wh, 100, 10)
+	e = portions(pr.name)
+	check("portions: receipt inv=1000 exp=0 (GR/IR offset)",
+		flt(e.inventory_portion, 2) == 1000 and flt(e.expense_portion, 2) == 0, str(e))
+
+	dn = make_dn(it, wh, 30)
+	e = portions(dn.name)
+	check("portions: issue inv=-300 exp=+300 (COGS debit)",
+		flt(e.inventory_portion, 2) == -300 and flt(e.expense_portion, 2) == 300, str(e))
+
+	sc_doc = frappe.get_doc({"doctype": "Stock Count", "company": COMPANY,
+		"posting_date": nowdate(),
+		"items": [{"item_code": it, "warehouse": wh, "counted_qty": 65}]})
+	sc_doc.insert(ignore_permissions=True)
+	sc_doc.submit()
+	e = portions(sc_doc.name)
+	check("portions: count loss inv=-50 exp=+50 (variance debit)",
+		flt(e.inventory_portion, 2) == -50 and flt(e.expense_portion, 2) == 50, str(e))
+
+	rv = frappe.get_doc({"doctype": "Stock Revaluation", "company": COMPANY,
+		"posting_date": nowdate(),
+		"items": [{"item_code": it, "warehouse": wh, "new_valuation_rate": 12}]})
+	rv.insert(ignore_permissions=True)
+	rv.submit()
+	e = portions(rv.name)
+	check("portions: revaluation +130 inv=+130 exp=-130 (gain credit)",
+		flt(e.inventory_portion, 2) == 130 and flt(e.expense_portion, 2) == -130, str(e))
+
+	# negative-stock receipt: P&L side is exactly the PRD component
+	it2 = make_item("_SMK-PORT-NEG")
+	make_pr(it2, wh, 10, 10)
+	make_dn(it2, wh, 30)                              # -20, frozen 10
+	pr2 = make_pr(it2, wh, 5, 14)                     # stays negative: PRD (14-10)x5=20
+	e = portions(pr2.name)
+	check("portions: negative-stock receipt inv=net 50 exp=PRD 20",
+		flt(e.inventory_portion, 2) == 50 and flt(e.expense_portion, 2) == 20
+		and flt(e.prd_amount, 2) == 20, str(e))
+
+	# purchase return offsets GR/IR -> no P&L side; cancellation mirrors the original
+	it3 = make_item("_SMK-PORT-RET")
+	pr3 = make_pr(it3, wh, 100, 10)
+	ret3 = frappe.get_doc({
+		"doctype": "Purchase Receipt", "company": COMPANY, "supplier": "_SMK Supplier",
+		"posting_date": nowdate(), "is_return": 1, "return_against": pr3.name,
+		"items": [{"item_code": it3, "qty": -20, "rate": 10, "warehouse": wh,
+			"purchase_receipt_item": pr3.items[0].name}]})
+	ret3.insert(ignore_permissions=True)
+	ret3.submit()
+	e = portions(ret3.name)
+	check("portions: purchase return inv=-200 exp=0 (GR/IR offset)",
+		flt(e.inventory_portion, 2) == -200 and flt(e.expense_portion, 2) == 0, str(e))
+
+	it4 = make_item("_SMK-PORT-CX")
+	dn4_src = make_pr(it4, wh, 50, 10)
+	dn4 = make_dn(it4, wh, 20)                        # issue: exp +200
+	cn4 = make_cancellation("Delivery Note", dn4.name)
+	frappe.get_doc("Delivery Note", cn4).submit()
+	e = portions(cn4)
+	check("portions: cancellation of an issue mirrors it (inv=+200 exp=-200)",
+		flt(e.inventory_portion, 2) == 200 and flt(e.expense_portion, 2) == -200, str(e))
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if commit and not failed:

@@ -183,11 +183,42 @@ def _receipt_fx(controller):
 	return rate if rate and rate != 1 else None
 
 
+def _derive_expense_portion(reason, movement_type, value_delta, prd_amount):
+	"""Signed P&L side of an event (positive = net debit to P&L).
+
+	Derived from the same double-entry the GL legs follow: events whose offset
+	is a P&L account mirror the inventory move; events offset to the balance
+	sheet (GR/IR) carry no P&L side; negative-stock receipts put exactly the
+	PRD component into P&L.
+	"""
+	if reason in ("receipt", "receipt_neg", "receipt_cross_zero"):
+		return prd_amount                      # plain receipt: 0 (GR/IR)
+	if reason in ("issue", "count_diff", "revaluation", "rounding_cleanup", "prd_split"):
+		return -flt(value_delta)               # offset account is P&L
+	if reason in ("return_with_ref", "return_no_ref"):
+		# sales return credits COGS; purchase return offsets GR/IR
+		return -flt(value_delta) if movement_type == "return_in" else 0
+	return 0                                   # transfers, settlement family
+
+
 def write_events(scope, ipb, *, source, posting_date, movement_type, reason, qty_delta,
-		value_delta, map_before, prd_amount=0, inventory_portion=0, expense_portion=0,
+		value_delta, map_before, prd_amount=0, inventory_portion=None, expense_portion=None,
 		fx_variance=0, reference_event=None, reversal_of=None, movement_reversal_of=None,
 		caused_by=None, affects_map=0, stock_uom=None, exchange_rate_at_receipt=None):
 	"""Insert the SME (when qty moves) + IVE pair; returns (sme_name, ive_name)."""
+	# Every event row carries its inventory / P&L decomposition (client
+	# approval comment 2, 2026-08-18: "populated in each relevant transaction,
+	# not only in the LC transaction"). The two columns were designed as the
+	# stock-ratio split's audit fields and stayed 0/0 on every other row, so a
+	# finance reader saw "no split recorded" on issues, counts and
+	# cancellations. inventory_portion is definitionally the event's net
+	# inventory effect; expense_portion is derived from the event's own GL
+	# shape unless the caller computed (LC/invoice-diff) or mirrored
+	# (cancellation) a specific value. Display-only — no GL or balance change.
+	if inventory_portion is None:
+		inventory_portion = value_delta
+	if expense_portion is None:
+		expense_portion = _derive_expense_portion(reason, movement_type, value_delta, prd_amount)
 	d = getdate(posting_date)
 	frappe.flags[KERNEL_FLAG] = True
 	try:
@@ -1134,7 +1165,8 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		"Inventory Valuation Event",
 		filters={"source_doctype": controller.doctype, "source_docname": original,
 			"item_code": scope.item_code, "is_cancelled": 0},
-		fields=["name", "value_delta", "qty_basis", "reason_code", "prd_amount"],
+		fields=["name", "value_delta", "qty_basis", "reason_code", "prd_amount",
+			"inventory_portion", "expense_portion"],
 		order_by="creation",
 	)
 	unreversed = [
@@ -1258,6 +1290,9 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		movement_type="cancellation", reason="cancellation", qty_delta=qty,
 		value_delta=value, map_before=map_before, reversal_of=orig.name,
 		movement_reversal_of=orig_sme, stock_uom=sle.get("stock_uom"),
+		# the mirror's P&L side is the original's, reversed and scaled — the
+		# derivation cannot know it (reason is just "cancellation")
+		expense_portion=r2(-flt(orig.expense_portion) * share),
 	)
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
 	mirrored_sle = dict(sle)
@@ -1414,7 +1449,7 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 # ------------------------------------------------------- value-only postings
 def post_value_event(company, item_code, warehouse, *, source, posting_date, reason,
 		value_delta, offset_account, qty_delta=0.0, movement_type=None,
-		expense_portion=0.0, fx_variance=0.0, offset_is_credit=True):
+		expense_portion=None, fx_variance=0.0, offset_is_credit=True):
 	"""Shared writer for MR21 revaluation / stock count / LCV / invoice-diff
 	events posted by the transaction-layer doctypes."""
 	scope = ScopeState(company, item_code, warehouse)
@@ -1448,16 +1483,6 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		scope, ipb, source=source, posting_date=posting_date,
 		movement_type=movement_type, reason=reason, qty_delta=qty_delta,
 		value_delta=value_delta, map_before=map_before,
-		# Record BOTH halves of the stock-ratio split. value_delta already
-		# carries the inventory share, but the audit field was never passed and
-		# so every event showed "inventory portion 0" beside a populated
-		# expense portion — a split that reads as broken to anyone reviewing
-		# the Inventory Valuation Event, even though the posting is correct
-		# (plan §IVE: "inventory_portion — for invoice_diff/landed_cost:
-		# allocated to inventory via stock ratio").
-		inventory_portion=(
-			value_delta if reason in ("landed_cost", "invoice_diff", "fx_adjust") else 0
-		),
 		expense_portion=expense_portion, fx_variance=fx_variance,
 		affects_map=0 if reason == "count_diff" else 1,
 	)

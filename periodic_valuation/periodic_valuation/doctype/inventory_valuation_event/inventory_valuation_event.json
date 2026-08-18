@@ -223,7 +223,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Stock-ratio inventory share for landed_cost / invoice_diff.",
+   "description": "Net inventory effect of this event (equals Value Delta; for landed_cost / invoice_diff it is the stock-ratio inventory share).",
    "fieldname": "inventory_portion",
    "fieldtype": "Currency",
    "label": "Inventory Portion",
@@ -233,7 +233,8 @@
    "fieldname": "expense_portion",
    "fieldtype": "Currency",
    "label": "Expense Portion",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Signed P&L side of this event (positive = debit to P&L): COGS for issues, variance for counts, revaluation offset, PRD for negative-stock receipts, price-difference share for landed cost / invoice differences. Zero when the offset is balance-sheet (GR/IR)."
   },
   {
    "description": "Price Revaluation Difference component (negative-stock receipts).",
