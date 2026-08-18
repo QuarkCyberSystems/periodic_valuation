@@ -199,28 +199,54 @@ def _post_cancellation_std(controller, engine, sle, period):
 	source = (controller.doctype, controller.name, detail)
 	mirror = None
 	for name in originals:
-		mirror = engine.reverse_event(name, source=source,
-			posting_date=sle.get("posting_date"))
+		# Let reverse_event apply its own dating rule — into the original period
+		# while that period is still open, current-dated once it is settled.
+		# Forcing the cancellation document's own date here overrode that rule, so
+		# a reversal of a still-open prior period landed in the current period
+		# instead (STD Cancellation Matrix row 3 expects the prior period).
+		mirror = engine.reverse_event(name, source=source)
 
-	# SLE-compatible row + state at the ORIGINAL standard cost
-	orig_ive = frappe.get_doc("Inventory Valuation Event", originals[0])
-	qty = -flt(orig_ive.qty_adj)
-	value = -flt(orig_ive.total_sc)
-	from periodic_valuation.periodic_moving_average.kernel import ScopeState, recompute_closing, write_sle
+	# SLE-compatible row + state at the ORIGINAL standard cost.
+	# Aggregate over EVERY event the original document produced, not just the
+	# first: a backdated receipt/issue posts a primary movement plus a delta-SC
+	# companion, and the companion carries qty_adj = 0. Reading originals[0]
+	# picked whichever came back first, so a backdated document's reversal tried
+	# to write an SLE with zero quantity ("Actual Qty is mandatory") and, when it
+	# did not, restored only part of the value.
+	orig_rows = [frappe.get_doc("Inventory Valuation Event", n) for n in originals]
+	qty = -sum(flt(r.qty_adj) for r in orig_rows)
+	value = -sum(flt(r.total_sc) for r in orig_rows)
+	from periodic_valuation.periodic_moving_average.kernel import (
+		ScopeState,
+		recompute_closing,
+		write_sle,
+		write_value_sle,
+	)
+	from periodic_valuation.shared.periods import get_period
 
+	# the mirror's own period, which reverse_event chose from the period state —
+	# the balance has to move where the GL moved, not where the document is dated
+	mirror_period = get_period(engine.company, mirror.posting_date) or period
 	scope = ScopeState(engine.company, engine.item_code, sle.get("warehouse"))
-	ipb = scope.load(period)
+	ipb = scope.load(mirror_period)
 	if qty > 0:
 		ipb.receipt_qty = flt(ipb.receipt_qty) + qty
 		ipb.receipt_value = r2(flt(ipb.receipt_value) + value)
 	elif qty < 0:
 		ipb.issue_qty = flt(ipb.issue_qty) - qty
 		ipb.issue_value = r2(flt(ipb.issue_value) - value)
+	else:
+		ipb.reval_value = r2(flt(ipb.reval_value) + value)
 	recompute_closing(ipb)
 	scope.save(ipb, source=(controller.doctype, controller.name))
 	mirrored = dict(sle)
 	mirrored["actual_qty"] = qty
-	write_sle(controller, mirrored, scope, ipb, value)
+	mirrored["posting_date"] = mirror.posting_date
+	if qty:
+		write_sle(controller, mirrored, scope, ipb, value)
+	elif value:
+		write_value_sle(scope, ipb, source=source, posting_date=mirror.posting_date,
+			value_delta=value, stock_uom=sle.get("stock_uom"))
 
 
 def _backdate_class(engine, posting_date, today):

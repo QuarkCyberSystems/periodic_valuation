@@ -209,7 +209,16 @@ class StdEngine:
 				).format(trans, posting_date, pst.year, pst.month)
 			)
 
-		if trans in BD_BY_PRIMARIES and (pst.month, pst.year) == (ent.month, ent.year):
+		# The (BD)/(BY) label rule classifies a NEW posting by when it is entered.
+		# An exact reversal is a mirror: it inherits the original's label by
+		# definition, and its date is set by the period-state rule in
+		# reverse_event (original date while the period is open, current date once
+		# it is settled) — not by backdate classification. Applying this check to
+		# a mirror made a backdated receipt or issue impossible to undo at all:
+		# Create Cancellation is the only sanctioned undo under STD and it failed
+		# with this internal label error.
+		if reversal_of is None and trans in BD_BY_PRIMARIES \
+				and (pst.month, pst.year) == (ent.month, ent.year):
 			raise BackdateLabelError(
 				_(
 					"{0} is only for cross-month backdates. Same-month backdates post as plain "
@@ -867,8 +876,26 @@ class StdEngine:
 
 		a = self.accounts()
 		cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
+
+		# The two allocation legs only net to zero while the quantity basis
+		# survives (new_es + new_out == variance). Reversing the very receipt that
+		# created the basis collapses the denominator to zero, both shares fall to
+		# zero, and the pair then carries the whole previously-allocated variance
+		# with nothing on the other side — a Purchase Receipt that refuses to
+		# submit with "Debit and Credit not equal ... Difference is -200". The
+		# variance pool is the counterpart, exactly as in the Sett matrix
+		# (Dr/Cr Inventory + COGS Adjustment against the pools), so give the
+		# residual back to the pools it was allocated out of, split on their
+		# original proportions.
+		residual = r2(-(r2(d_es) + r2(d_out)))
+		pool_legs = []
+		if residual:
+			total_pool = flt(sett.ppv_pool) + flt(sett.rev_pool)
+			ppv_part = r2(residual * (flt(sett.ppv_pool) / total_pool)) if total_pool else residual
+			pool_legs = [(a.ppv, ppv_part), (a.reserve, r2(residual - ppv_part))]
+
 		gl_map = []
-		for account, amount in ((a.stock, d_es), (a.cogs_adj, d_out)):
+		for account, amount in ((a.stock, d_es), (a.cogs_adj, d_out), *pool_legs):
 			amount = r2(amount)
 			if not amount:
 				continue
