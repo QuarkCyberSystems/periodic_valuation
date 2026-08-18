@@ -1105,7 +1105,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		"Inventory Valuation Event",
 		filters={"source_doctype": controller.doctype, "source_docname": original,
 			"item_code": scope.item_code, "is_cancelled": 0},
-		fields=["name", "value_delta", "qty_basis", "reason_code"],
+		fields=["name", "value_delta", "qty_basis", "reason_code", "prd_amount"],
 		order_by="creation",
 	)
 	unreversed = [
@@ -1166,7 +1166,53 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# reconciliation gate unpassable (MAT-STE-2026-00023).
 	share = (abs(qty) / flt(orig.qty_basis)) if flt(orig.qty_basis) else 1.0
 	value = r6(-flt(orig.value_delta) * share)
-	if qty > 0:
+	orig_qty = -qty  # the cancelled share of the original's SIGNED quantity
+
+	# A cancellation nets the bucket the ORIGINAL event filled — it is never
+	# re-classified by its physical direction (OI-5 bucket mapping, confirmed
+	# by the client in the 2026-08-18 behaviour review, MAT-PRE-2026-00375:
+	# "Purchase return and Sales return same behavior … Netting the OUT/IN";
+	# recorded as DR-31). Bucketing by direction painted a different period
+	# than the equivalent return: cancelling a 1,500 receipt left In at 1,500
+	# AND pushed Out up by 1,500, so the balance read "received 2,000, issued
+	# 2,000" where the truth was 500/500 — and left the since-zero counter
+	# carrying cancelled goods, so a later landed cost or invoice difference
+	# split against a denominator including stock that was never kept
+	# (the same defect returns had, WA-0003-01 item 7). SAP reads the same
+	# way: a 102 shrinks the receipt statistics, it is not a goods issue.
+	# Closing qty/value, MAP, GL, SLE and the immutable events are unchanged —
+	# every branch below moves closing_value by exactly `value`, matching the
+	# scaled GL mirror; gross movement stays visible in the Stock Movement
+	# Event log.
+	RETURN_REASONS = ("return_with_ref", "return_no_ref")
+	if orig.reason_code in ("receipt", "receipt_neg", "receipt_cross_zero") or (
+		orig.reason_code in RETURN_REASONS and orig_qty < 0
+	):
+		# the original filled (or, for a purchase return, netted) the In side:
+		# take the cancelled share back out of it. receipt_value carried the
+		# GROSS receipt value for negative-stock receipts, with the PRD offset
+		# in prd_value — mirror both so the breakdown reverses exactly.
+		prd_share = r6(flt(orig.prd_amount) * share)
+		bucket_value = r6(flt(orig.value_delta) * share + prd_share)
+		ipb.receipt_qty = r6(flt(ipb.receipt_qty) - orig_qty)
+		ipb.receipt_value = r6(flt(ipb.receipt_value) - bucket_value)
+		if prd_share:
+			ipb.prd_value = r6(flt(ipb.prd_value) + prd_share)
+		# the counter measures the same receipts the bucket does (WA-0003-01
+		# item 7): net it with the bucket, floored — a cancellation can never
+		# imply negative receipts. (For a cancelled purchase return orig_qty is
+		# negative, so this re-adds what the return had netted off.)
+		ipb.total_received_since_zero = r6(
+			max(0.0, flt(ipb.total_received_since_zero) - orig_qty)
+		)
+	elif orig.reason_code == "issue" or orig.reason_code in RETURN_REASONS:
+		# the original filled (or, for a sales return, netted) the Out side
+		ipb.issue_qty = r6(flt(ipb.issue_qty) + orig_qty)
+		ipb.issue_value = r6(flt(ipb.issue_value) + r6(flt(orig.value_delta) * share))
+	elif qty > 0:
+		# transfers and other reasons keep the physical-direction fallback:
+		# their forward legs either touch no In/Out bucket (company-scope
+		# transfer) or a leg-specific one, and a mirrored pair nets to zero
 		ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
 		ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
 	elif qty < 0:

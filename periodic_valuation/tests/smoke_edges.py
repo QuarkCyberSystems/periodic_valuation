@@ -600,6 +600,96 @@ def run(commit=False):
 	check("period rate: reconciliation prefill uses the period MAP",
 		flt(bal["rate"]) == 920, str(bal["rate"]))
 
+	# ============ cancellation nets the ORIGIN bucket (OI-5 / DR-31, client
+	# behaviour review 2026-08-18 MAT-PRE-2026-00375: "Netting the OUT/IN,
+	# same behaviour STD" — the rule returns already follow, WA-0003-01 6/7)
+	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+
+	# (a) cancelling a receipt nets In, not inflates Out — and matches the
+	# period picture a purchase RETURN of the same goods paints
+	it = make_item("_SMK-CXNET")
+	pr = make_pr(it, wh, 1000, 10)
+	make_dn(it, wh, 200)
+	cn = make_cancellation("Purchase Receipt", pr.name)
+	frappe.get_doc("Purchase Receipt", cn).submit()
+	c = ipb(it)
+	check("cancel receipt nets In (in 0 / out 200), closing unchanged",
+		flt(c.receipt_qty) == 0 and flt(c.receipt_value, 2) == 0
+		and flt(c.issue_qty) == 200 and flt(c.closing_qty) == -200
+		and flt(c.closing_value, 2) == -2000
+		and flt(c.total_received_since_zero) == 0,
+		f"in={c.receipt_qty}/{c.receipt_value} out={c.issue_qty} close={c.closing_qty} "
+		f"counter={c.total_received_since_zero}")
+
+	# (b) PARTIAL cancellation: the counter nets with the bucket, so a later
+	# landed cost splits against surviving receipts, not cancelled ones
+	it = make_item("_SMK-CXPART")
+	pr = make_pr(it, wh, 1000, 10)
+	make_dn(it, wh, 200)
+	cn = make_cancellation("Purchase Receipt", pr.name)
+	cx = frappe.get_doc("Purchase Receipt", cn)
+	cx.items[0].qty = 500
+	cx.items[0].received_qty = 500
+	cx.save(ignore_permissions=True)
+	cx.submit()
+	c = ipb(it)
+	lcv = frappe.get_doc({"doctype": "Landed Cost Voucher", "company": COMPANY,
+		"posting_date": nowdate(),
+		"purchase_receipts": [{"receipt_document_type": "Purchase Receipt",
+			"receipt_document": pr.name, "supplier": "_SMK Supplier",
+			"grand_total": pr.grand_total}],
+		"taxes": [{"expense_account": frappe.get_all("Account",
+			filters={"company": COMPANY, "is_group": 0, "root_type": "Expense"},
+			limit=1, pluck="name")[0], "description": "Freight", "amount": 100}]})
+	lcv.get_items_from_purchase_receipts()
+	lcv.insert(ignore_permissions=True)
+	lcv.submit()
+	lc_ive = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": lcv.name, "reason_code": "landed_cost"},
+		fields=["value_delta", "expense_portion"])[0]
+	check("partial cancel: in 500 / counter 500 / ratio 300/500 splits LCV 60/40",
+		flt(c.receipt_qty) == 500 and flt(c.total_received_since_zero) == 500
+		and flt(c.closing_qty) == 300
+		and flt(lc_ive.value_delta, 2) == 60 and flt(lc_ive.expense_portion, 2) == 40,
+		f"in={c.receipt_qty} counter={c.total_received_since_zero} close={c.closing_qty} "
+		f"split={lc_ive.value_delta}/{lc_ive.expense_portion}")
+
+	# (c) cancelling an issue nets Out
+	it = make_item("_SMK-CXISS")
+	make_pr(it, wh, 500, 10)
+	dn = make_dn(it, wh, 100)
+	cn = make_cancellation("Delivery Note", dn.name)
+	frappe.get_doc("Delivery Note", cn).submit()
+	c = ipb(it)
+	check("cancel issue nets Out (in 500 / out 0), closing 500",
+		flt(c.receipt_qty) == 500 and flt(c.issue_qty) == 0
+		and flt(c.issue_value, 2) == 0 and flt(c.closing_qty) == 500,
+		f"in={c.receipt_qty} out={c.issue_qty}/{c.issue_value} close={c.closing_qty}")
+
+	# (d) cancelling a purchase RETURN un-nets what the return netted
+	it = make_item("_SMK-CXRET")
+	pr = make_pr(it, wh, 100, 10)
+	ret = frappe.get_doc({
+		"doctype": "Purchase Receipt", "company": COMPANY, "supplier": "_SMK Supplier",
+		"posting_date": nowdate(), "is_return": 1, "return_against": pr.name,
+		"items": [{
+			"item_code": it, "qty": -30, "rate": 10, "warehouse": wh,
+			"purchase_receipt_item": pr.items[0].name,
+		}],
+	})
+	ret.insert(ignore_permissions=True)
+	ret.submit()
+	mid = ipb(it)
+	cn = make_cancellation("Purchase Receipt", ret.name)
+	frappe.get_doc("Purchase Receipt", cn).submit()
+	c = ipb(it)
+	check("cancel of a purchase return restores In and the counter (70 -> 100)",
+		flt(mid.receipt_qty) == 70 and flt(mid.total_received_since_zero) == 70
+		and flt(c.receipt_qty) == 100 and flt(c.total_received_since_zero) == 100
+		and flt(c.closing_qty) == 100 and flt(c.closing_value, 2) == 1000,
+		f"after return in={mid.receipt_qty}/{mid.total_received_since_zero}; after cancel "
+		f"in={c.receipt_qty}/{c.total_received_since_zero} close={c.closing_qty}")
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if commit and not failed:
