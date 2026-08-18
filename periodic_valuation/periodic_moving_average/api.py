@@ -6,7 +6,7 @@ from frappe.utils import flt, getdate
 
 
 @frappe.whitelist()
-def get_current_state(company, item_code, warehouse=None, posting_date=None):
+def get_current_state(company, item_code, warehouse=None, posting_date=None, physical=0):
 	"""Period-balance state for a valuation scope (form helpers).
 
 	With `posting_date`, returns the balance AS OF that date's period — the
@@ -18,6 +18,17 @@ def get_current_state(company, item_code, warehouse=None, posting_date=None):
 	showed the counter a system quantity that did not match the one the
 	posting would use (WA-0003-01 item 8). Both paths now resolve the balance
 	here, so they cannot drift apart again.
+
+	`physical=1` returns closing_qty as the PHYSICAL quantity in the given
+	warehouse (Stock Ledger sum as of the date) instead of the valuation-scope
+	total, while rate/value context stays scope-level. A Stock Count or Stock
+	Reconciliation is a physical exercise on ONE warehouse: for a company-scope
+	item stocked in several warehouses, comparing the counted quantity against
+	the scope total produced garbage differences — counting 55 in a warehouse
+	holding 60, while 40 sat elsewhere, showed current_qty 100 and posted a
+	-45 adjustment for a real loss of 5 (client approval comment 1, 2026-08-18:
+	valuation scope must be consistently reflected). Stock Revaluation stays
+	scope-level by design — value has no warehouse under a company scope.
 	"""
 	frappe.has_permission("Inventory Period Balance", "read", throw=True)
 	include_wh = frappe.get_cached_value("Item", item_code, "valuation_includes_warehouse")
@@ -37,15 +48,46 @@ def get_current_state(company, item_code, warehouse=None, posting_date=None):
 		d = getdate(posting_date)
 		rows = [r for r in rows if (r.period_year, r.period_month) <= (d.year, d.month)]
 	if not rows:
-		return {"closing_qty": 0, "closing_value": 0, "moving_avg_price": 0, "is_negative": 0, "frozen_map": 0}
-	r = rows[0]
-	return {
-		"closing_qty": flt(r.closing_qty),
-		"closing_value": flt(r.closing_value),
-		"moving_avg_price": flt(r.moving_avg_price),
-		"is_negative": r.is_negative,
-		"frozen_map": flt(r.frozen_map),
-	}
+		state = {"closing_qty": 0, "closing_value": 0, "moving_avg_price": 0, "is_negative": 0, "frozen_map": 0}
+	else:
+		r = rows[0]
+		state = {
+			"closing_qty": flt(r.closing_qty),
+			"closing_value": flt(r.closing_value),
+			"moving_avg_price": flt(r.moving_avg_price),
+			"is_negative": r.is_negative,
+			"frozen_map": flt(r.frozen_map),
+		}
+	if frappe.utils.cint(physical) and warehouse:
+		state["closing_qty"] = get_physical_qty(item_code, warehouse, posting_date)
+	return state
+
+
+def get_physical_qty(item_code, warehouse, posting_date=None):
+	"""Physical on-hand of ONE warehouse as of a POSTING PERIOD: the Stock
+	Ledger sum through that period's end.
+
+	Period granularity, not date granularity — the count values its difference
+	against the posting period's balance (the item-8 rule), and the scope-side
+	lookup this pairs with resolves whole periods. A literal date cutoff made a
+	backdated mid-month count exclude same-month postings the period balance
+	includes, so the two sides of the comparison disagreed (caught by the STD
+	workbook replays' backdated February count). Every kernel posting writes an
+	SLE row (DR-02), so the sum is complete for routed items.
+	"""
+	from frappe.utils import get_last_day
+
+	cond = "item_code = %(item)s AND warehouse = %(wh)s AND is_cancelled = 0"
+	params = {"item": item_code, "wh": warehouse}
+	if posting_date:
+		cond += " AND posting_date <= %(as_of)s"
+		params["as_of"] = get_last_day(getdate(posting_date))
+	return flt(
+		frappe.db.sql(
+			f"SELECT COALESCE(SUM(actual_qty), 0) FROM `tabStock Ledger Entry` WHERE {cond}",
+			params,
+		)[0][0]
+	)
 
 
 # SAP-style movement labels. ERPNext has no movement-type field on Purchase

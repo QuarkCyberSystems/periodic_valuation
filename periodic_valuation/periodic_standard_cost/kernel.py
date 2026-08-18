@@ -361,7 +361,13 @@ def _write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_na
 	ipb.closing_reference_value = r2(flt(ipb.closing_qty) * flt(sc))
 	scope.save(ipb, source=(controller.doctype, controller.name))
 	_cascade_backdated_ipb(scope, period, qty, value, source=(controller.doctype, controller.name))
-	write_sle(controller, sle, scope, ipb, value)
+	# stamp the quantity this posting actually moved: a Stock Reconciliation's
+	# routed row carries an ABSOLUTE target with actual_qty unset, so passing it
+	# verbatim wrote the opening Beg SLE with quantity 0 — the scope held stock
+	# the Stock Ledger never saw (surfaced by the physical-warehouse fix)
+	sle_row = dict(sle)
+	sle_row["actual_qty"] = qty
+	write_sle(controller, sle_row, scope, ipb, value)
 
 
 def _cascade_backdated_ipb(scope, period, qty, value, source):

@@ -519,12 +519,41 @@ def _post_reconciliation(controller, scope, period, sle):
 
 	current_qty = flt(ipb.closing_qty)
 	current_value = flt(ipb.closing_value)
-	target_qty = flt(sle.get("qty_after_transaction")) if sle.get("qty_after_transaction") is not None else current_qty
+	# A reconciliation row targets ONE warehouse's PHYSICAL quantity. For a
+	# company-scope item with stock in several warehouses, comparing the target
+	# against the SCOPE total posted garbage: setting a warehouse holding 60 to
+	# a counted 55 (with 40 elsewhere) read as a -45 adjustment for a real loss
+	# of 5 (client approval comment 1, 2026-08-18). Valuation of the delta
+	# stays at the scope rate — quantity is physical, value is scope.
+	from periodic_valuation.periodic_moving_average.api import get_physical_qty
+
+	physical_qty = get_physical_qty(scope.item_code, scope.physical_warehouse, posting_date)
+	target_qty = flt(sle.get("qty_after_transaction")) if sle.get("qty_after_transaction") is not None else physical_qty
 	has_rate = sle.get("valuation_rate") not in (None, "")
 	rate = flt(sle.get("valuation_rate")) if has_rate else (map_before or 0)
-	target_value = r2(target_qty * rate) if has_rate else r2(current_value + (target_qty - current_qty) * rate)
+	# Core SR auto-fills valuation_rate from the prefill on every row, so
+	# has_rate alone cannot mean "the user wants a re-price" — only a rate that
+	# DIFFERS from the scope's current rate does. The prefill rate equals the
+	# scope rate by construction, so an untouched row reconciles quantity only.
+	scope_rate = flt(ipb.frozen_map) if ipb.is_negative else map_before
+	reprice = has_rate and abs(flt(rate) - scope_rate) > 1e-4
+	scope_spans_other_warehouses = abs(flt(current_qty) - flt(physical_qty)) > 1e-6
+	if reprice and scope_spans_other_warehouses:
+		# a rate re-prices the WHOLE valuation scope; forcing scope value to
+		# one warehouse's qty x rate while other warehouses hold stock would
+		# corrupt the shared MAP. Value corrections on a multi-warehouse
+		# company scope go through Stock Revaluation (scope-level by design).
+		frappe.throw(
+			_(
+				"Row for {0}: a valuation rate cannot be set here — the item is valued at "
+				"company scope and other warehouses hold {1} of its {2} on hand. Reconcile "
+				"the quantity only, and use Stock Revaluation for value corrections."
+			).format(scope.item_code, flt(current_qty - physical_qty), flt(current_qty)),
+			title=_("Scope-Level Value"),
+		)
+	target_value = r2(target_qty * rate) if reprice else r2(current_value + (target_qty - physical_qty) * rate)
 
-	qty_delta = r6(target_qty - current_qty)
+	qty_delta = r6(target_qty - physical_qty)
 	offset = _reconciliation_offset_account(controller, sle)
 	inventory_account = get_inventory_account(scope.company, scope.item_code, scope.physical_warehouse)
 	total_delta = 0.0
@@ -579,7 +608,7 @@ def _post_reconciliation(controller, scope, period, sle):
 		)
 		total_delta += residual
 
-	if has_rate and flt(ipb.closing_qty) > 0:
+	if reprice and flt(ipb.closing_qty) > 0:
 		ipb.moving_avg_price = rate
 	_freeze_check(ipb)
 	scope.save(ipb, caused_by=last_ive, source=source)

@@ -690,6 +690,72 @@ def run(commit=False):
 		f"after return in={mid.receipt_qty}/{mid.total_received_since_zero}; after cancel "
 		f"in={c.receipt_qty}/{c.total_received_since_zero} close={c.closing_qty}")
 
+	# ============ valuation scope vs PHYSICAL warehouse (client approval
+	# comment 1, 2026-08-18): a count/reconciliation is a physical exercise on
+	# ONE warehouse — company-scope items must compare against that warehouse's
+	# stock, valued at the scope MAP, never against the scope total
+	from periodic_valuation.periodic_moving_average.api import get_current_state
+
+	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
+	wh2_name = f"_SMK Depot - {abbr}"
+	if not frappe.db.exists("Warehouse", wh2_name):
+		frappe.get_doc({"doctype": "Warehouse", "warehouse_name": "_SMK Depot",
+			"company": COMPANY}).insert(ignore_permissions=True)
+	it = make_item("_SMK-SCOPE")                     # company scope (flag OFF)
+	make_pr(it, wh, 60, 10)
+	make_pr(it, wh2_name, 40, 10)                    # scope total 100, MAP 10
+
+	st = get_current_state(COMPANY, it, wh, physical=1)
+	check("physical state: warehouse qty 60, scope MAP 10",
+		flt(st["closing_qty"]) == 60 and flt(st["moving_avg_price"]) == 10,
+		f"{st['closing_qty']}/{st['moving_avg_price']}")
+	bal = get_stock_balance_for(it, wh, nowdate(), "12:00:00")
+	check("reconciliation prefill shows the warehouse's 60, not the scope's 100",
+		flt(bal["qty"]) == 60 and flt(bal["rate"]) == 10, f"{bal['qty']}/{bal['rate']}")
+
+	sc_doc = frappe.get_doc({"doctype": "Stock Count", "company": COMPANY,
+		"posting_date": nowdate(),
+		"items": [{"item_code": it, "warehouse": wh, "counted_qty": 55}]})
+	sc_doc.insert(ignore_permissions=True)
+	row = sc_doc.items[0]
+	check("count row compares against the warehouse (60), difference -5",
+		flt(row.current_qty) == 60 and flt(row.quantity_difference) == -5,
+		f"{row.current_qty}/{row.quantity_difference}")
+	sc_doc.submit()
+	c = ipb(it)
+	from erpnext.stock.utils import get_or_make_bin
+	bin_a = flt(frappe.db.get_value("Bin", get_or_make_bin(it, wh), "actual_qty"))
+	bin_b = flt(frappe.db.get_value("Bin", get_or_make_bin(it, wh2_name), "actual_qty"))
+	check("count posts the real 5-unit loss: scope 95/950, bins 55 + 40",
+		flt(c.closing_qty) == 95 and flt(c.closing_value, 2) == 950
+		and bin_a == 55 and bin_b == 40,
+		f"scope {c.closing_qty}/{c.closing_value} bins {bin_a}/{bin_b}")
+
+	# Stock Reconciliation: qty-only row targets the warehouse's physical stock
+	sr = frappe.get_doc({"doctype": "Stock Reconciliation", "company": COMPANY,
+		"posting_date": nowdate(), "set_posting_time": 1, "purpose": "Stock Reconciliation",
+		"expense_account": frappe.get_cached_value("Company", COMPANY, "stock_adjustment_account"),
+		"items": [{"item_code": it, "warehouse": wh, "qty": 58}]})
+	sr.insert(ignore_permissions=True)
+	sr.submit()
+	c = ipb(it)
+	bin_a = flt(frappe.db.get_value("Bin", get_or_make_bin(it, wh), "actual_qty"))
+	check("reconciliation sets the warehouse to 58 (+3): scope 98/980, bin 58",
+		flt(c.closing_qty) == 98 and flt(c.closing_value, 2) == 980 and bin_a == 58,
+		f"scope {c.closing_qty}/{c.closing_value} bin {bin_a}")
+
+	# a RATE on a multi-warehouse company scope is refused — value is scope-level
+	sr2 = frappe.get_doc({"doctype": "Stock Reconciliation", "company": COMPANY,
+		"posting_date": nowdate(), "set_posting_time": 1, "purpose": "Stock Reconciliation",
+		"expense_account": frappe.get_cached_value("Company", COMPANY, "stock_adjustment_account"),
+		"items": [{"item_code": it, "warehouse": wh, "qty": 58, "valuation_rate": 12}]})
+	sr2.insert(ignore_permissions=True)
+	try:
+		sr2.submit()
+		check("rate on a multi-warehouse company scope is refused", False, "not blocked")
+	except frappe.ValidationError:
+		check("rate on a multi-warehouse company scope is refused", True)
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if commit and not failed:

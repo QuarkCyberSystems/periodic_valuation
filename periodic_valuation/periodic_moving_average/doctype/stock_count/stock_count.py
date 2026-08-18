@@ -39,8 +39,13 @@ class StockCount(Document):
 		# sees on screen is the same figure the posting uses.
 		from periodic_valuation.periodic_moving_average.api import get_current_state
 
+		# physical=True: a count is a physical exercise on ONE warehouse — for a
+		# company-scope item the comparison quantity is that warehouse's stock,
+		# not the scope total; valuation stays at the scope MAP (client
+		# approval comment 1, 2026-08-18)
 		state = get_current_state(
-			self.company, row.item_code, row.warehouse, posting_date=self.posting_date
+			self.company, row.item_code, row.warehouse,
+			posting_date=self.posting_date, physical=True
 		)
 		row.current_qty = flt(state["closing_qty"])
 		row.valuation_rate = flt(
@@ -122,3 +127,19 @@ class StockCount(Document):
 		ipb.moving_avg_price = flt(scv.standard_cost)
 		ipb.period_standard_cost = flt(scv.standard_cost)
 		scope.save(ipb, source=(self.doctype, self.name))
+		# ...and the stock ledger + Bin shadows (DR-02). The MAP count path has
+		# always written these via post_value_event; the STD branch never did,
+		# so Stock Balance and the physical-warehouse quantity were blind to
+		# STD count differences (surfaced by the workbook replays when the
+		# physical-vs-scope fix started reading the Stock Ledger).
+		from periodic_valuation.periodic_moving_average.kernel import (
+			_sync_bin_to_ledger,
+			write_value_sle,
+		)
+
+		_sync_bin_to_ledger(scope, delta)
+		write_value_sle(
+			scope, ipb, source=(self.doctype, self.name, row.name),
+			posting_date=self.posting_date,
+			value_delta=r2(delta * flt(scv.standard_cost)), qty_delta=delta,
+		)

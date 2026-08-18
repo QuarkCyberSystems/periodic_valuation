@@ -112,6 +112,9 @@ function fetch_current_state(frm, cdt, cdn) {
 			// resolve the balance as of the period being posted into, which is
 			// what the server uses to value the difference
 			posting_date: frm.doc.posting_date,
+			// physical: the count compares against THIS warehouse's stock,
+			// not the valuation-scope total (client approval comment 1)
+			physical: 1,
 		},
 		callback(r) {
 			if (!r.message) return;
