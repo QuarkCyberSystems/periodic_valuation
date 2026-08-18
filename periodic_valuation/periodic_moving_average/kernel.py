@@ -1016,10 +1016,19 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_sca
 	# refuse every month-end close — cement quantities are in tonnes and kg.
 	limit = max(tolerance, abs(flt(qty_scale)) * 5e-7)
 	map_before = flt(ipb.moving_avg_price)
+	# The MAP is RETAINED at zero quantity (client behaviour review 2026-08-18,
+	# MAT-STE-2026-00150; ruled 2026-08-18). It is the SAP material-master
+	# behaviour, and zeroing it was not cosmetic: frozen_map is captured FROM
+	# the MAP, so an issue taken from an exactly-zero balance froze at 0 and
+	# left stock at no cost at all — 100 in, 100 out, then 50 more out booked
+	# ZERO COGS, while the same 150 issued in one movement booked 1,500. The
+	# next receipt is unaffected either way (value is 0, so it re-prices to its
+	# own rate). Supersedes plan §725's "MAP → 0" and the workbook's
+	# Zero Qty Reset sheet on this point; the counter reset stays (it feeds the
+	# stock ratio, which is genuinely per-cycle).
 	if residual and abs(residual) <= limit:
 		ipb.reval_value = r6(flt(ipb.reval_value) - residual)
 		recompute_closing(ipb)
-		ipb.moving_avg_price = 0
 		__, ive = write_events(
 			scope, ipb, source=source, posting_date=posting_date,
 			movement_type=None, reason="rounding_cleanup", qty_delta=0,
@@ -1037,10 +1046,6 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_sca
 				[(rounding_account, gl_residual, inventory_account), (inventory_account, -gl_residual, rounding_account)],
 				ive,
 			)
-	elif not residual:
-		if map_before:
-			ipb.moving_avg_price = 0
-			scope.save(ipb, source=source)
 
 
 def _voucher_expense_account(controller, sle):

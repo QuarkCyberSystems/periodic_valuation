@@ -26,7 +26,7 @@ def _ipb_rows(period):
 		},
 		fields=["name", "item_code", "warehouse", "opening_qty", "opening_value",
 			"carryover_qty", "carryover_value", "closing_qty", "closing_value",
-			"total_received_since_zero", "is_negative", "frozen_map"],
+			"moving_avg_price", "total_received_since_zero", "is_negative", "frozen_map"],
 	)
 
 
@@ -336,9 +336,12 @@ def seed_next_period_openings(period):
 					"period_month": next_month,
 					"opening_qty": row.closing_qty,
 					"opening_value": row.closing_value,
+					# a zero-quantity scope RETAINS its MAP across the boundary
+					# (ruled 2026-08-18) — seeding 0 here would silently undo
+					# the retention at every month end
 					"moving_avg_price": flt(row.closing_value) / flt(row.closing_qty)
 					if flt(row.closing_qty) > 0
-					else 0,
+					else flt(row.moving_avg_price),
 					"closing_qty": row.closing_qty,
 					"closing_value": row.closing_value,
 					# MAP state survives the period boundary: a negative balance

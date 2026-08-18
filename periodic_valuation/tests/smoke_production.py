@@ -48,10 +48,11 @@ def run(commit=False):
 	make_dn(it, wh, 1)
 	make_dn(it, wh, 1)
 	c = ipb(it)
-	check("P1 repeating-decimal issue-out lands on exact zero",
+	check("P1 repeating-decimal issue-out lands on exact zero, MAP retained",
 		flt(c.closing_qty) == 0 and flt(c.closing_value, 2) == 0
-		and flt(c.moving_avg_price) == 0 and flt(c.total_received_since_zero) == 0,
-		f"{c.closing_qty}/{c.closing_value}")
+		and flt(c.moving_avg_price, 6) == 10.333333
+		and flt(c.total_received_since_zero) == 0,
+		f"{c.closing_qty}/{c.closing_value}/{c.moving_avg_price}")
 
 	# ---------- P2 large magnitudes
 	it = make_item("_PRD-BIG")

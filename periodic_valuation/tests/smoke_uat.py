@@ -311,9 +311,10 @@ def run_map(company, wh, prior):
 	make_pr(j, wh, 25, 10)
 	make_dn(j, wh, 25)
 	b = ipb(j)
+	# MAP is RETAINED at zero qty (ruled 2026-08-18, client behaviour review)
 	tc("MAP TC-J", flt(b.closing_qty) == 0 and flt(b.closing_value, 2) == 0
-		and flt(b.total_received_since_zero) == 0 and flt(b.moving_avg_price) == 0,
-		f"{b.closing_qty}/{b.closing_value}")
+		and flt(b.total_received_since_zero) == 0 and flt(b.moving_avg_price) == 10,
+		f"{b.closing_qty}/{b.closing_value}/{b.moving_avg_price}")
 
 	# --- K1 SR opening stock hits GL
 	k = make_item("UAT-MAP-K")

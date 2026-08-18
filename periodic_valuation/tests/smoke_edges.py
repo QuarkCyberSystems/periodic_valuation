@@ -232,15 +232,34 @@ def run(commit=False):
 	check("wh-scope dest 10/120 MAP 12", flt(dst.closing_qty) == 10 and flt(dst.closing_value, 2) == 120,
 		f"{dst.closing_qty}/{dst.closing_value}")
 
-	# ============ full issue-out: counter + MAP reset
+	# ============ full issue-out: counter resets, MAP RETAINED (ruled 2026-08-18;
+	# client behaviour review MAT-STE-2026-00150 — SAP material-master behaviour)
 	it = make_item("_SMK-ZERO")
 	make_pr(it, wh, 25, 10)
 	make_dn(it, wh, 25)
 	c = ipb(it)
-	check("issue-out resets: qty 0 value 0 counter 0 MAP 0",
+	check("issue-out: qty 0 value 0 counter 0, MAP retained at 10",
 		flt(c.closing_qty) == 0 and flt(c.closing_value, 2) == 0
-		and flt(c.total_received_since_zero) == 0 and flt(c.moving_avg_price) == 0,
+		and flt(c.total_received_since_zero) == 0 and flt(c.moving_avg_price) == 10,
 		f"{c.closing_qty}/{c.closing_value}/{c.total_received_since_zero}/{c.moving_avg_price}")
+	# ...and the retained MAP is what an issue FROM the zero balance costs at.
+	# When the MAP was zeroed here, frozen_map captured 0 and the units left
+	# stock at no cost: 25 in, 25 out, then 5 more out booked ZERO COGS while
+	# the same 30 issued in one movement booked 300.
+	dn_z = make_dn(it, wh, 5)
+	c = ipb(it)
+	ive_z = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": dn_z.name}, fields=["value_delta"])
+	check("issue from zero books COGS at the retained MAP",
+		flt(ive_z[0].value_delta, 2) == -50 and flt(c.closing_qty) == -5
+		and c.is_negative == 1 and flt(c.frozen_map) == 10,
+		f"value_delta={ive_z and ive_z[0].value_delta} frozen={c.frozen_map}")
+	# a crossing receipt still re-prices the pool exactly as before
+	make_pr(it, wh, 20, 14)
+	c = ipb(it)
+	check("crossing receipt after zero re-prices to its own rate",
+		flt(c.closing_qty) == 15 and flt(c.moving_avg_price) == 14,
+		f"{c.closing_qty}/{c.moving_avg_price}")
 
 	# ============ SI update_stock issue
 	it = make_item("_SMK-SI")
