@@ -114,8 +114,59 @@
 			.hide();
 	}
 
+	// View -> Stock Ledger / Accounting Ledger / Valuation Events for a routed
+	// Landed Cost Voucher. Core LCV never posts GL of its own (it revalues the
+	// receipt's SLEs), so the core form has no ledger shortcuts — but for
+	// kernel items the voucher DOES post its own tagged GL, and with no way to
+	// reach it from the form the entries read as absent ("Doesn't create a
+	// JV", client behaviour review 2026-08-18, MAT-LCV-2026-00010). Same
+	// pattern Stock Count received after the 2026-08-12 meeting.
+	function addLcvLedgerButtons(frm) {
+		if (frm.doc.doctype !== "Landed Cost Voucher" || frm.doc.docstatus !== 1) return;
+		const to_date = moment(frm.doc.modified).format("YYYY-MM-DD");
+		const route_args = (extra) => ({
+			voucher_no: frm.doc.name,
+			from_date: frm.doc.posting_date,
+			to_date: to_date,
+			company: frm.doc.company,
+			ignore_prepared_report: true,
+			...extra,
+		});
+		frm.add_custom_button(
+			__("Stock Ledger"),
+			() => {
+				frappe.route_options = route_args({});
+				frappe.set_route("query-report", "Stock Ledger");
+			},
+			__("View")
+		);
+		if (erpnext.is_perpetual_inventory_enabled(frm.doc.company)) {
+			frm.add_custom_button(
+				__("Accounting Ledger"),
+				() => {
+					frappe.route_options = route_args({
+						categorize_by: "Categorize by Voucher (Consolidated)",
+					});
+					frappe.set_route("query-report", "General Ledger");
+				},
+				__("View")
+			);
+		}
+		frm.add_custom_button(
+			__("Valuation Events"),
+			() => {
+				frappe.set_route("List", "Inventory Valuation Event", {
+					source_doctype: "Landed Cost Voucher",
+					source_docname: frm.doc.name,
+				});
+			},
+			__("View")
+		);
+	}
+
 	function applyRoutedUx(frm) {
 		frm.add_custom_button(__("Create Cancellation"), () => make_cancellation_dialog(frm));
+		addLcvLedgerButtons(frm);
 		// Revoke the client-side cancel permission: frappe's own toolbar
 		// logic then omits Cancel wherever it renders it (page action
 		// button, menu entry, keyboard shortcut) — no DOM chasing. The
@@ -145,6 +196,9 @@
 				// not gain a "Create Cancellation" button (no reversing a
 				// reversal) — so hide only, then stop.
 				if (frm.doc.docstatus === 1 && frm.doc.is_cancellation) {
+					// a cancellation LCV posts its own mirror GL and only
+					// exists for kernel items — same ledger shortcuts
+					addLcvLedgerButtons(frm);
 					hideCoreCancel(frm);
 					// ERPNext's own Stock Entry refresh re-derives the warehouse
 					// fields' read-only state from the purpose and runs after
