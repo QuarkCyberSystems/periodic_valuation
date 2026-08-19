@@ -1543,22 +1543,38 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	return ive
 
 
-def get_stock_ratio(company, item_code, warehouse, as_of=None):
-	"""Stock ratio = closing_qty / total_received_since_zero (clamped [0,1]),
-	read AS OF the document's posting period — not the latest period. A
-	backdated invoice or landed cost must use the balance of its own period,
-	otherwise the split is computed against a future state (WA-0003-01)."""
+def get_coverage_ratio(company, item_code, warehouse, basis_qty, as_of=None):
+	"""Inventory share of a value-only late cost = STOCK COVERAGE, clamped
+	[0, 1]: the scope's on-hand quantity against the quantity the charge
+	applies to — the invoiced quantity for a purchase-invoice difference, the
+	receipt row's quantity for a landed cost charge (DR-32, client ruling
+	2026-08-18 closing behaviour-review items 1 & 2, ACC-PINV-2026-00134/00136).
+
+	Fully covered -> the whole difference capitalises; partially covered ->
+	proportional; each document is judged ON ITS OWN against on-hand as of its
+	posting period (all three points confirmed by the client, incl. that two
+	invoices billing the same receipt each check coverage independently — the
+	SAP MIRO behaviour they asked for). Replaces the pool stock ratio
+	(closing_qty / total_received_since_zero), whose denominator carried the
+	whole receiving history: their invoice of 500 against 300 on hand split at
+	30% because a thousand units had once been received, where SAP gives 60%.
+	The since-zero counter stays on the balance for audit but no longer drives
+	valuation. On-hand resolves as of the posting period, not the latest one —
+	a backdated invoice or landed cost must not read a future state
+	(WA-0003-01 item 8 rule).
+	"""
+	if flt(basis_qty) <= 0:
+		return 0.0
 	scope = ScopeState(company, item_code, warehouse)
 	rows = frappe.get_all(
 		"Inventory Period Balance",
 		filters={"company": company, "item_code": item_code, "warehouse": scope.warehouse or ""},
-		fields=["closing_qty", "total_received_since_zero", "period_year", "period_month"],
+		fields=["closing_qty", "period_year", "period_month"],
 		order_by="period_year desc, period_month desc",
 		limit=60,
 	)
 	if as_of:
 		d = getdate(as_of)
 		rows = [r for r in rows if (r.period_year, r.period_month) <= (d.year, d.month)]
-	if not rows or not flt(rows[0].total_received_since_zero):
-		return 0.0
-	return min(max(flt(rows[0].closing_qty) / flt(rows[0].total_received_since_zero), 0.0), 1.0)
+	on_hand = flt(rows[0].closing_qty) if rows else 0.0
+	return min(max(on_hand / flt(basis_qty), 0.0), 1.0)

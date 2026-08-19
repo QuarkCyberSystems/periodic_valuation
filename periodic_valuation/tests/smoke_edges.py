@@ -647,10 +647,13 @@ def run(commit=False):
 	lc_ive = frappe.get_all("Inventory Valuation Event",
 		filters={"source_docname": lcv.name, "reason_code": "landed_cost"},
 		fields=["value_delta", "expense_portion"])[0]
-	check("partial cancel: in 500 / counter 500 / ratio 300/500 splits LCV 60/40",
+	# DR-32: the LCV covers the RECEIPT's 1000 units; 300 remain on hand ->
+	# coverage 0.3 -> 30/70. (The since-zero counter still nets with the
+	# cancellation — asserted here — but no longer drives value splits.)
+	check("partial cancel: in 500 / counter 500; LCV coverage 300/1000 splits 30/70",
 		flt(c.receipt_qty) == 500 and flt(c.total_received_since_zero) == 500
 		and flt(c.closing_qty) == 300
-		and flt(lc_ive.value_delta, 2) == 60 and flt(lc_ive.expense_portion, 2) == 40,
+		and flt(lc_ive.value_delta, 2) == 30 and flt(lc_ive.expense_portion, 2) == 70,
 		f"in={c.receipt_qty} counter={c.total_received_since_zero} close={c.closing_qty} "
 		f"split={lc_ive.value_delta}/{lc_ive.expense_portion}")
 

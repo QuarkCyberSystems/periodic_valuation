@@ -112,16 +112,19 @@ def scenario_v9(clock):
 		fields=["value_delta", "expense_portion"])
 	inv_share = flt(sum(flt(x.value_delta) for x in ive), 2)
 	exp_share = flt(sum(flt(x.expense_portion) for x in ive), 2)
-	check("v9#5 LCV splits 133.33 / 66.67 (ratio 100/150)",
-		abs(inv_share - 133.33) <= 0.01 and abs(exp_share - 66.67) <= 0.01,
+	# DR-32 (client ruling 2026-08-18): coverage split — 100 on hand covers the
+	# 50-unit receipt the charge applies to -> 1.0 -> all 200 to inventory.
+	# (The workbook's pool-ratio row 133.33/66.67 is superseded.)
+	check("v9#5 LCV coverage 1.0 -> 200 / 0",
+		abs(inv_share - 200) <= 0.01 and abs(exp_share - 0) <= 0.01,
 		f"{inv_share}/{exp_share}")
-	co.state("v9#5 post-LC", 100, 1550.00, 15.50)
+	co.state("v9#5 post-LC", 100, 1616.67, 16.17)
 	clock.set("2026-03-08"); co.count(95, "2026-03-08")
-	co.state("v9#6 count -5 (-77.50)", 95, 1472.50, 15.50)
+	co.state("v9#6 count -5 (-80.83)", 95, 1535.84, 16.17)
 	clock.set("2026-03-10"); co.mr21(500, "2026-03-10")
-	co.state("v9#7 MR21 +500", 95, 1972.50, 20.76)
+	co.state("v9#7 MR21 +500", 95, 2035.84, 21.43)
 	clock.set("2026-03-12"); co.dn(-10, "2026-03-12", is_return=True, against=dn_feb.name)
-	co.state("v9#8 sales return w/ ref (+100 at orig 10)", 105, 2072.50, 19.74)
+	co.state("v9#8 sales return w/ ref (+100 at orig 10)", 105, 2135.84, 20.34)
 	clock.set("2026-03-15"); co.pr(40, 15, "2026-02-20")
 	feb = co.ipb(2026, 2)
 	check("v9#9 Feb restated: receipts 190/2600, closing 160/2300",
@@ -133,8 +136,8 @@ def scenario_v9(clock):
 		mar and flt(mar.carryover_qty) == 40 and abs(flt(mar.carryover_value) - 600) <= 0.01,
 		str(mar))
 	clock.set("2026-03-20"); co.pr(-50, 20, "2026-03-20", is_return=True, against=pr2.name)
-	co.state("v9#10 purchase return w/ ref (-1000, excl LC)", 95, 1672.50, 17.61)
-	co.verify_gl("v9", 1672.50)
+	co.state("v9#10 purchase return w/ ref (-1000, excl LC)", 95, 1735.84, 18.27)
+	co.verify_gl("v9", 1735.84)
 
 
 def scenario_book2(clock):
@@ -154,11 +157,13 @@ def scenario_book2(clock):
 		fields=["value_delta", "expense_portion"])
 	inv_share = flt(sum(flt(x.value_delta) for x in ive), 2)
 	exp_share = flt(sum(flt(x.expense_portion) for x in ive), 2)
-	check("Book2#3 LC 200 splits 25 / 175 (stock ratio 20/160 = 0.125)",
-		abs(inv_share - 25) <= 0.01 and abs(exp_share - 175) <= 0.01,
+	# DR-32 coverage: 20 on hand vs the 60-unit receipt -> 0.333333 ->
+	# 66.67 inventory / 133.33 expense (workbook's 0.125 pool row superseded)
+	check("Book2#3 LC 200 splits 66.67 / 133.33 (coverage 20/60)",
+		abs(inv_share - 66.67) <= 0.01 and abs(exp_share - 133.33) <= 0.01,
 		f"{inv_share}/{exp_share}")
-	co.state("Book2#3 post-LC", 20, 317.31, 15.87)
-	co.verify_gl("Book2", 317.31)
+	co.state("Book2#3 post-LC", 20, 358.98, 17.95)
+	co.verify_gl("Book2", 358.98)
 
 
 def run(commit=False):

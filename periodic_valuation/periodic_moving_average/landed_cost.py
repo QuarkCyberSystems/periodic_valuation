@@ -5,8 +5,9 @@
 
 Core's LCV retroactively revalues the receipt's SLEs in place. For kernel
 items the charge instead posts as a current-dated ``landed_cost`` valuation
-event split by the Stock Ratio (inventory portion -> Stock In Hand + MAP
-recalc; consumed portion -> Price Difference).
+event split by STOCK COVERAGE (DR-32: on-hand vs the receipt row's quantity;
+inventory portion -> Stock In Hand + MAP recalc; consumed portion -> Price
+Difference).
 
 Returns True when the voucher was fully handled (all items routed), False
 when no item is routed (core proceeds). Mixed vouchers are rejected — split
@@ -17,7 +18,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from periodic_valuation.periodic_moving_average.kernel import get_stock_ratio, post_value_event
+from periodic_valuation.periodic_moving_average.kernel import get_coverage_ratio, post_value_event
 from periodic_valuation.shared.accounts import get_offset_account
 
 
@@ -65,11 +66,18 @@ def handle_landed_cost(lcv):
 		amount = flt(row.applicable_charges)
 		if not amount:
 			continue
-		warehouse = frappe.db.get_value(
-			row.receipt_document_type + " Item", row.purchase_receipt_item, "warehouse"
+		receipt_row = frappe.db.get_value(
+			row.receipt_document_type + " Item", row.purchase_receipt_item,
+			["warehouse", "stock_qty"], as_dict=True,
 		) if row.get("purchase_receipt_item") else None
+		warehouse = receipt_row.warehouse if receipt_row else None
 
-		ratio = get_stock_ratio(lcv.company, row.item_code, warehouse, as_of=lcv.get("posting_date"))
+		# DR-32: the charge covers the RECEIPT ROW's quantity — split by how
+		# much of that quantity is still on hand, not by the pool ratio
+		basis_qty = flt(receipt_row.stock_qty) if receipt_row and receipt_row.stock_qty else flt(row.qty)
+		ratio = get_coverage_ratio(
+			lcv.company, row.item_code, warehouse, basis_qty, as_of=lcv.get("posting_date")
+		)
 		inventory_portion = flt(amount * ratio, 2)
 		expense_portion = flt(amount - inventory_portion, 2)
 

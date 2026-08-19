@@ -94,7 +94,8 @@ def run_map(company, wh, prior):
 		and not frappe.db.exists("Repost Item Valuation", {"company": company}),
 		str(b.moving_avg_price))
 
-	# --- A4 LCV stock ratio 0.8 -> 160/40; PR SLEs untouched
+	# --- A4 LCV coverage: 120 on hand covers the 100-unit receipt -> 1.0 ->
+	# all 200 to inventory (DR-32, client ruling 2026-08-18); PR SLEs untouched
 	lcv = frappe.get_doc({"doctype": "Landed Cost Voucher", "company": company,
 		"posting_date": nowdate(),
 		"purchase_receipts": [{"receipt_document_type": "Purchase Receipt",
@@ -110,8 +111,8 @@ def run_map(company, wh, prior):
 	ive = frappe.get_all("Inventory Valuation Event",
 		filters={"source_docname": lcv.name, "reason_code": "landed_cost"},
 		fields=["value_delta", "expense_portion"])
-	tc("MAP TC-A4", ive and flt(ive[0].value_delta, 2) == 160 and flt(ive[0].expense_portion, 2) == 40
-		and flt(b.closing_value, 2) == 1860 and flt(b.moving_avg_price, 2) == 15.50
+	tc("MAP TC-A4", ive and flt(ive[0].value_delta, 2) == 200 and flt(ive[0].expense_portion, 2) == 0
+		and flt(b.closing_value, 2) == 1900 and flt(b.moving_avg_price, 2) == 15.83
 		and not frappe.db.exists("Stock Ledger Entry", {"voucher_no": pr1.name, "is_cancelled": 1}),
 		str(ive))
 
@@ -123,8 +124,8 @@ def run_map(company, wh, prior):
 	rate_before = flt(sc_doc.items[0].valuation_rate, 2)
 	sc_doc.submit()
 	b = ipb(a)
-	tc("MAP TC-B1", rate_before == 15.50 and flt(b.closing_qty) == 115
-		and flt(b.closing_value, 2) == 1782.50 and flt(b.moving_avg_price, 2) == 15.50,
+	tc("MAP TC-B1", rate_before == 15.83 and flt(b.closing_qty) == 115
+		and flt(b.closing_value, 2) == 1820.83 and flt(b.moving_avg_price, 2) == 15.83,
 		f"{rate_before}/{b.closing_qty}/{b.closing_value}")
 
 	# --- B2 MR21 +500
@@ -136,7 +137,7 @@ def run_map(company, wh, prior):
 	ok_diff = abs(flt(rv.total_difference_amount) - 500) < 0.05
 	rv.submit()
 	b = ipb(a)
-	tc("MAP TC-B2", ok_diff and abs(flt(b.closing_value) - 2282.50) < 0.05,
+	tc("MAP TC-B2", ok_diff and abs(flt(b.closing_value) - 2320.83) < 0.05,
 		f"{rv.total_difference_amount}/{b.closing_value}")
 
 	# --- B3 MR21 on empty stock refused

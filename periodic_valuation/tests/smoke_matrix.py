@@ -68,7 +68,8 @@ def run(commit=False):
 	b = ipb()
 	check("base chain MAP 14.1667", flt(b.moving_avg_price, 4) == 14.1667, str(b.moving_avg_price))
 
-	# ---- LCV 200 on pr1: ratio 120/150 = 0.8 -> 160 inv / 40 exp
+	# ---- LCV 200 on pr1: coverage min(120 on hand, 100 receipt qty)/100 = 1.0
+	# -> fully covered, all 200 to inventory (DR-32, client ruling 2026-08-18)
 	lcv = frappe.get_doc({
 		"doctype": "Landed Cost Voucher", "company": COMPANY,
 		"posting_date": nowdate(),
@@ -88,10 +89,10 @@ def run(commit=False):
 	lcv_ive = frappe.get_all("Inventory Valuation Event",
 		filters={"source_docname": lcv.name, "reason_code": "landed_cost"},
 		fields=["value_delta", "expense_portion"])
-	check("LCV stock-ratio split 160/40",
-		lcv_ive and flt(lcv_ive[0].value_delta, 2) == 160.00 and flt(lcv_ive[0].expense_portion, 2) == 40.00,
+	check("LCV coverage split 200/0 (fully covered)",
+		lcv_ive and flt(lcv_ive[0].value_delta, 2) == 200.00 and flt(lcv_ive[0].expense_portion, 2) == 0,
 		str(lcv_ive))
-	check("LCV MAP", flt(b.moving_avg_price, 4) == flt((1700 + 160) / 120, 4), str(b.moving_avg_price))
+	check("LCV MAP", flt(b.moving_avg_price, 4) == flt((1700 + 200) / 120, 4), str(b.moving_avg_price))
 	check("PR SLEs not resubmitted by LCV",
 		not frappe.db.exists("Stock Ledger Entry", {"voucher_no": pr1.name, "is_cancelled": 1}))
 
@@ -122,7 +123,7 @@ def run(commit=False):
 		str(rv.total_difference_amount))
 	rv.submit()
 	b = ipb()
-	check("MR21 applied", abs(flt(b.reval_value) - 660) < 0.05, str(b.reval_value))  # 160 LCV + 500
+	check("MR21 applied", abs(flt(b.reval_value) - 700) < 0.05, str(b.reval_value))  # 200 LCV + 500
 
 	# ---- negative stock PRD chain on a second item state: drive negative
 	# pin MAP to a round 20.00 first so PRD anchors are exact despite the

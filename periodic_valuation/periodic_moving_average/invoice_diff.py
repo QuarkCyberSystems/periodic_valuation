@@ -8,10 +8,11 @@ SLEs are never touched (core's adjust-incoming-rate/repost flow is disabled
 for routed items). Instead the difference posts as a current-dated
 ``invoice_diff`` valuation event:
 
-- functional currency: the whole difference splits by Stock Ratio
-  (inventory portion -> Stock In Hand + MAP recalc; rest -> Price Difference).
+- functional currency: the whole difference splits by STOCK COVERAGE (DR-32:
+  on-hand vs the invoiced quantity; inventory portion -> Stock In Hand + MAP
+  recalc; rest -> Price Difference).
 - foreign currency (IFRS): the price component is measured at the RECEIPT
-  exchange rate and splits by Stock Ratio; the residual FX movement goes to
+  exchange rate and splits by the same coverage ratio; the residual FX movement goes to
   Exchange Gain/Loss and never touches inventory.
 
 The GL offset is Stock Received But Not Billed: the kernel credited SRBNB at
@@ -23,7 +24,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from periodic_valuation.periodic_moving_average.kernel import get_stock_ratio, post_value_event
+from periodic_valuation.periodic_moving_average.kernel import get_coverage_ratio, post_value_event
 
 
 def on_purchase_invoice_submit(doc, method=None):
@@ -78,7 +79,12 @@ def on_purchase_invoice_submit(doc, method=None):
 			inventory_component = flt(unit_diff_foreign * qty * receipt_fx, 2)
 			fx_variance = flt(base_diff - inventory_component, 2)
 
-		ratio = get_stock_ratio(doc.company, item.item_code, pr_row.warehouse, as_of=doc.posting_date)
+		# DR-32: split by coverage of the INVOICED quantity — on hand >= invoiced
+		# means none of these goods have left, so the whole difference capitalises
+		invoiced_qty = flt(item.stock_qty) or flt(item.qty)
+		ratio = get_coverage_ratio(
+			doc.company, item.item_code, pr_row.warehouse, invoiced_qty, as_of=doc.posting_date
+		)
 		inventory_portion = flt(inventory_component * ratio, 2)
 		expense_portion = flt(inventory_component - inventory_portion, 2)
 
