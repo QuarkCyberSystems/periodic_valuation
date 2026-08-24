@@ -9,7 +9,7 @@ from frappe.utils import flt, getdate
 def get_current_state(company, item_code, warehouse=None, posting_date=None, physical=0):
 	"""Period-balance state for a valuation scope (form helpers).
 
-	With `posting_date`, returns the balance AS OF that date's period — the
+	With `posting_date`, returns the balance AS OF that date's period - the
 	newest period not after it. Without it, the latest period.
 
 	A backdated Stock Count must show the prior month's on-hand, not today's:
@@ -24,11 +24,11 @@ def get_current_state(company, item_code, warehouse=None, posting_date=None, phy
 	total, while rate/value context stays scope-level. A Stock Count or Stock
 	Reconciliation is a physical exercise on ONE warehouse: for a company-scope
 	item stocked in several warehouses, comparing the counted quantity against
-	the scope total produced garbage differences — counting 55 in a warehouse
+	the scope total produced garbage differences - counting 55 in a warehouse
 	holding 60, while 40 sat elsewhere, showed current_qty 100 and posted a
 	-45 adjustment for a real loss of 5 (client approval comment 1, 2026-08-18:
 	valuation scope must be consistently reflected). Stock Revaluation stays
-	scope-level by design — value has no warehouse under a company scope.
+	scope-level by design - value has no warehouse under a company scope.
 	"""
 	frappe.has_permission("Inventory Period Balance", "read", throw=True)
 	include_wh = frappe.get_cached_value("Item", item_code, "valuation_includes_warehouse")
@@ -67,7 +67,7 @@ def get_physical_qty(item_code, warehouse, posting_date=None):
 	"""Physical on-hand of ONE warehouse as of a POSTING PERIOD: the Stock
 	Ledger sum through that period's end.
 
-	Period granularity, not date granularity — the count values its difference
+	Period granularity, not date granularity - the count values its difference
 	against the posting period's balance (the item-8 rule), and the scope-side
 	lookup this pairs with resolves whole periods. A literal date cutoff made a
 	backdated mid-month count exclude same-month postings the period balance
@@ -91,8 +91,8 @@ def get_physical_qty(item_code, warehouse, posting_date=None):
 
 
 # SAP-style movement labels. ERPNext has no movement-type field on Purchase
-# Receipt / Delivery Note — direction is spread across is_return, is_cancellation
-# and the quantity sign — so a reversal of a return reads as "-500" with nothing
+# Receipt / Delivery Note - direction is spread across is_return, is_cancellation
+# and the quantity sign - so a reversal of a return reads as "-500" with nothing
 # saying what it is. SAP shows a positive quantity plus a movement type (122
 # return delivery, 123 its reversal); the client reads documents that way, hence
 # "reverse of the purchase return should be + qty" (WA-0003-01 item 9).
@@ -103,7 +103,7 @@ def get_physical_qty(item_code, warehouse, posting_date=None):
 # Deriving also means every historical document gets a label with no migration.
 # ERPNext vocabulary, not SAP's. "Return Delivery" is SAP's term for movement
 # type 122 (return to vendor), but in ERPNext it reads as something to do with a
-# Delivery Note — i.e. a sales return, the opposite of what it is.
+# Delivery Note - i.e. a sales return, the opposite of what it is.
 MOVEMENT_LABELS = {
 	"receipt": "Material Receipt",
 	"issue": "Material Issue",
@@ -121,8 +121,8 @@ MOVEMENT_LABELS = {
 def get_movement_summary(doctype, docname):
 	"""What movement(s) did this document actually post? Read from the event log.
 
-	Returns {"label": <str or None>, "detail": [...]} — `label` is the headline
-	for the form, e.g. "Cancellation of Return Delivery".
+	Returns {"label": <str or None>, "detail": [...]} - `label` is the headline
+	for the form, e.g. "Cancellation of Purchase Return".
 	"""
 	frappe.has_permission("Stock Movement Event", "read", throw=True)
 	rows = frappe.get_all(
@@ -141,7 +141,7 @@ def get_movement_summary(doctype, docname):
 
 	label = " + ".join(MOVEMENT_LABELS.get(k, k) for k in kinds)
 
-	# A cancellation is only meaningful as "cancellation of WHAT" — resolve the
+	# A cancellation is only meaningful as "cancellation of WHAT" - resolve the
 	# movement it reverses so the document reads the way an SAP 123 does.
 	if kinds == ["cancellation"]:
 		ive = frappe.get_all(
@@ -180,7 +180,7 @@ def get_uninvoiced_qty(purchase_receipt):
 	the form only offers Create > Purchase Invoice while per_billed < 100. So
 	invoicing part of the quantity at a higher rate can cover the receipt's
 	whole value, mark it 100% billed, and strip the action off the form while
-	units remain uninvoiced — the receipt becomes impossible to finish billing
+	units remain uninvoiced - the receipt becomes impossible to finish billing
 	from the UI (WA-0003-01 item 15; the client's MAT-PRE-2026-00039 invoiced
 	3,000 of 5,000 at double rate).
 

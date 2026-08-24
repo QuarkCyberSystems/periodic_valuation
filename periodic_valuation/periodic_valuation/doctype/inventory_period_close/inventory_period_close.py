@@ -11,7 +11,7 @@ class InventoryPeriodClose(Document):
 	"""Period close ceremony.
 
 	On submit: run the consistency checks and the GL reconciliation gate
-	(Apr 22 decision — strict tolerance, manual resolution only, no automatic
+	(Apr 22 decision - strict tolerance, manual resolution only, no automatic
 	write-off ever). Only when every gate passes does the period advance and
 	the next period's opening balances get seeded.
 	"""
@@ -110,7 +110,7 @@ class InventoryPeriodClose(Document):
 				_(
 					"Inventory value is held against zero quantity for: {0}. Residuals within "
 					"{1} clear automatically; these are larger, so they are a real cost sitting "
-					"on stock that is gone — most often a late landed cost or invoice difference "
+					"on stock that is gone - most often a late landed cost or invoice difference "
 					"allocated to a period where the goods were still on hand. Post a Stock "
 					"Revaluation or a correcting entry to move it to the right account; automatic "
 					"write-off is not permitted."

@@ -118,7 +118,7 @@ class ItemStandardCostVersion(Document):
 				self.db_set("revaluation_posted", 1, update_modified=False)
 			else:
 				self.post_revaluation_triplet(prior_sc)
-		# else: future-effective — the prior version keeps pricing until the
+		# else: future-effective - the prior version keeps pricing until the
 		# boundary; materialize_pending_revaluations (or the lazy backstop in
 		# get_active_standard_cost) posts the triplet when the period arrives
 		return self.name

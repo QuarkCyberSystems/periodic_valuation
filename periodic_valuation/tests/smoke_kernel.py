@@ -1,4 +1,4 @@
-"""Phase-2 kernel smoke — bench --site badiav16.localhost execute periodic_valuation.tests.smoke_kernel.run
+"""Phase-2 kernel smoke - bench --site <site> execute periodic_valuation.tests.smoke_kernel.run
 
 End-to-end on real vouchers, all inside one transaction, rolled back at the end
 (pass commit=True to keep the data). Mirrors workbook v9 main-scenario steps
@@ -10,7 +10,7 @@ import frappe
 from frappe.utils import flt, nowdate
 
 def get_company():
-	"""Site's default company — keeps the suites client-agnostic."""
+	"""Site's default company - keeps the suites client-agnostic."""
 	return (
 		frappe.defaults.get_global_default("company")
 		or frappe.get_all("Company", limit=1, pluck="name")[0]
@@ -27,7 +27,7 @@ CHECKS = []
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def ensure_masters():

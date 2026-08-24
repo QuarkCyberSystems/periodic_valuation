@@ -22,7 +22,7 @@ CHECKS = []
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def _pi(company, item, wh, pr, qty, rate, **extra):
@@ -53,10 +53,10 @@ def run(commit=False):
 	try:
 		cx9 = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", ret9.name))
 		cx9.submit()
-		check("item 9 — reverse-of-purchase-return submits (was: 'original not found')",
+		check("item 9 - reverse-of-purchase-return submits (was: 'original not found')",
 			flt(ipb(i9).closing_qty) == 100)
 	except Exception as e:
-		check("item 9 — reverse-of-purchase-return submits", False, str(e)[:90])
+		check("item 9 - reverse-of-purchase-return submits", False, str(e)[:90])
 
 	# ---- item 13: PI reversal threw "Due Date cannot be before Supplier Invoice Date"
 	i13 = make_item("_WA-13"); pr13 = make_pr(i13, wh, 100, 10)
@@ -67,9 +67,9 @@ def run(commit=False):
 	try:
 		cx13 = frappe.get_doc("Purchase Invoice", make_cancellation("Purchase Invoice", pi13.name))
 		cx13.submit()
-		check("item 13 — PI reversal submits (was: 'Due Date before Supplier Invoice Date')", True)
+		check("item 13 - PI reversal submits (was: 'Due Date before Supplier Invoice Date')", True)
 	except Exception as e:
-		check("item 13 — PI reversal submits", False, str(e)[:90])
+		check("item 13 - PI reversal submits", False, str(e)[:90])
 
 	# ---- item 14: an invoice-diff drove MAP negative; must be prevented
 	i14 = make_item("_WA-14"); make_pr(i14, wh, 100, 10); make_dn(i14, wh, 90)  # hold 10 @ 100
@@ -77,18 +77,18 @@ def run(commit=False):
 	try:
 		post_value_event(co, i14, wh, source=("Purchase Invoice", "_WA14", "x"),
 			posting_date=nowdate(), reason="invoice_diff", value_delta=-300, offset_account=srbnb)
-		check("item 14 — value event that would make MAP negative is blocked", False, "posted")
+		check("item 14 - value event that would make MAP negative is blocked", False, "posted")
 	except frappe.ValidationError:
-		check("item 14 — value event that would make MAP negative is blocked", True)
+		check("item 14 - value event that would make MAP negative is blocked", True)
 
 	# ---- item 12: reversing an invoiced receipt (the corruption root) must warn
 	i12 = make_item("_WA-12"); pr12 = make_pr(i12, wh, 100, 10)
 	_pi(co, i12, wh, pr12, 100, 10)
 	try:
 		make_cancellation("Purchase Receipt", pr12.name)
-		check("item 12 — reversing an invoiced receipt is blocked", False, "allowed")
+		check("item 12 - reversing an invoiced receipt is blocked", False, "allowed")
 	except frappe.ValidationError:
-		check("item 12 — reversing an invoiced receipt is blocked", True)
+		check("item 12 - reversing an invoiced receipt is blocked", True)
 
 	# ---- item 10: reverse the invoice first -> receipt un-billed -> reversible
 	cx10 = frappe.get_doc("Purchase Invoice",
@@ -97,14 +97,14 @@ def run(commit=False):
 				order_by="creation desc", limit=1, pluck="name")[0]))
 	cx10.submit()
 	pb12 = frappe.db.get_value("Purchase Receipt", pr12.name, ["per_billed", "status"])
-	check("item 10 — invoice reversal un-bills the receipt (To Bill)",
+	check("item 10 - invoice reversal un-bills the receipt (To Bill)",
 		flt(pb12[0]) == 0 and pb12[1] == "To Bill", str(pb12))
 	rc12 = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr12.name))
 	rc12.submit()
-	check("item 12 — receipt now reversible after invoice reversed",
+	check("item 12 - receipt now reversible after invoice reversed",
 		flt(ipb(i12).closing_qty) == 0)
 
-	# ---- item 15: NOT a kernel defect — ERPNext amount-based billing.
+	# ---- item 15: NOT a kernel defect - ERPNext amount-based billing.
 	# The client invoiced a partial qty at a rate that made the AMOUNT exceed
 	# the whole receipt, so ERPNext over-billed it. At the correct rate the
 	# remaining qty invoices fine.
@@ -116,13 +116,13 @@ def run(commit=False):
 		over = "posted"
 	except frappe.ValidationError:
 		over = "blocked"
-	check("item 15 — high-rate partial invoice over-bills (ERPNext amount-based, not a kernel bug)",
+	check("item 15 - high-rate partial invoice over-bills (ERPNext amount-based, not a kernel bug)",
 		over in ("posted", "blocked"), over)
 	# at the intended rate the remaining qty is invoiceable
 	i15b = make_item("_WA-15B"); pr15b = make_pr(i15b, wh, 5000, 400)
 	_pi(co, i15b, wh, pr15b, 3000, 400)
 	rem = _pi(co, i15b, wh, pr15b, 2000, 400)
-	check("item 15 — remaining qty invoices normally at the receipt rate",
+	check("item 15 - remaining qty invoices normally at the receipt rate",
 		rem.docstatus == 1 and flt(frappe.db.get_value("Purchase Receipt", pr15b.name, "per_billed")) == 100)
 
 	# ---- item 15 (Option C): kernel-valued items are billed by QUANTITY, not amount, so
@@ -130,16 +130,16 @@ def run(commit=False):
 	# qty is invoiceable; only exceeding the received quantity is blocked.
 	frappe.db.set_single_value("Accounts Settings", "over_billing_allowance", 0)
 	i15c = make_item("_WA-15C"); pr15c = make_pr(i15c, wh, 5000, 400)
-	_pi(co, i15c, wh, pr15c, 3000, 800)   # amount 2.4M > 2.0M receipt — used to block
-	check("item 15 (Opt C) — partial qty at higher rate now posts",
+	_pi(co, i15c, wh, pr15c, 3000, 800)   # amount 2.4M > 2.0M receipt - used to block
+	check("item 15 (Opt C) - partial qty at higher rate now posts",
 		flt(frappe.db.get_value("Purchase Receipt", pr15c.name, "per_billed")) >= 100)
 	rem15 = _pi(co, i15c, wh, pr15c, 2000, 900)
-	check("item 15 (Opt C) — remaining qty invoices at any rate", rem15.docstatus == 1)
+	check("item 15 (Opt C) - remaining qty invoices at any rate", rem15.docstatus == 1)
 	try:
 		_pi(co, i15c, wh, pr15c, 100, 500)   # 5100 > 5000 received
-		check("item 15 (Opt C) — over received-qty is still blocked", False, "posted")
+		check("item 15 (Opt C) - over received-qty is still blocked", False, "posted")
 	except frappe.ValidationError:
-		check("item 15 (Opt C) — over received-qty is still blocked", True)
+		check("item 15 (Opt C) - over received-qty is still blocked", True)
 	frappe.db.set_single_value("Accounts Settings", "over_billing_allowance", 50)
 
 	failed = [x for x in CHECKS if not x[1]]

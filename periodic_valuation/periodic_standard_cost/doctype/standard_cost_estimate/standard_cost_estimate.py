@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Standard Cost Estimate — single-level BOM roll-up feeding the cost-version
+"""Standard Cost Estimate - single-level BOM roll-up feeding the cost-version
 catalog. Multi-level roll-up is out of scope in this release (OI-3)."""
 
 import frappe

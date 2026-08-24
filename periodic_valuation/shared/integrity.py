@@ -24,7 +24,7 @@ def check_sle_ipb_value_drift(company=None, tolerance=0.01):
 	reporting (Stock Balance, Stock Analytics, Gross Profit) sums SLE
 	``stock_value_difference``, so a value event that never wrote an SLE leaves
 	the ledger correct while every core report under-states inventory by that
-	amount — silently, because nothing asserted the identity (DR-02).
+	amount - silently, because nothing asserted the identity (DR-02).
 
 	Warehouse-scope items compare per warehouse; company-scope items compare
 	the IPB total against the sum of SLE value across all warehouses.
@@ -123,7 +123,7 @@ def check_bin_ipb_drift(company=None, tolerance=0.001):
 
 
 def align_bin_to_ledger(item_code=None, company=None, max_drift=None):
-	"""Repair the physical Bin to match the valuation ledger (IPB) — the IPB is
+	"""Repair the physical Bin to match the valuation ledger (IPB) - the IPB is
 	authoritative (built from the immutable event log), the Bin is the shadow.
 	This is a data repair, not a reconciliation document: it moves no GL and no
 	stock value in the ledger, only re-aligns the Bin quantity/value to the IPB.
@@ -168,7 +168,7 @@ def report_drift(company=None):
 	if not drifts:
 		print("No Bin <-> IPB drift detected.")
 		return drifts
-	print(f"Bin <-> IPB drift on {len(drifts)} scope(s) — reconcile each with a Stock Reconciliation:")
+	print(f"Bin <-> IPB drift on {len(drifts)} scope(s) - reconcile each with a Stock Reconciliation:")
 	print(f"{'Item':<32} {'Warehouse':<24} {'IPB qty':>10} {'Bin qty':>10} {'drift':>10}")
 	for d in drifts:
 		print(f"{d['item_code']:<32} {d['warehouse']:<24} {d['ipb_qty']:>10} {d['bin_qty']:>10} {d['drift']:>10}")
@@ -180,7 +180,7 @@ def check_billing_consistency(company):
 
 	The billing writers derive per_billed from qty coverage for kernel-routed
 	rows (SAP GR/IR semantics). This asserts no receipt has drifted back to an
-	amount-based figure — the drift that let a half-invoiced receipt read
+	amount-based figure - the drift that let a half-invoiced receipt read
 	"Completed" and disappear from every billing flow (client meeting
 	2026-08-12, MAT-PRE-2026-00281). Returns drift rows; empty means clean.
 	"""

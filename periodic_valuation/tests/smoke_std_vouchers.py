@@ -1,4 +1,4 @@
-"""STD voucher integration — bench --site <site> execute periodic_valuation.tests.smoke_std_vouchers.run
+"""STD voucher integration - bench --site <site> execute periodic_valuation.tests.smoke_std_vouchers.run
 
 Drives REAL vouchers through the STD routing: PR -> Rec (SC + PPV legs),
 DN -> Iss at SC, Stock Count -> SC-, PI diff -> PPV, then a Settlement Run.
@@ -18,7 +18,7 @@ ITEM = "_STDV-ITEM"
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def run(commit=False):
@@ -155,7 +155,7 @@ def run(commit=False):
 
 
 def run_reversals(company, wh):
-	"""Phase-4: exact reversal with reference — open period + settled period."""
+	"""Phase-4: exact reversal with reference - open period + settled period."""
 	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
 	from periodic_valuation.periodic_standard_cost.engine import StdEngine
 

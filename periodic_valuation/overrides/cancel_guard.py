@@ -4,7 +4,7 @@
 """Universal cancellation rule for periodic-valuation items (May 6 decision).
 
 Direct cancellation (docstatus 1 -> 2) is NEVER allowed for a document that
-contains routed items — even same-period with no downstream consumption,
+contains routed items - even same-period with no downstream consumption,
 because an intervening revaluation could have landed. The user is redirected
 to Create Cancellation, which posts a dated reversal document of the same
 doctype and preserves the immutable ledger.

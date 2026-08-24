@@ -159,7 +159,7 @@ def ensure_module_defs():
 	"""Create Module Def rows for any module in modules.txt that is missing.
 	When the app was first installed before a module existed (e.g. a site on an
 	older build), `bench migrate` will not sync that module's doctypes until its
-	Module Def exists — so a version jump silently skips the new doctypes. This
+	Module Def exists - so a version jump silently skips the new doctypes. This
 	guard closes that gap on every migrate (idempotent)."""
 	app = "periodic_valuation"
 	for module_name in frappe.get_module_list(app):

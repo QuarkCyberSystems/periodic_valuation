@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Replay of the signed MAP workbook + Book2 through REAL ERPNext vouchers —
+"""Replay of the signed MAP workbook + Book2 through REAL ERPNext vouchers -
 bench --site <site> execute periodic_valuation.tests.replay_map_v9.run
 
 Scenario 1: `SAP_MA_Sample_Entries_v9.xlsx` Main Scenario (Feb-Mar 2026):
@@ -29,7 +29,7 @@ CHECKS = []
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 class MapCo(Co):
@@ -112,7 +112,7 @@ def scenario_v9(clock):
 		fields=["value_delta", "expense_portion"])
 	inv_share = flt(sum(flt(x.value_delta) for x in ive), 2)
 	exp_share = flt(sum(flt(x.expense_portion) for x in ive), 2)
-	# DR-32 (client ruling 2026-08-18): coverage split — 100 on hand covers the
+	# DR-32 (client ruling 2026-08-18): coverage split - 100 on hand covers the
 	# 50-unit receipt the charge applies to -> 1.0 -> all 200 to inventory.
 	# (The workbook's pool-ratio row 133.33/66.67 is superseded.)
 	check("v9#5 LCV coverage 1.0 -> 200 / 0",

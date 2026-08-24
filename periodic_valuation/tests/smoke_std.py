@@ -1,4 +1,4 @@
-"""STD conformance — bench --site <site> execute periodic_valuation.tests.smoke_std.run
+"""STD conformance - bench --site <site> execute periodic_valuation.tests.smoke_std.run
 
 Replays the audited 28-event MTD walkthrough (std_mtd_walkthrough.xlsx) through
 the Frappe StdEngine and asserts every Settlement Table anchor to the penny,
@@ -25,7 +25,7 @@ def _fy_covered(fy):
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def ensure_std_masters(company):
@@ -216,7 +216,7 @@ def run(commit=False):
 	ITEM = item2
 	try:
 		# The triplet posts at nowdate() (DR-23), so the scenario must live in
-		# the current month — hardcoded months go stale when the calendar rolls.
+		# the current month - hardcoded months go stale when the calendar rolls.
 		from frappe.utils import getdate, nowdate
 		today = getdate(nowdate())
 		prev_y, prev_m = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
@@ -252,8 +252,8 @@ def run(commit=False):
 
 YTD_ITEM = "_STD-YTD-LIME"
 
-# (ref, ent, pst, trans, qty, sc, ac, t_sc_override, t_ac_override) — verbatim
-# from badia_docs walkthrough_scenario.py (kernel-driven v4)
+# (ref, ent, pst, trans, qty, sc, ac, t_sc_override, t_ac_override) - verbatim
+# from the walkthrough scenario (kernel-driven v4)
 E = None
 YTD_EVENTS = [
 	("", "2025-12-13", "2025-12-13", "Rec", 1000, 10, 12, E, E),

@@ -28,7 +28,7 @@ class InventoryPeriodSettlementRun(Document):
 		settled, total_es, total_out = 0, 0.0, 0.0
 		notes = []
 		# per-scope failure isolation (m3): one scope's error must not abort
-		# the whole monthly run — its writes roll back to a savepoint and the
+		# the whole monthly run - its writes roll back to a savepoint and the
 		# remaining scopes still settle; failures land in Remarks.
 		for i, s in enumerate(scopes):
 			key = f"{s.item_code}" + (f" @ {s.warehouse}" if s.warehouse else "")
@@ -54,9 +54,9 @@ class InventoryPeriodSettlementRun(Document):
 				frappe.db.rollback(save_point=sp)
 				msg = frappe.utils.strip_html(str(e))
 				if "Nothing to settle" in msg:
-					notes.append(f"{key}: skipped — {msg}")
+					notes.append(f"{key}: skipped - {msg}")
 				else:
-					notes.append(f"{key}: FAILED — {msg}")
+					notes.append(f"{key}: FAILED - {msg}")
 		self.db_set({
 			"status": "Completed", "scopes_settled": settled,
 			"total_es_var": flt(total_es, 2), "total_out_var": flt(total_out, 2),
@@ -65,7 +65,7 @@ class InventoryPeriodSettlementRun(Document):
 		failures = [n for n in notes if "FAILED" in n]
 		if failures:
 			frappe.msgprint(
-				_("Settlement Run completed with {0} failed scope(s) — see Remarks. "
+				_("Settlement Run completed with {0} failed scope(s) - see Remarks. "
 				"Fix and re-submit a new run for the failed scopes.").format(len(failures)),
 				indicator="orange",
 			)

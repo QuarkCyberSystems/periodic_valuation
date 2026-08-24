@@ -1,4 +1,4 @@
-"""Edge-scenario smoke — bench --site badiav16.localhost execute periodic_valuation.tests.smoke_edges.run
+"""Edge-scenario smoke - bench --site <site> execute periodic_valuation.tests.smoke_edges.run
 
 Covers the scenarios previously proven only in the reference simulator:
 backdated C1/C2 (negative prior period, client-locked anchors), PI invoice
@@ -17,7 +17,7 @@ CHECKS = []
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def make_item(code, include_warehouse=0):
@@ -233,7 +233,7 @@ def run(commit=False):
 		f"{dst.closing_qty}/{dst.closing_value}")
 
 	# ============ full issue-out: counter resets, MAP RETAINED (ruled 2026-08-18;
-	# client behaviour review MAT-STE-2026-00150 — SAP material-master behaviour)
+	# client behaviour review MAT-STE-2026-00150 - SAP material-master behaviour)
 	it = make_item("_SMK-ZERO")
 	make_pr(it, wh, 25, 10)
 	make_dn(it, wh, 25)
@@ -536,7 +536,7 @@ def run(commit=False):
 		check("negative-MAP value event blocked", "negative" in str(e).lower())
 
 	# ============ Stock Ageing works for routed items (OI-8 / DR-27):
-	# the report replays SLE-compatible rows FIFO by date — valuation-agnostic
+	# the report replays SLE-compatible rows FIFO by date - valuation-agnostic
 	age_it = make_item("_SMK-AGE")
 	make_pr(age_it, wh, 100, 10, posting_date=add_days(nowdate(), -20))
 	make_pr(age_it, wh, 50, 12)
@@ -602,10 +602,10 @@ def run(commit=False):
 
 	# ============ cancellation nets the ORIGIN bucket (OI-5 / DR-31, client
 	# behaviour review 2026-08-18 MAT-PRE-2026-00375: "Netting the OUT/IN,
-	# same behaviour STD" — the rule returns already follow, WA-0003-01 6/7)
+	# same behaviour STD" - the rule returns already follow, WA-0003-01 6/7)
 	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
 
-	# (a) cancelling a receipt nets In, not inflates Out — and matches the
+	# (a) cancelling a receipt nets In, not inflates Out - and matches the
 	# period picture a purchase RETURN of the same goods paints
 	it = make_item("_SMK-CXNET")
 	pr = make_pr(it, wh, 1000, 10)
@@ -649,7 +649,7 @@ def run(commit=False):
 		fields=["value_delta", "expense_portion"])[0]
 	# DR-32: the LCV covers the RECEIPT's 1000 units; 300 remain on hand ->
 	# coverage 0.3 -> 30/70. (The since-zero counter still nets with the
-	# cancellation — asserted here — but no longer drives value splits.)
+	# cancellation - asserted here - but no longer drives value splits.)
 	check("partial cancel: in 500 / counter 500; LCV coverage 300/1000 splits 30/70",
 		flt(c.receipt_qty) == 500 and flt(c.total_received_since_zero) == 500
 		and flt(c.closing_qty) == 300
@@ -695,7 +695,7 @@ def run(commit=False):
 
 	# ============ valuation scope vs PHYSICAL warehouse (client approval
 	# comment 1, 2026-08-18): a count/reconciliation is a physical exercise on
-	# ONE warehouse — company-scope items must compare against that warehouse's
+	# ONE warehouse - company-scope items must compare against that warehouse's
 	# stock, valued at the scope MAP, never against the scope total
 	from periodic_valuation.periodic_moving_average.api import get_current_state
 
@@ -747,7 +747,7 @@ def run(commit=False):
 		flt(c.closing_qty) == 98 and flt(c.closing_value, 2) == 980 and bin_a == 58,
 		f"scope {c.closing_qty}/{c.closing_value} bin {bin_a}")
 
-	# a RATE on a multi-warehouse company scope is refused — value is scope-level
+	# a RATE on a multi-warehouse company scope is refused - value is scope-level
 	sr2 = frappe.get_doc({"doctype": "Stock Reconciliation", "company": COMPANY,
 		"posting_date": nowdate(), "set_posting_time": 1, "purpose": "Stock Reconciliation",
 		"expense_account": frappe.get_cached_value("Company", COMPANY, "stock_adjustment_account"),

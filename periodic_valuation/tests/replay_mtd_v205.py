@@ -2,7 +2,7 @@
 # License: GNU General Public License v3. See license.txt
 
 """Replay of the client workbook `01 MTD STD Cost V2.05.xlsx` through REAL
-ERPNext vouchers — bench --site <site> execute periodic_valuation.tests.replay_mtd_v205.run
+ERPNext vouchers - bench --site <site> execute periodic_valuation.tests.replay_mtd_v205.run
 
 The workbook's event log (rows 1-25, Feb-Apr 2026) is walked in ENTRY-date
 order with the system clock patched to each row's Ent Date, so backdate
@@ -34,7 +34,7 @@ ABBR = "MRC"
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 # --------------------------------------------------------------- clock patch
@@ -313,7 +313,7 @@ def run(commit=False):
 			return_against=dn4.name)                                               # 10 SR
 		clock.set("2026-03-28")
 		make_pr(wh, 40, 15, "2026-02-20")                                          # 11 REC (BD)+companion
-		# wb row 15 is Ent Mar 28 / Pst Mar 30 (future-dated) — ERPNext refuses
+		# wb row 15 is Ent Mar 28 / Pst Mar 30 (future-dated) - ERPNext refuses
 		# future posting dates, so we enter it on its posting day (same month,
 		# numerically identical)
 		clock.set("2026-03-30")

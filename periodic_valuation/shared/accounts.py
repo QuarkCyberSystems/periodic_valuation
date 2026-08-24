@@ -4,7 +4,7 @@
 """Account determination for periodic-valuation postings (Apr 22 restructure).
 
 Resolution defers to ERPNext's existing Item Default / Item Group Default /
-Brand / Company / Warehouse chain, extended with the two item×warehouse child
+Brand / Company / Warehouse chain, extended with the two item-warehouse child
 tables this app adds. The inventory account for a (company, item, warehouse)
 is invariant across transaction types; only expense/offset legs vary.
 
@@ -88,8 +88,8 @@ def get_inventory_account(company, item_code, warehouse=None):
 def get_offset_account(company, item_code, warehouse, transaction_type, row_override=None):
 	"""Expense/offset account for a posting intent.
 
-	Order: per-row override → item/item-group per-warehouse tables →
-	Item/Item Group Defaults → PMA Settings fallback.
+	Order: per-row override -> item/item-group per-warehouse tables ->
+	Item/Item Group Defaults -> Periodic Moving Average Settings fallback.
 	`transaction_type` picks the specialised fieldname where one exists.
 	"""
 	from periodic_valuation.shared.settings import get_pma_setting
@@ -142,7 +142,7 @@ def get_offset_account(company, item_code, warehouse, transaction_type, row_over
 				_(
 					"No {0} is configured for {1}. Set it in Periodic Moving Average "
 					"Settings, or on the Item / Item Group defaults, before posting "
-					"this transaction — posting without it would silently absorb the "
+					"this transaction - posting without it would silently absorb the "
 					"amount into Stock Received But Not Billed."
 				).format(frappe.unscrub(key), company),
 				title=_("Valuation Account Not Configured"),

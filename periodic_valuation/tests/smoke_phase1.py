@@ -1,4 +1,4 @@
-"""Phase-1 smoke test — run via: bench --site badiav16.localhost execute smoke_phase1.run
+"""Phase-1 smoke test - run via: bench --site <site> execute smoke_phase1.run
 
 Verifies (read-only where possible, all writes rolled back):
 1. Shared doctypes exist with expected schema.
@@ -16,7 +16,7 @@ RESULTS = []
 
 def check(label, ok, detail=""):
 	RESULTS.append((label, bool(ok), detail))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def run():
@@ -69,7 +69,7 @@ def run():
 	kernels = frappe.get_hooks("valuation_kernels")
 	check("kernel registry hook", kernels.get("Periodic Moving Average"))
 
-	# 4. immutability guard — manual SME insert must be blocked
+	# 4. immutability guard - manual SME insert must be blocked
 	try:
 		frappe.get_doc(
 			{

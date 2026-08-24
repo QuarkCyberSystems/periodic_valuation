@@ -6,7 +6,7 @@
 The reconciliation gate proves kernel GL == movement table; a manual Journal
 Entry against an inventory account used by periodic-valuation scopes would drift
 the real account balance away from both without either noticing. Such JEs are
-blocked outright — corrections go through Stock Revaluation (value), Stock
+blocked outright - corrections go through Stock Revaluation (value), Stock
 Count (quantity) or Stock Reconciliation (cutover), all of which post tagged,
 event-linked GL.
 
@@ -55,7 +55,7 @@ def block_manual_stock_journal(doc, method=None):
 			frappe.throw(
 				_(
 					"Row {0}: {1} is an inventory account maintained by the periodic valuation kernel. "
-					"Manual journal entries against it are not allowed — use Stock Revaluation "
+					"Manual journal entries against it are not allowed - use Stock Revaluation "
 					"(value), Stock Count (quantity) or Stock Reconciliation instead."
 				).format(row.idx, frappe.bold(row.account)),
 				title=_("Manual Stock Posting Blocked"),

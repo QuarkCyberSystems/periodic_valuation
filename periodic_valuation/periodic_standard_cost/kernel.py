@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Periodic Standard Cost posting kernel — voucher routing layer.
+"""Periodic Standard Cost posting kernel - voucher routing layer.
 
 Maps routed vouchers onto STD posting intents, drives StdEngine for the
 event log + GL, and maintains the SLE-compatible rows / Bin / Inventory
@@ -140,7 +140,7 @@ def _post_opening_std(controller, sle):
 	"""Beg producer (M12): Stock Reconciliation is the go-live opening lever
 	for a scope with NO valuation history. Per the workbook's Beg row: qty at
 	the active standard cost, opening variance (AC - SC) into both PPV pools,
-	offset FY Carry Forward (DR-06). All later corrections stay blocked —
+	offset FY Carry Forward (DR-06). All later corrections stay blocked -
 	Stock Count moves quantity, a cost version release moves value."""
 	company = controller.company
 	item_code = sle.get("item_code")
@@ -199,7 +199,7 @@ def _post_cancellation_std(controller, engine, sle, period):
 	source = (controller.doctype, controller.name, detail)
 	mirror = None
 	for name in originals:
-		# Let reverse_event apply its own dating rule — into the original period
+		# Let reverse_event apply its own dating rule - into the original period
 		# while that period is still open, current-dated once it is settled.
 		# Forcing the cancellation document's own date here overrode that rule, so
 		# a reversal of a still-open prior period landed in the current period
@@ -224,7 +224,7 @@ def _post_cancellation_std(controller, engine, sle, period):
 	)
 	from periodic_valuation.shared.periods import get_period
 
-	# the mirror's own period, which reverse_event chose from the period state —
+	# the mirror's own period, which reverse_event chose from the period state -
 	# the balance has to move where the GL moved, not where the document is dated
 	mirror_period = get_period(engine.company, mirror.posting_date) or period
 	scope = ScopeState(engine.company, engine.item_code, sle.get("warehouse"))
@@ -254,7 +254,7 @@ def _backdate_class(engine, posting_date, today):
 	(BD)/(BY) label or posts plain.
 
 	- Post-reopen late entries post PLAIN: the target period was settled and
-	  Sett-Reversed, so the coming re-settlement absorbs them — no bridge.
+	  Sett-Reversed, so the coming re-settlement absorbs them - no bridge.
 	- (BY) exists only inside the prior-FY soft-close window: the immediately
 	  previous fiscal year, before its December is live-settled. Outside the
 	  window the backdate is refused (post a current-dated correction).
@@ -363,7 +363,7 @@ def _write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_na
 	_cascade_backdated_ipb(scope, period, qty, value, source=(controller.doctype, controller.name))
 	# stamp the quantity this posting actually moved: a Stock Reconciliation's
 	# routed row carries an ABSOLUTE target with actual_qty unset, so passing it
-	# verbatim wrote the opening Beg SLE with quantity 0 — the scope held stock
+	# verbatim wrote the opening Beg SLE with quantity 0 - the scope held stock
 	# the Stock Ledger never saw (surfaced by the physical-warehouse fix)
 	sle_row = dict(sle)
 	sle_row["actual_qty"] = qty

@@ -1,4 +1,4 @@
-"""Production-hardening suite — bench --site <site> execute periodic_valuation.tests.smoke_production.run
+"""Production-hardening suite - bench --site <site> execute periodic_valuation.tests.smoke_production.run
 
 Goes beyond the signed 10-row Test Matrix: numeric boundaries, sequencing and
 backdating edges, document variety, period machinery, scope isolation, and
@@ -16,7 +16,7 @@ CHECKS = []
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def settings_doc(company):

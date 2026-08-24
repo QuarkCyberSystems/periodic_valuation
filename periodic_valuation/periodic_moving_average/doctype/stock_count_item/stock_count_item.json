@@ -75,7 +75,7 @@
    "read_only": 1
   },
   {
-   "description": "System-derived from the period MAP. Not user-editable (client rule).",
+   "description": "System-derived from the period MAP. Not user-editable.",
    "fieldname": "valuation_rate",
    "fieldtype": "Float",
    "label": "Valuation Rate (Period MAP)",
@@ -90,7 +90,7 @@
    "read_only": 1
   },
   {
-   "description": "Offset account. Resolved via Item Default -> PMA Settings when blank.",
+   "description": "Offset account. Resolved via Item Default -> Periodic Moving Average Settings when blank.",
    "fieldname": "variance_account",
    "fieldtype": "Link",
    "label": "Variance Account",

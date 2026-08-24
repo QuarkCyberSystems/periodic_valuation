@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""STD posting-intent flag matrix — verbatim port of the client-conformant
-reference simulator (badia_docs/.../sap_std_mtd/config.py, V2.03-verified).
+"""STD posting-intent flag matrix - verbatim port of the client-conformant
+reference simulator for the MTD workbook (V2.03-verified).
 
 Flags: (mvt, in_flag, out_flag, ppv_with_sett, ppv_without_sett, rev_flag)
 - in/out feed the quantity pools (PR nets against In; SR and SC+ against Out)
@@ -28,7 +28,7 @@ TRANS_FLAGS = {
 	"REC (BD) - Rev":     Flags("In",  1, 0, 0, 0, 1),
 	"Issue (BD)":         Flags("Out", 0, 1, 0, 0, 0),
 	# MTD: companion feeds the Rev pool; YTD: it does not (single flag-matrix
-	# difference between the two kernels — resolved at post time by view)
+	# difference between the two kernels - resolved at post time by view)
 	"Issue (BD) - Rev":   Flags("Out", 0, 1, 0, 0, 1),
 	"REC (BY)":           Flags("In",  1, 0, 1, 1, 0),
 	"REC (BY) - Rev":     Flags("In",  1, 0, 0, 0, 1),

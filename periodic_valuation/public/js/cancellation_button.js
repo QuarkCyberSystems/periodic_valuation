@@ -9,18 +9,18 @@
 	];
 
 	// A reversal (Cancellation) document is display-only: all fields are locked
-	// except the posting date, and a clear "Reversal of …" banner is shown
+	// except the posting date, and a clear "Reversal of ..." banner is shown
 	// (WA-0003-01 items 5 & 13). Applies in draft and after submit.
 	// ONE writer for the form-message slot. frm.set_intro and
 	// frm.dashboard.set_headline both render into .form-message, so two
-	// independent writers silently overwrite each other — the movement label
+	// independent writers silently overwrite each other - the movement label
 	// showed on a plain return but vanished on a reversal, because
 	// lockReversal re-applies its banner on delayed passes and won the race.
 	// Compose both lines here and set them once.
 	function renderMessage(frm) {
 		const lines = [];
 		if (frm.doc.is_cancellation && frm.doc.cancellation_against) {
-			lines.push(__("Reversal of {0} — fields are locked; only the posting date may be changed.",
+			lines.push(__("Reversal of {0} - fields are locked; only the posting date may be changed.",
 				[frm.doc.cancellation_against]));
 		}
 		if (frm._pv_movement) {
@@ -28,7 +28,7 @@
 		}
 		// Any other app-owned notice for this form. It goes through THIS
 		// function rather than set_intro/add_comment because .form-message has
-		// exactly one writer — anything else is silently overwritten by
+		// exactly one writer - anything else is silently overwritten by
 		// whichever pass runs last.
 		if (frm._pv_notice) {
 			lines.push(frm._pv_notice);
@@ -116,7 +116,7 @@
 
 	// View -> Stock Ledger / Accounting Ledger / Valuation Events for a routed
 	// Landed Cost Voucher. Core LCV never posts GL of its own (it revalues the
-	// receipt's SLEs), so the core form has no ledger shortcuts — but for
+	// receipt's SLEs), so the core form has no ledger shortcuts - but for
 	// kernel items the voucher DOES post its own tagged GL, and with no way to
 	// reach it from the form the entries read as absent ("Doesn't create a
 	// JV", client behaviour review 2026-08-18, MAT-LCV-2026-00010). Same
@@ -169,7 +169,7 @@
 		addLcvLedgerButtons(frm);
 		// Revoke the client-side cancel permission: frappe's own toolbar
 		// logic then omits Cancel wherever it renders it (page action
-		// button, menu entry, keyboard shortcut) — no DOM chasing. The
+		// button, menu entry, keyboard shortcut) - no DOM chasing. The
 		// server guard remains the actual enforcement.
 		if (frm.perm && frm.perm[0] && frm.perm[0].cancel) {
 			frm.perm[0].cancel = 0;
@@ -194,10 +194,10 @@
 				// A reversal is itself immutable: hide core Cancel there too.
 				// It offers an action the server always refuses, and it must
 				// not gain a "Create Cancellation" button (no reversing a
-				// reversal) — so hide only, then stop.
+				// reversal) - so hide only, then stop.
 				if (frm.doc.docstatus === 1 && frm.doc.is_cancellation) {
 					// a cancellation LCV posts its own mirror GL and only
-					// exists for kernel items — same ledger shortcuts
+					// exists for kernel items - same ledger shortcuts
 					addLcvLedgerButtons(frm);
 					hideCoreCancel(frm);
 					// ERPNext's own Stock Entry refresh re-derives the warehouse

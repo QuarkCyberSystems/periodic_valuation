@@ -41,7 +41,7 @@ def get_incoming_rate(args, valuation_method):
 	"""Incoming-rate resolver for kernel-valued items (``valuation_incoming_rate`` hook).
 
 	MAP items are always valued at the current period moving average from
-	Inventory Period Balance — never from SLE state or the generic fallback
+	Inventory Period Balance - never from SLE state or the generic fallback
 	chain (period-MAP-for-issues rule, signed MAP plan).
 	"""
 	from frappe import _
@@ -68,7 +68,7 @@ def get_incoming_rate(args, valuation_method):
 	filters = {"company": company, "item_code": item_code}
 	filters["warehouse"] = (args.get("warehouse") or "") if include_warehouse else ""
 
-	# AS OF the document's posting period — a backdated issue is valued (and
+	# AS OF the document's posting period - a backdated issue is valued (and
 	# its form rate displayed) at that period's MAP, not the latest one
 	# (client meeting 2026-08-12: issue posted 09-07 showed 996, the August
 	# MAP, where July's 920 belongs).

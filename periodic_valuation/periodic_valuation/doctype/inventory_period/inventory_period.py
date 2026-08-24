@@ -85,7 +85,7 @@ class InventoryPeriod(Document):
 		allowed = STATE_TRANSITIONS.get(old, set())
 		if self.status not in allowed:
 			frappe.throw(
-				_("Invalid Inventory Period state transition {0} → {1}. Allowed: {2}.").format(
+				_("Invalid Inventory Period state transition {0} -> {1}. Allowed: {2}.").format(
 					old, self.status, ", ".join(sorted(allowed)) or _("none")
 				),
 				title=_("Invalid State Transition"),

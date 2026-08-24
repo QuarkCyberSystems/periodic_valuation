@@ -1,4 +1,4 @@
-"""MAP test-matrix smoke — bench --site badiav16.localhost execute periodic_valuation.tests.smoke_matrix.run
+"""MAP test-matrix smoke - bench --site <site> execute periodic_valuation.tests.smoke_matrix.run
 
 Extends smoke_kernel with the remaining signed-plan Test Matrix scenarios:
 LCV stock-ratio split, Stock Count at period MAP, MR21 revaluation,
@@ -17,7 +17,7 @@ CHECKS = []
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 def ipb():
@@ -229,7 +229,7 @@ def run(commit=False):
 	check("purchase return nets the since-zero counter (item 7)",
 		flt(after.total_received_since_zero) == flt(mid.total_received_since_zero) - 50,
 		f"{mid.total_received_since_zero} -> {after.total_received_since_zero}")
-	# NB: receipt_qty and the counter are NOT equal in general — receipt_qty is
+	# NB: receipt_qty and the counter are NOT equal in general - receipt_qty is
 	# per PERIOD, the counter is since the last ZERO, so a zero-crossing inside
 	# the period legitimately separates them. They coincide only when stock has
 	# not touched zero, which is the case the client reported.

@@ -18,7 +18,7 @@ def r2(x):
 
 
 class TestMainScenario:
-	"""Workbook v9 Main Scenario — Limestone @ Stores, Feb-Mar."""
+	"""Workbook v9 Main Scenario - Limestone @ Stores, Feb-Mar."""
 
 	@pytest.fixture()
 	def ledger(self):
@@ -94,7 +94,7 @@ class TestMainScenario:
 
 
 class TestZeroQtyReset:
-	"""Scenario B — zero-qty reset + stock-ratio reset."""
+	"""Scenario B - zero-qty reset + stock-ratio reset."""
 
 	def test_reset_cycle(self):
 		led = MapLedger()
@@ -117,7 +117,7 @@ class TestZeroQtyReset:
 
 
 class TestNegativeStockPRD:
-	"""Scenario C — Negative Balance sheet (client's Negative.xlsx numbers)."""
+	"""Scenario C - Negative Balance sheet (client's Negative.xlsx numbers)."""
 
 	def test_prd_flow(self):
 		led = MapLedger()
@@ -152,7 +152,7 @@ class TestNegativeStockPRD:
 
 
 class TestBackdatedCaseC1:
-	"""Scenario E — backdated receipt into previously-negative prior period,
+	"""Scenario E - backdated receipt into previously-negative prior period,
 	current period positive (client-locked: Mar PRD 252, Apr 19/587/30.8947)."""
 
 	def test_c1(self):
@@ -170,7 +170,7 @@ class TestBackdatedCaseC1:
 		led.open_period("2026-04")
 		led.receipt(20, 17.5)       # crosses zero: clearing 10, excess 10 @ 17.5
 		# client setup wants Apr at 10 @ 20 / value 200: use explicit numbers
-		# instead — cross-zero math gives excess*17.5=175 ... adjust to match
+		# instead - cross-zero math gives excess*17.5=175 ... adjust to match
 		# the client's setup by revaluing to 200
 		led.revaluation(200 - led.value)
 		assert led.qty == 10 and r2(led.value) == 200 and r2(led.map) == 20
@@ -199,7 +199,7 @@ class TestBackdatedCaseC1:
 
 
 class TestBackdatedCaseC2:
-	"""Signed plan C2 — both periods negative (Mar -5/-75 fz 15, Apr -3/-45 fz 15,
+	"""Signed plan C2 - both periods negative (Mar -5/-75 fz 15, Apr -3/-45 fz 15,
 	backdated 9@43 -> Mar inv 247 + PRD 140, Apr absorb 56, final 6 @ 43)."""
 
 	def test_c2(self):
@@ -237,7 +237,7 @@ class TestBackdatedCaseC2:
 
 
 class TestFXInvoiceDiff:
-	"""Scenario D — EUR receipt + later invoice at different price AND FX."""
+	"""Scenario D - EUR receipt + later invoice at different price AND FX."""
 
 	def test_fx_split(self):
 		led = MapLedger()

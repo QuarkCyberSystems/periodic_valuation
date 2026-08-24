@@ -7,14 +7,14 @@
 original rates. ERPNext's Stock Entry then recalculates them: `validate()` calls
 `calculate_rate_and_amount(reset_outgoing_rate=True)`, and
 `set_rate_for_outgoing_items` overwrites `basic_rate` on every row carrying an
-`s_warehouse` with `get_incoming_rate()` — i.e. the valuation at *reversal* time.
+`s_warehouse` with `get_incoming_rate()` - i.e. the valuation at *reversal* time.
 
 The result is a document whose face contradicts its own posting: the client's
 MAT-STE-2026-00029 reversed a 79,411.76 issue while displaying 102,500.00,
 because the moving average had moved from 158.82 to 205 in between
 (WA-0003-01 item 5).
 
-The design is explicit that a reversal is measured at the original basis —
+The design is explicit that a reversal is measured at the original basis -
 "a referenced reversal always uses the original STD; a current-date posting at
 today's STD is not a reversal", and Sett-Reverse rows are "exact mirrors of the
 rows they cancel". MAP UAT TC-D2 likewise expects the balance to move by "the
@@ -24,7 +24,7 @@ This is display-only: the kernel never reads `basic_rate` (valuation flows from
 the IVE/IPB path), which is why the GL was already correct. Restoring the rate
 makes the paperwork agree with the ledger.
 
-Runs as a `validate` doc_event, so it re-applies on every save — ERPNext
+Runs as a `validate` doc_event, so it re-applies on every save - ERPNext
 recalculates on each validate, and doc_events run after the controller method.
 """
 

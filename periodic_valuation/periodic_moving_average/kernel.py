@@ -4,12 +4,15 @@
 """Periodic Moving Average posting kernel.
 
 Flow per posting (single DB transaction with the voucher):
-Normalize -> Validate (period open) -> Lock (IPB prev->current) -> Compute
-(same math as periodic_valuation.periodic_moving_average.reference.kernel) -> Write
-(SME + IVE + IPB + SLE-compatible row + GL).
+Normalize -> Validate (period open) -> Lock (IPB prev->current) -> Compute ->
+Write (SME + IVE + IPB + SLE-compatible row + GL).
 
-The reference simulator is the behavioral spec; every branch here mirrors a
-reference-kernel branch and is covered by the same workbook-v9 anchors.
+This kernel is the behavioral spec. The pure-Python simulator in
+periodic_valuation.periodic_moving_average.reference reproduces the approved
+sample-entries workbook and covers the receipt, issue, return, revaluation and
+negative-stock paths; it does not carry transfers, the Stock Reconciliation
+decomposition, or the rules ruled after it was written, so where the two
+differ this file governs.
 """
 
 import frappe
@@ -177,8 +180,10 @@ def _derive_intent(reason):
 
 
 def _receipt_fx(controller):
-	"""FX traceability (m1/DR-26): stamp the document conversion rate on
-	receipt events so the IFRS split never depends on a runtime join."""
+	"""FX traceability (DR-28 m1): stamp the document conversion rate on receipt
+	events, so the receipt-rate basis of a later IFRS split is recorded on the
+	event itself. The invoice-difference path still reads the rate from the
+	receipt when it posts; this stamp is the audit record of it."""
 	rate = flt(controller.get("conversion_rate"))
 	return rate if rate and rate != 1 else None
 
@@ -209,12 +214,12 @@ def write_events(scope, ipb, *, source, posting_date, movement_type, reason, qty
 	# Every event row carries its inventory / P&L decomposition (client
 	# approval comment 2, 2026-08-18: "populated in each relevant transaction,
 	# not only in the LC transaction"). The two columns were designed as the
-	# stock-ratio split's audit fields and stayed 0/0 on every other row, so a
+	# late-cost split's audit fields and stayed 0/0 on every other row, so a
 	# finance reader saw "no split recorded" on issues, counts and
 	# cancellations. inventory_portion is definitionally the event's net
 	# inventory effect; expense_portion is derived from the event's own GL
 	# shape unless the caller computed (LC/invoice-diff) or mirrored
-	# (cancellation) a specific value. Display-only — no GL or balance change.
+	# (cancellation) a specific value. Display-only - no GL or balance change.
 	if inventory_portion is None:
 		inventory_portion = value_delta
 	if expense_portion is None:
@@ -312,8 +317,8 @@ def write_value_sle(scope, ipb, *, source, posting_date, value_delta, qty_delta=
 		stock_uom=None):
 	"""Zero-quantity SLE carrying a value-only movement (DR-02).
 
-	Value events — invoice difference, landed cost, revaluation, count difference,
-	FX — move inventory value without a receipt or issue. They already write the
+	Value events - invoice difference, landed cost, revaluation, count difference,
+	FX - move inventory value without a receipt or issue. They already write the
 	IVE, the IPB, the GL and the Bin, but without an SLE the ~30 core consumers
 	that read the Stock Ledger (Stock Balance, Stock Ledger, Stock Analytics,
 	Gross Profit, valuation-rate lookups) never see the value and under-report
@@ -324,7 +329,7 @@ def write_value_sle(scope, ipb, *, source, posting_date, value_delta, qty_delta=
 	early-exits and core never recomputes what the kernel already decided.
 	"""
 	if not scope.physical_warehouse:
-		return None          # company-scope rows have no physical warehouse to post against
+		return None          # nothing to post against when no warehouse was supplied
 	if not flt(value_delta) and not flt(qty_delta):
 		return None
 
@@ -393,7 +398,7 @@ def update_bin(scope, ipb, qty_delta, absolute=None):
 	if not scope.physical_warehouse:
 		return
 	bin_name = get_or_make_bin(scope.item_code, scope.physical_warehouse)
-	# `absolute` is the counted physical quantity for this warehouse — used by
+	# `absolute` is the counted physical quantity for this warehouse - used by
 	# Stock Reconciliation to SET the Bin (correcting any prior Bin<->IPB drift)
 	# rather than applying a delta. Every other posting shifts the Bin by the
 	# movement quantity, keeping the shadow row in step with the ledger.
@@ -412,7 +417,7 @@ def update_bin(scope, ipb, qty_delta, absolute=None):
 
 
 def post_gl(controller, posting_date, legs, ive_name, remarks=None):
-	"""legs: (account, signed_amount, against) — positive Dr, negative Cr."""
+	"""legs: (account, signed_amount, against) - positive Dr, negative Cr."""
 	from erpnext.accounts.general_ledger import make_gl_entries
 
 	gl_map = []
@@ -430,7 +435,7 @@ def post_gl(controller, posting_date, legs, ive_name, remarks=None):
 					# Inventory and its valuation offsets are always company
 					# currency (design: "inventory always base currency"), so
 					# the account-currency figures are the same numbers. The
-					# General Ledger report renders THESE fields — leaving them
+					# General Ledger report renders THESE fields - leaving them
 					# unset stores 0 and every kernel leg displays as $0.00,
 					# which finance reads as "no accounting entries" even
 					# though the base debit/credit are correct and balanced
@@ -555,7 +560,7 @@ def _post_reconciliation(controller, scope, period, sle):
 	# against the SCOPE total posted garbage: setting a warehouse holding 60 to
 	# a counted 55 (with 40 elsewhere) read as a -45 adjustment for a real loss
 	# of 5 (client approval comment 1, 2026-08-18). Valuation of the delta
-	# stays at the scope rate — quantity is physical, value is scope.
+	# stays at the scope rate - quantity is physical, value is scope.
 	from periodic_valuation.periodic_moving_average.api import get_physical_qty
 
 	physical_qty = get_physical_qty(scope.item_code, scope.physical_warehouse, posting_date)
@@ -563,7 +568,7 @@ def _post_reconciliation(controller, scope, period, sle):
 	has_rate = sle.get("valuation_rate") not in (None, "")
 	rate = flt(sle.get("valuation_rate")) if has_rate else (map_before or 0)
 	# Core SR auto-fills valuation_rate from the prefill on every row, so
-	# has_rate alone cannot mean "the user wants a re-price" — only a rate that
+	# has_rate alone cannot mean "the user wants a re-price" - only a rate that
 	# DIFFERS from the scope's current rate does. The prefill rate equals the
 	# scope rate by construction, so an untouched row reconciles quantity only.
 	scope_rate = flt(ipb.frozen_map) if ipb.is_negative else map_before
@@ -576,7 +581,7 @@ def _post_reconciliation(controller, scope, period, sle):
 		# company scope go through Stock Revaluation (scope-level by design).
 		frappe.throw(
 			_(
-				"Row for {0}: a valuation rate cannot be set here — the item is valued at "
+				"Row for {0}: a valuation rate cannot be set here - the item is valued at "
 				"company scope and other warehouses hold {1} of its {2} on hand. Reconcile "
 				"the quantity only, and use Stock Revaluation for value corrections."
 			).format(scope.item_code, flt(current_qty - physical_qty), flt(current_qty)),
@@ -592,7 +597,7 @@ def _post_reconciliation(controller, scope, period, sle):
 
 	if qty_delta:
 		# A count difference is valued at the CURRENT period MAP (frozen MAP
-		# while negative) and never moves MAP — the rate change, if any, is
+		# while negative) and never moves MAP - the rate change, if any, is
 		# entirely the revaluation residual below. Valuing the count at the
 		# TARGET rate overstated the count leg and understated the
 		# revaluation by qty x (target - MAP), and moved MAP on a count
@@ -645,7 +650,7 @@ def _post_reconciliation(controller, scope, period, sle):
 	scope.save(ipb, caused_by=last_ive, source=source)
 
 	# Backdated reconciliation: every LATER period's carryover must absorb the
-	# same qty/value delta, exactly as receipts, issues and value events do —
+	# same qty/value delta, exactly as receipts, issues and value events do -
 	# otherwise the next period's opening no longer chains from this period's
 	# closing and period close refuses (client meeting 2026-08-12; MH #9:
 	# July closed 3,000/2,988,930 while August still carried 1,490/1,370,800).
@@ -656,7 +661,7 @@ def _post_reconciliation(controller, scope, period, sle):
 	sle_row = dict(sle)
 	sle_row["actual_qty"] = qty_delta
 	# a reconciliation SETS the counted physical quantity for this warehouse,
-	# so the Bin is written to the absolute target (not shifted by the delta) —
+	# so the Bin is written to the absolute target (not shifted by the delta) -
 	# this is the lever that erases any prior Bin<->IPB drift.
 	write_sle(controller, sle_row, scope, ipb, total_delta, bin_absolute=target_qty)
 	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=qty_delta)
@@ -673,7 +678,7 @@ def _reconciliation_offset_account(controller, sle):
 
 
 def _stamp_document_intent(controller, is_cancellation, is_return):
-	"""Visible, immutable classification on the source document — derived from
+	"""Visible, immutable classification on the source document - derived from
 	the action taken (Create Cancellation / Return / plain), never user-picked."""
 	intent = (
 		"EXACT_REVERSAL_WITH_REFERENCE" if is_cancellation
@@ -709,7 +714,7 @@ def _pair_transfers(controller, entries):
 def _post_transfer(controller, out_sle, in_sle):
 	"""Warehouse transfer of a kernel item.
 
-	Company-scope items (valuation_includes_warehouse OFF): physical-only —
+	Company-scope items (valuation_includes_warehouse OFF): physical-only -
 	movement events on both legs, one value-neutral IVE, no GL (signed plan).
 	Warehouse-scope items (ON): issue at the source scope's MAP, receipt into
 	the destination scope at that unit cost; GL moves value between the two
@@ -876,7 +881,7 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 		# behaviour STD"): a purchase return reverses a receipt, so it nets
 		# down the In/receipt side; a sales return reverses an issue, so it
 		# nets down the Out/issue side. This mirrors STD's PR in_flag / SR
-		# out_flag. Closing qty/value, MAP and GL are unchanged — only the
+		# out_flag. Closing qty/value, MAP and GL are unchanged - only the
 		# period-balance In/Out breakdown differs (previously returns were
 		# bucketed by physical direction, inflating the wrong side).
 		if qty > 0:
@@ -891,9 +896,9 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 			# (WA-0003-01 item 7). Once a purchase return nets down the receipt
 			# bucket, leaving the counter untouched makes the Period Balance
 			# contradict itself: receipt_qty says 800 received while
-			# total_received_since_zero says 1,000 for the same movements, and
-			# the stock ratio is then taken against a denominator that includes
-			# goods sent back to the supplier. Floored at zero — a return can
+			# total_received_since_zero says 1,000 for the same movements, so
+			# the audited receiving history would include goods that went back
+			# to the supplier. Floored at zero - a return can
 			# never imply negative receipts. A SALES return is deliberately not
 			# counted here: it reverses an issue, so it never entered this
 			# counter in the first place.
@@ -902,7 +907,8 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 			)
 		recompute_closing(ipb)
 		if not valued_at_reference:
-			# valued at the current MAP, so it cannot move it (RET-02); a return
+			# valued at the current MAP, so it cannot move it (signed plan,
+			# Return without Reference); a return
 			# at the original cost re-blends like a receipt and does move it
 			_pin_map(ipb, map_before)
 		_freeze_check(ipb)
@@ -930,7 +936,7 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 
 
 def _apply_receipt(ipb, qty, rate):
-	"""Receipt math on the IPB row — mirrors reference kernel receipt()."""
+	"""Receipt math on the IPB row - mirrors reference kernel receipt()."""
 	receipt_value = r2(qty * rate)
 	closing = flt(ipb.closing_qty)
 
@@ -952,7 +958,7 @@ def _apply_receipt(ipb, qty, rate):
 		recompute_closing(ipb)
 		# Landing exactly on zero ends the negative excursion: clear the frozen
 		# state and reset the since-zero counter. MAP is deliberately NOT touched
-		# — it stays at the previous (frozen) value until a real crossing receipt
+		# - it stays at the previous (frozen) value until a real crossing receipt
 		# re-prices the pool (WA-0003-01 item 22).
 		_freeze_check(ipb)
 		return {"reason": "receipt_neg", "receipt_value": receipt_value, "net_to_inventory": net, "prd": prd}
@@ -1000,7 +1006,7 @@ def _cascade_value_carryover(scope, period, *, qty_delta, value_delta, source):
 
 def _guard_positive_value(ipb, item_code, reason):
 	"""Block a value-only posting that would drive inventory value negative
-	while positive stock remains — that produces a negative moving average,
+	while positive stock remains - that produces a negative moving average,
 	which is never valid (WA-0003-01 item 14). Genuine negative *stock* (qty
 	< 0 with frozen MAP) is a separate, supported case and is not caught here.
 	"""
@@ -1009,7 +1015,7 @@ def _guard_positive_value(ipb, item_code, reason):
 			_(
 				"This {0} would make {1}'s inventory value negative ({2}) while "
 				"{3} units are still in stock, producing a negative moving average. "
-				"Posting is blocked — correct the cost or quantity first."
+				"Posting is blocked - correct the cost or quantity first."
 			).format(
 				reason.replace("_", " "), item_code,
 				flt(ipb.closing_value, 2), flt(ipb.closing_qty),
@@ -1025,8 +1031,9 @@ def _pin_map(ipb, map_before):
 	closing_value is carried at GL precision (the issue leg is rounded to 2dp so
 	it equals the posted amount). Re-deriving the MAP from that rounded figure
 	nudges it: an issue of 20 against a MAP of 13.333333 leaves 13.333308, and 7
-	of 11 issue quantities moved a MAP the design fixes as unchanged (FM-02,
-	RET-02). The drift accumulates over every issue and makes the MAP
+	of 11 issue quantities moved a MAP that the signed plan fixes as unchanged
+	on issues and on returns without reference. The drift accumulates over
+	every issue and makes the MAP
 	irreproducible from the documented formula.
 
 	Counts and reconciliations already pin the MAP this way; issues and
@@ -1049,8 +1056,9 @@ def _freeze_check(ipb):
 
 def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=0):
 	"""Mandatory zero-qty cleanup (signed plan): when closing_qty hits 0 with a
-	residual value within tolerance, clear it to Stock Rounding Adjustment and
-	reset MAP. Called after any posting that can zero the quantity.
+	residual value within tolerance, clear it to Stock Rounding Adjustment. The
+	MAP is retained (see below). Called from the receipt, issue, transfer and
+	reconciliation paths.
 
 	Residuals LARGER than that are deliberately not swept here: they are real
 	amounts, not rounding, and the Apr-22 rule forbids writing anything off
@@ -1073,19 +1081,20 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_sca
 	# a quantity can only be wrong by qty x 5e-7, so a 3,000,000-unit issue
 	# legitimately leaves up to 1.50 of pure rounding. Measuring that against a
 	# flat 0.01 would classify ordinary bulk movements as stranded value and
-	# refuse every month-end close — cement quantities are in tonnes and kg.
+	# refuse every month-end close - cement quantities are in tonnes and kg.
 	limit = max(tolerance, abs(flt(qty_scale)) * 5e-7)
 	map_before = flt(ipb.moving_avg_price)
 	# The MAP is RETAINED at zero quantity (client behaviour review 2026-08-18,
 	# MAT-STE-2026-00150; ruled 2026-08-18). It is the SAP material-master
 	# behaviour, and zeroing it was not cosmetic: frozen_map is captured FROM
 	# the MAP, so an issue taken from an exactly-zero balance froze at 0 and
-	# left stock at no cost at all — 100 in, 100 out, then 50 more out booked
+	# left stock at no cost at all - 100 in, 100 out, then 50 more out booked
 	# ZERO COGS, while the same 150 issued in one movement booked 1,500. The
 	# next receipt is unaffected either way (value is 0, so it re-prices to its
-	# own rate). Supersedes plan §725's "MAP → 0" and the workbook's
-	# Zero Qty Reset sheet on this point; the counter reset stays (it feeds the
-	# stock ratio, which is genuinely per-cycle).
+	# own rate). Supersedes plan §725's "MAP -> 0" and the workbook's
+	# Zero Qty Reset sheet on this point. The since-zero counter is still reset
+	# here: it is a per-cycle receiving history kept for audit, and no longer
+	# drives any value split (DR-32).
 	if residual and abs(residual) <= limit:
 		ipb.reval_value = r6(flt(ipb.reval_value) - residual)
 		recompute_closing(ipb)
@@ -1157,7 +1166,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# Match the original event(s) by item within the original document. We do
 	# NOT filter by source_detail_name: on a copied Cancellation document the
 	# item rows are new, and a return's `purchase_receipt_item` points at the
-	# grand-original receipt, not the return's own event — so a detail-name
+	# grand-original receipt, not the return's own event - so a detail-name
 	# filter wrongly finds nothing (WA-0003-01 item 9). Instead we take the
 	# original doc's events for this item, drop any already reversed by a live
 	# cancellation, and pair the line to one by matching quantity.
@@ -1194,7 +1203,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 
 	# A Create Cancellation is only eligible while the original's period is
 	# still OPEN or PREV_OPEN_UNSETTLED. Once the period is closed it stays
-	# closed (DR-21) — there is no settlement to reverse in Moving Average, so
+	# closed (DR-21) - there is no settlement to reverse in Moving Average, so
 	# the correction is a fresh current-period entry, not a reach-back.
 	orig_period = frappe.db.get_value(
 		"Inventory Valuation Event", orig.name, ["period_year", "period_month"], as_dict=True
@@ -1209,7 +1218,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		frappe.throw(
 			_(
 				"The original posting's period {0}-{1:02d} is {2}, so it can no longer be cancelled "
-				"— a closed period is not reopened. To correct its effect, post a new entry (e.g. "
+				"- a closed period is not reopened. To correct its effect, post a new entry (e.g. "
 				"Stock Count or Stock Reconciliation) in the current open period; it is valued at "
 				"the current moving average."
 			).format(orig_period.period_year, orig_period.period_month, orig_period_status or _("closed")),
@@ -1218,7 +1227,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 
 	# A Cancellation draft carries the original's quantities, but the user can
 	# edit them down before submitting, so the reversal may cover only part of
-	# the original event. The ledger value is pro-rated on that share — and the
+	# the original event. The ledger value is pro-rated on that share - and the
 	# mirrored GL below has to be pro-rated by the SAME share. Mirroring the
 	# original's full GL amounts against a pro-rated ledger value left inventory
 	# overstated by the difference, permanently, with nothing to point at: on the
@@ -1229,19 +1238,19 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	value = r6(-flt(orig.value_delta) * share)
 	orig_qty = -qty  # the cancelled share of the original's SIGNED quantity
 
-	# A cancellation nets the bucket the ORIGINAL event filled — it is never
+	# A cancellation nets the bucket the ORIGINAL event filled - it is never
 	# re-classified by its physical direction (OI-5 bucket mapping, confirmed
 	# by the client in the 2026-08-18 behaviour review, MAT-PRE-2026-00375:
-	# "Purchase return and Sales return same behavior … Netting the OUT/IN";
+	# "Purchase return and Sales return same behavior ... Netting the OUT/IN";
 	# recorded as DR-31). Bucketing by direction painted a different period
 	# than the equivalent return: cancelling a 1,500 receipt left In at 1,500
 	# AND pushed Out up by 1,500, so the balance read "received 2,000, issued
-	# 2,000" where the truth was 500/500 — and left the since-zero counter
-	# carrying cancelled goods, so a later landed cost or invoice difference
-	# split against a denominator including stock that was never kept
-	# (the same defect returns had, WA-0003-01 item 7). SAP reads the same
-	# way: a 102 shrinks the receipt statistics, it is not a goods issue.
-	# Closing qty/value, MAP, GL, SLE and the immutable events are unchanged —
+	# 2,000" where the truth was 500/500 - and left the since-zero counter
+	# carrying cancelled goods, overstating the audited receiving history with
+	# stock that was never kept (the same defect returns had, WA-0003-01
+	# item 7). A cancellation shrinks the receipt statistics; it is not a
+	# goods issue.
+	# Closing qty/value, MAP, GL, SLE and the immutable events are unchanged -
 	# every branch below moves closing_value by exactly `value`, matching the
 	# scaled GL mirror; gross movement stays visible in the Stock Movement
 	# Event log.
@@ -1252,7 +1261,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		# the original filled (or, for a purchase return, netted) the In side:
 		# take the cancelled share back out of it. receipt_value carried the
 		# GROSS receipt value for negative-stock receipts, with the PRD offset
-		# in prd_value — mirror both so the breakdown reverses exactly.
+		# in prd_value - mirror both so the breakdown reverses exactly.
 		prd_share = r6(flt(orig.prd_amount) * share)
 		bucket_value = r6(flt(orig.value_delta) * share + prd_share)
 		ipb.receipt_qty = r6(flt(ipb.receipt_qty) - orig_qty)
@@ -1260,7 +1269,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		if prd_share:
 			ipb.prd_value = r6(flt(ipb.prd_value) + prd_share)
 		# the counter measures the same receipts the bucket does (WA-0003-01
-		# item 7): net it with the bucket, floored — a cancellation can never
+		# item 7): net it with the bucket, floored - a cancellation can never
 		# imply negative receipts. (For a cancelled purchase return orig_qty is
 		# negative, so this re-adds what the return had netted off.)
 		ipb.total_received_since_zero = r6(
@@ -1290,7 +1299,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		movement_type="cancellation", reason="cancellation", qty_delta=qty,
 		value_delta=value, map_before=map_before, reversal_of=orig.name,
 		movement_reversal_of=orig_sme, stock_uom=sle.get("stock_uom"),
-		# the mirror's P&L side is the original's, reversed and scaled — the
+		# the mirror's P&L side is the original's, reversed and scaled - the
 		# derivation cannot know it (reason is just "cancellation")
 		expense_portion=r2(-flt(orig.expense_portion) * share),
 	)
@@ -1396,7 +1405,7 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		# Case C: compute the current period's "should-have" inventory effect
 		cur_qty_before = flt(ipb_cur.closing_qty)
 		if cur_qty_before >= 0:
-			should_have = result["receipt_value"]  # C1 — current positive
+			should_have = result["receipt_value"]  # C1 - current positive
 		else:
 			clearing_c = min(qty, -cur_qty_before)
 			excess_c = r6(qty - clearing_c)
@@ -1404,7 +1413,7 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		absorb = r2(should_have - result["net_to_inventory"])
 
 	# Strictly ABOVE zero is a crossing; landing exactly on zero is not. This has
-	# to mirror _apply_receipt's `closing + qty <= 0` boundary — when the two
+	# to mirror _apply_receipt's `closing + qty <= 0` boundary - when the two
 	# disagree, a backdated receipt that lands the current period on exactly zero
 	# re-prices MAP to its own rate instead of keeping the frozen MAP
 	# (WA-0003-01 item 22). _freeze_check below still clears the frozen state.
@@ -1491,7 +1500,7 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	# Backdated value event (e.g. a Stock Count dated in the previous period):
 	# the event lands in its own period correctly, but every LATER period's
 	# carryover must absorb the same qty/value delta or the current balance
-	# and MAP go stale (WA-0003-01 item 8). No extra GL — carryover is a pure
+	# and MAP go stale (WA-0003-01 item 8). No extra GL - carryover is a pure
 	# balance-propagation bucket, as in the backdated receipt/issue path.
 	_cascade_value_carryover(
 		scope, period,
@@ -1546,22 +1555,20 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 def get_coverage_ratio(company, item_code, warehouse, basis_qty, as_of=None):
 	"""Inventory share of a value-only late cost = STOCK COVERAGE, clamped
 	[0, 1]: the scope's on-hand quantity against the quantity the charge
-	applies to — the invoiced quantity for a purchase-invoice difference, the
-	receipt row's quantity for a landed cost charge (DR-32, client ruling
-	2026-08-18 closing behaviour-review items 1 & 2, ACC-PINV-2026-00134/00136).
+	applies to - the invoiced quantity for a purchase-invoice difference, the
+	receipt row's quantity for a landed cost charge (DR-32).
 
 	Fully covered -> the whole difference capitalises; partially covered ->
 	proportional; each document is judged ON ITS OWN against on-hand as of its
-	posting period (all three points confirmed by the client, incl. that two
-	invoices billing the same receipt each check coverage independently — the
-	SAP MIRO behaviour they asked for). Replaces the pool stock ratio
+	posting period, so two invoices billing the same receipt each check
+	coverage independently. This replaces the earlier pool ratio
 	(closing_qty / total_received_since_zero), whose denominator carried the
-	whole receiving history: their invoice of 500 against 300 on hand split at
-	30% because a thousand units had once been received, where SAP gives 60%.
-	The since-zero counter stays on the balance for audit but no longer drives
-	valuation. On-hand resolves as of the posting period, not the latest one —
-	a backdated invoice or landed cost must not read a future state
-	(WA-0003-01 item 8 rule).
+	whole receiving history and therefore charged a documentless share of
+	every late cost to price difference once a scope had cycled through
+	stock. The since-zero counter stays on the balance for audit but no longer
+	drives valuation. On-hand resolves as of the posting period, not the
+	latest one - a backdated invoice or landed cost must not read a future
+	state (WA-0003-01 item 8 rule).
 	"""
 	if flt(basis_qty) <= 0:
 		return 0.0

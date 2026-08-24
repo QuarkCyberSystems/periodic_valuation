@@ -5,7 +5,7 @@
 
 All checks are read-only; the Inventory Period Close controller records their
 results and refuses to advance the period unless every one passes. There is no
-automatic write-off path — mismatches are investigated and resolved manually.
+automatic write-off path - mismatches are investigated and resolved manually.
 """
 
 import frappe
@@ -35,7 +35,7 @@ def _scope_rows_as_of(period):
 
 	A scope that last transacted in an earlier month has no row in this period,
 	but its value is still on the inventory account. The reconciliation gate
-	sums the GL cumulatively, so it has to sum the balance side the same way —
+	sums the GL cumulatively, so it has to sum the balance side the same way -
 	counting only in-period rows makes every dormant scope look like a
 	discrepancy. On the client's bench 70 dormant items produced a reported
 	29,899,841.66 mismatch with no data fault at all, and no period could be
@@ -104,7 +104,7 @@ def assert_continuity(period):
 
 
 def assert_event_gl_identity(period):
-	"""Σ IVE inventory value deltas for the period == Σ GL lines carrying a
+	"""Sum of IVE inventory value deltas for the period == sum of GL lines carrying a
 	valuation_event_id that hit inventory accounts in the period."""
 	ive_total = flt(
 		frappe.db.sql(
@@ -158,7 +158,7 @@ def assert_no_orphans(period):
 		(period.company, period.period_year, period.period_month),
 	)
 	# GL rows referencing missing events would violate the Link constraint, so
-	# the only orphan-GL case is a NULL reference on kernel-tagged vouchers —
+	# the only orphan-GL case is a NULL reference on kernel-tagged vouchers -
 	# enforced at posting time by the kernel itself; report zero here.
 	return {
 		"no_orphan_gl": True,
@@ -168,12 +168,12 @@ def assert_no_orphans(period):
 
 
 def run_reconciliation_gate(period):
-	"""Hard gate: |GL inventory balance − Σ IPB closing_value| ≤ tolerance.
+	"""Hard gate: abs(GL inventory balance - sum of IPB closing_value) <= tolerance.
 
 	The GL side sums kernel-tagged lines (valuation_event_id set) on every
 	inventory account any in-scope IPB row resolves to, up to period end.
 	Manual drift into stock accounts is blocked at posting time, so the two
-	sides must match to the configured tolerance (default 0.00 — strict).
+	sides must match to the configured tolerance (default 0.00 - strict).
 
 	Both sides are measured over the same population: every scope's latest
 	balance as of the period end, not only the scopes that moved this period
@@ -216,7 +216,7 @@ def assert_no_stranded_value(period):
 	When a posting takes quantity to zero, any residual within
 	`rounding_tolerance` is swept to Stock Rounding Adjustment automatically
 	(kernel.maybe_rounding_cleanup). A residual ABOVE tolerance is a real
-	amount, not rounding noise — most often a late cost (landed cost, invoice
+	amount, not rounding noise - most often a late cost (landed cost, invoice
 	difference) allocated by stock ratio to a period where the goods were still
 	on hand, posted after they had all been issued. Writing that off
 	automatically is never permitted (Apr 22 decision), so the period cannot
@@ -243,13 +243,13 @@ def assert_no_stranded_value(period):
 
 def assert_bin_ledger_consistency(period):
 	"""Gate: the shadow stores must match the valuation ledger (IPB) for every
-	periodic-valuation scope — the Bin on *quantity*, the Stock Ledger on
+	periodic-valuation scope - the Bin on *quantity*, the Stock Ledger on
 	*value*. The other gates reconcile GL<->IPB; this closes the SLE/Bin<->IPB
 	gap so a period cannot be frozen while the stock-balance shadows disagree
 	with the ledger.
 
 	Resolve quantity drift with a Stock Reconciliation on the flagged items.
-	Value drift means a value event did not write its SLE row (DR-02) — that is
+	Value drift means a value event did not write its SLE row (DR-02) - that is
 	a code defect, not a data one, and reposting the voucher is the lever.
 	"""
 	from periodic_valuation.shared.integrity import (
@@ -337,7 +337,7 @@ def seed_next_period_openings(period):
 					"opening_qty": row.closing_qty,
 					"opening_value": row.closing_value,
 					# a zero-quantity scope RETAINS its MAP across the boundary
-					# (ruled 2026-08-18) — seeding 0 here would silently undo
+					# (ruled 2026-08-18) - seeding 0 here would silently undo
 					# the retention at every month end
 					"moving_avg_price": flt(row.closing_value) / flt(row.closing_qty)
 					if flt(row.closing_qty) > 0

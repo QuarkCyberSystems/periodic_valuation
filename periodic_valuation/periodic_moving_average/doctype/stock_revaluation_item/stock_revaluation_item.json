@@ -88,7 +88,7 @@
    "read_only": 1
   },
   {
-   "description": "Credit/debit offset. Resolved Item Default -> Item Group -> PMA Settings when blank.",
+   "description": "Credit/debit offset. Resolved Item Default -> Item Group -> Periodic Moving Average Settings when blank.",
    "fieldname": "revaluation_account",
    "fieldtype": "Link",
    "label": "Revaluation Account",

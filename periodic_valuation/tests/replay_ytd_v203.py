@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Replay of the client YTD workbooks through REAL ERPNext vouchers —
+"""Replay of the client YTD workbooks through REAL ERPNext vouchers -
 bench --site <site> execute periodic_valuation.tests.replay_ytd_v203.run
 
 Scenario A: `02 YTD STD Cost V2.03.xlsx` (base walkthrough, Feb-Jun 2026)
@@ -36,7 +36,7 @@ def _fy_covered(fy):
 
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + label + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
 
 
 class Clock:
@@ -307,7 +307,7 @@ def scenario_a(clock):
 	clock.set("2026-06-01"); co.advance(2026, 6)
 	co.settle(2026, 5)
 
-	# (trans, period_month, total_sc, total_ac) — None = not compared
+	# (trans, period_month, total_sc, total_ac) - None = not compared
 	co.verify_events("A", [
 		("Beg", 2, 2400, 3000), ("Rec", 2, 1200, 1000), ("Iss", 2, -360, 0),
 		("Rec", 2, 600, 1000), ("Iss", 3, -240, 0), ("LC", 3, 0, 200),

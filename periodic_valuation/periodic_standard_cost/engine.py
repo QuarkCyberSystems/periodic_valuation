@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Periodic Standard Cost engine — Frappe port of the V2.03-conformant reference
-simulators (sap_std_mtd / sap_std_ytd). The event log lives in Inventory
+"""Periodic Standard Cost engine - Frappe port of the V2.03-conformant reference
+simulators for the MTD and YTD views. The event log lives in Inventory
 Valuation Event rows (STD columns); rollups are recomputed from the log
 exactly as the simulators do; settlements are frozen snapshots in Inventory
 Period Settlement.
@@ -63,7 +63,7 @@ def get_std_setting(company, key):
 def get_settlement_view(company, item_code):
 	"""The item's own field is the single operative config. Group/company
 	defaults are TEMPLATES: the first time a blank item resolves through one,
-	the resolved value is stamped onto the item — later edits to defaults
+	the resolved value is stamped onto the item - later edits to defaults
 	never touch existing items (defaults-as-templates model, DR-22)."""
 	view = frappe.get_cached_value("Item", item_code, "settlement_view")
 	if view in ("MTD", "YTD"):
@@ -213,7 +213,7 @@ class StdEngine:
 		# An exact reversal is a mirror: it inherits the original's label by
 		# definition, and its date is set by the period-state rule in
 		# reverse_event (original date while the period is open, current date once
-		# it is settled) — not by backdate classification. Applying this check to
+		# it is settled) - not by backdate classification. Applying this check to
 		# a mirror made a backdated receipt or issue impossible to undo at all:
 		# Create Cancellation is the only sanctioned undo under STD and it failed
 		# with this internal label error.
@@ -239,7 +239,7 @@ class StdEngine:
 		if trans in ("Rev Beg", "REV In", "REV out") and t_sc_override is not None \
 				and sc is not None and ac is not None:
 			expected_qty = self._reval_qty_at(trans, ent, sc_new=flt(sc), sc_old=flt(ac))
-			# the out bucket can be net NEGATIVE (SC+ dominated) — compare magnitudes
+			# the out bucket can be net NEGATIVE (SC+ dominated) - compare magnitudes
 			expected = abs(abs(flt(sc) - flt(ac)) * expected_qty)
 			if abs(abs(total_sc) - expected) > 0.01:
 				raise RevalTSCDriftError(
@@ -335,10 +335,10 @@ class StdEngine:
 		if trans == "Issue (BD) - Rev":
 			# same-FY: consumption tops up at current SC and inventory gives
 			# back the triplet's overshoot on the departed units (workbooks:
-			# MTD r26, YTD issue-backdated r34 — COGS <-> Inventory)
+			# MTD r26, YTD issue-backdated r34 - COGS <-> Inventory)
 			return [(a.cogs_adj, -s), (a.stock, s)]
 		if trans == "Issue (BY) - Rev":
-			# cross-FY: prior-FY COGS is closed — Inventory <-> Reserve
+			# cross-FY: prior-FY COGS is closed - Inventory <-> Reserve
 			return [(a.reserve, -s), (a.stock, s)]
 		if settlement is not None:
 			es, out = flt(settlement.es_var), flt(settlement.out_var)
@@ -395,7 +395,7 @@ class StdEngine:
 		if gl_map:
 			make_gl_entries(gl_map, merge_entries=False)
 		# the period-close gates compare IVE.value_delta against inventory-account
-		# GL — record this event's net stock effect (B1 audit fix)
+		# GL - record this event's net stock effect (B1 audit fix)
 		stock_net = sum(a2 for acct, a2 in legs if acct == a.stock)
 		if r2(stock_net):
 			frappe.db.set_value("Inventory Valuation Event", ive.name,
@@ -519,7 +519,7 @@ class StdEngine:
 		return own + (flt(prior.es_qty) if prior else 0.0)
 
 	def _prior_live_settlement(self, year, month):
-		"""Newest LIVE settlement strictly before (year, month) — scans past
+		"""Newest LIVE settlement strictly before (year, month) - scans past
 		cancelled/skipped months so the chain never silently drops (M5)."""
 		rows = [s for s in self.settlements(live_only=True)
 			if (s.period_year, s.period_month) < (year, month)]
@@ -561,7 +561,7 @@ class StdEngine:
 	# ---- reval qty categorization (drift guard, client-verified)
 	def _reval_qty_at(self, trans, ent, *, sc_new, sc_old):
 		if self.view == "MTD":
-			# DR-12: MTD reval buckets are MONTH-scoped — Beg = prior month's
+			# DR-12: MTD reval buckets are MONTH-scoped - Beg = prior month's
 			# end (+ any Beg openings), In/Out = month-to-date at the moment
 			beg = self.beg_qty_mtd(ent.year, ent.month)
 			in_qty = out_qty = 0.0
@@ -597,7 +597,7 @@ class StdEngine:
 	# --------------------------------------------------------- close period
 	def _assert_prior_fy_closed(self, year):
 		"""Year-end gate: a new fiscal year may not settle while the prior
-		year's December is live-unsettled with stock or an open pool — the
+		year's December is live-unsettled with stock or an open pool - the
 		carry (inventory-share Sett-Rev on Jan 1) would silently never seed."""
 		prev = year - 1
 		if not any(p[0] == prev for p in self._periods_present()):
@@ -649,7 +649,7 @@ class StdEngine:
 			)
 		# RAW proportional split always (year-transfer workbook, DR-30): when
 		# ending qty exceeds the base the inventory share exceeds the pool and
-		# the consumption share goes NEGATIVE — they still sum to the pool
+		# the consumption share goes NEGATIVE - they still sum to the pool
 		# because end + out = base. The old all-to-consumption/all-to-inventory
 		# clamps only ever fired in exactly these cases and contradicted the
 		# workbook (Jan: es 6559.5611 / out -218.652 on a 6340.91 pool).
@@ -700,7 +700,7 @@ class StdEngine:
 
 	def _absorb_settlement_value(self, sett, year, month, es_var, sign=1):
 		"""Sett debits Stock In Hand (es_var) on the period's last day and the
-		Sett-Rev credits it back on the next day 1 — mirror both into the period
+		Sett-Rev credits it back on the next day 1 - mirror both into the period
 		balances so GL == movement table holds (B1 audit fix)."""
 		if not r2(es_var):
 			return
@@ -792,7 +792,7 @@ class StdEngine:
 		"""EXACT_REVERSAL_WITH_REFERENCE (client appendix, reversal matrix).
 
 		Measured entirely from the ORIGINAL event (original SC, original
-		variance, original cost version — never current STD). Legally posted:
+		variance, original cost version - never current STD). Legally posted:
 		- original period still open  -> into the original period
 		- original period settled     -> current-dated; the caller then runs
 		  post_close_delta() for every live settlement of that period (the
@@ -881,7 +881,7 @@ class StdEngine:
 		# survives (new_es + new_out == variance). Reversing the very receipt that
 		# created the basis collapses the denominator to zero, both shares fall to
 		# zero, and the pair then carries the whole previously-allocated variance
-		# with nothing on the other side — a Purchase Receipt that refuses to
+		# with nothing on the other side - a Purchase Receipt that refuses to
 		# submit with "Debit and Credit not equal ... Difference is -200". The
 		# variance pool is the counterpart, exactly as in the Sett matrix
 		# (Dr/Cr Inventory + COGS Adjustment against the pools), so give the

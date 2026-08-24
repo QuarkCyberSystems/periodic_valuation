@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""ISVC — governed MTD<->YTD settlement-view flip (SoD: approver != requester;
+"""ISVC - governed MTD<->YTD settlement-view flip (SoD: approver != requester;
 the item's periods must be fully settled under the old view before posting)."""
 
 import frappe
@@ -43,7 +43,7 @@ class ItemSettlementViewChange(Document):
 
 		engine = StdEngine(self.company, self.item_code)
 		# atomic: settle any open activity UNDER THE OLD VIEW inside this
-		# transaction, then flip — no window for straddling activity
+		# transaction, then flip - no window for straddling activity
 		for year, month in engine._periods_present():
 			if engine.is_period_locked(year, month):
 				continue

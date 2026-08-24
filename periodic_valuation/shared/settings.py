@@ -43,7 +43,7 @@ def get_pma_setting(company, key):
 
 
 def get_return_valuation(company, doctype):
-	"""Per-doctype override → company default → 'With Reference'."""
+	"""Per-doctype override -> company default -> 'With Reference'."""
 	name = frappe.db.get_value("Periodic Moving Average Settings", {"company": company})
 	if name:
 		doc = frappe.get_cached_doc("Periodic Moving Average Settings", name)

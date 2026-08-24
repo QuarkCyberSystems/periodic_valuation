@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""MAP reference kernel — single (item, warehouse) scope, period-based.
+"""MAP reference kernel - single (item, warehouse) scope, period-based.
 
 Encodes the signed MAP plan's formulas verbatim:
 
@@ -161,7 +161,7 @@ class MapLedger:
 		return evt
 
 	def _post(self, period, *legs):
-		"""legs: (account, signed_amount) — positive = Dr, negative = Cr."""
+		"""legs: (account, signed_amount) - positive = Dr, negative = Cr."""
 		for account, amount in legs:
 			amount = r2(amount)
 			if not amount:
@@ -233,7 +233,7 @@ class MapLedger:
 		# ---- negative stock: PRD model ("correct the past, value the future")
 		frozen = self.frozen_map
 		if self.qty + qty <= 0:
-			# Case A — still negative
+			# Case A - still negative
 			prd = r6((cost - frozen) * qty)
 			net_to_inventory = r6(qty * frozen)
 			self.qty = r6(self.qty + qty)
@@ -255,7 +255,7 @@ class MapLedger:
 			self._after_mutation(period)
 			return evt
 
-		# Case B — crossing zero
+		# Case B - crossing zero
 		clearing = r6(-self.qty)
 		excess = r6(qty - clearing)
 		prd = r6((cost - frozen) * clearing)
@@ -562,10 +562,10 @@ class MapLedger:
 
 		# current-period "should-have": the receipt as if posted today
 		if self.qty >= 0:
-			# Sub-case C1 — current positive
+			# Sub-case C1 - current positive
 			should_have = receipt_value
 		else:
-			# Sub-case C2 — current also negative: cross-zero at current frozen
+			# Sub-case C2 - current also negative: cross-zero at current frozen
 			clearing_c = min(qty, -self.qty)
 			excess_c = r6(qty - clearing_c)
 			should_have = r6(clearing_c * self.frozen_map + excess_c * cost)

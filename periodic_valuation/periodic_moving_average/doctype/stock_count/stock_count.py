@@ -39,7 +39,7 @@ class StockCount(Document):
 		# sees on screen is the same figure the posting uses.
 		from periodic_valuation.periodic_moving_average.api import get_current_state
 
-		# physical=True: a count is a physical exercise on ONE warehouse — for a
+		# physical=True: a count is a physical exercise on ONE warehouse - for a
 		# company-scope item the comparison quantity is that warehouse's stock,
 		# not the scope total; valuation stays at the scope MAP (client
 		# approval comment 1, 2026-08-18)
@@ -97,7 +97,7 @@ class StockCount(Document):
 	def before_cancel(self):
 		frappe.throw(
 			_(
-				"Stock Count cannot be cancelled — the valuation ledger is immutable. "
+				"Stock Count cannot be cancelled - the valuation ledger is immutable. "
 				"Post a corrective count instead."
 			),
 			title=_("Immutable Ledger"),

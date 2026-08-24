@@ -1,11 +1,11 @@
-"""UAT dry run — bench --site <site> execute periodic_valuation.tests.smoke_uat.run
+"""UAT dry run - bench --site <site> execute periodic_valuation.tests.smoke_uat.run
 
 Executes every test case of the two manual UAT scripts programmatically,
 in script order, with the scripts' exact values. UI-button TCs invoke the
 button's whitelisted method. Rolled back unless commit=True.
 
-MAP: badia_docs/periodic_valuation_design/MAP_UAT_Test_Script_v1.md (TC-A1..TC-K3)
-STD: badia_docs/periodic_valuation_design/STD_UAT_Test_Script_v1.md (TC-A1..TC-G)
+MAP: MAP UAT Test Script v1 (TC-A1..TC-K3)
+STD: STD UAT Test Script v1 (TC-A1..TC-G)
 """
 
 import frappe
@@ -20,7 +20,7 @@ CHECKS = []
 
 def tc(tcid, ok, detail=""):
 	CHECKS.append((tcid, bool(ok)))
-	print(("PASS " if ok else "FAIL ") + tcid + (f" — {detail}" if detail and not ok else ""))
+	print(("PASS " if ok else "FAIL ") + tcid + (f" - {detail}" if detail and not ok else ""))
 
 
 def expect_block(tcid, fn, detail=""):
@@ -498,7 +498,7 @@ def run_std(company, wh):
 	run_doc.submit()
 	sett = frappe.get_all("Inventory Period Settlement",
 		filters={"item_code": a, "cancelled": 0}, fields=["*"])
-	# the settlement absorption seeds next month's balance row — read THIS month's
+	# the settlement absorption seeds next month's balance row - read THIS month's
 	b = ipb_period(a, today.year, today.month)
 	tc("STD TC-C1", sett and flt(sett[0].es_var, 2) == 195 and flt(sett[0].out_var, 2) == 105
 		and flt(b.ppv_pool, 2) == 300 and b.settlement == sett[0].name,
@@ -578,7 +578,7 @@ def run_std(company, wh):
 	# --- F1 exact reversal at ORIGINAL cost after an SC change.
 	# Uses a dedicated NON-invoiced receipt: reversing an invoiced receipt is
 	# now warn-and-blocked (WA-0003-01 #12 policy), so we isolate the reversal
-	# mechanics here. Receipt at SC 10 (1000/1200), then SC changes to 15 —
+	# mechanics here. Receipt at SC 10 (1000/1200), then SC changes to 15 -
 	# the mirror must still reverse at the ORIGINAL 1000, not the current SC.
 	f1 = std_item("UAT-STD-F1")
 	release_scv(f1, 10)

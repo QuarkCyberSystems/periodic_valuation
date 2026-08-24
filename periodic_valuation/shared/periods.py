@@ -3,11 +3,11 @@
 
 """Period resolution and posting-eligibility checks for the periodic valuation kernels.
 
-Posting is allowed only to the current OPEN period and — while it is still
-PREV_OPEN_UNSETTLED — the previous period. Anything older is rejected: a closed
+Posting is allowed only to the current OPEN period and - while it is still
+PREV_OPEN_UNSETTLED - the previous period. Anything older is rejected: a closed
 period is not reopened (DR-21), so the correction is posted in the current open
 period at current valuation. (The ``original_period`` reach-back from the pre-
-DR-21 plan is not used — see DR-21.)
+DR-21 plan is not used - see DR-21.)
 """
 
 import frappe
@@ -48,7 +48,7 @@ def assert_posting_allowed(company, posting_date):
 	if period.status not in POSTING_ALLOWED_STATES:
 		frappe.throw(
 			_(
-				"Inventory Period {0} is {1} and no longer accepts postings — a closed period "
+				"Inventory Period {0} is {1} and no longer accepts postings - a closed period "
 				"is not reopened. Post the correction in the current open period; only the "
 				"immediately-previous period stays open for backdated entries."
 			).format(period.period_name, period.status),

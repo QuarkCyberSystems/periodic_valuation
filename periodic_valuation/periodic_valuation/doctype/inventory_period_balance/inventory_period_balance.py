@@ -17,7 +17,7 @@ class InventoryPeriodBalance(Document):
 		self.validate_unique_scope()
 
 	def validate_kernel_only_mutation(self):
-		# Runs BEFORE the database write — the block holds even when a caller
+		# Runs BEFORE the database write - the block holds even when a caller
 		# catches the exception inside a larger transaction.
 		if self.is_new() or self.flags.in_insert:
 			return

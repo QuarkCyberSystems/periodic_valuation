@@ -16,7 +16,7 @@ for routed items). Instead the difference posts as a current-dated
   Exchange Gain/Loss and never touches inventory.
 
 The GL offset is Stock Received But Not Billed: the kernel credited SRBNB at
-receipt value, the PI debits it at billed value — this event clears exactly
+receipt value, the PI debits it at billed value - this event clears exactly
 the residue.
 """
 
@@ -79,7 +79,7 @@ def on_purchase_invoice_submit(doc, method=None):
 			inventory_component = flt(unit_diff_foreign * qty * receipt_fx, 2)
 			fx_variance = flt(base_diff - inventory_component, 2)
 
-		# DR-32: split by coverage of the INVOICED quantity — on hand >= invoiced
+		# DR-32: split by coverage of the INVOICED quantity - on hand >= invoiced
 		# means none of these goods have left, so the whole difference capitalises
 		invoiced_qty = flt(item.stock_qty) or flt(item.qty)
 		ratio = get_coverage_ratio(
@@ -103,14 +103,14 @@ def on_purchase_invoice_submit(doc, method=None):
 
 
 def _reverse_invoice_diff(doc):
-	"""Cancellation PI: mirror the original PI's invoice-diff events (M7)."""
+	"""Cancellation PI: mirror the original PI's invoice-diff events."""
 	original = doc.get("cancellation_against")
 	if not original:
 		return
 	if not frappe.db.exists("Inventory Valuation Event",
 			{"source_doctype": "Purchase Invoice", "source_docname": original,
 			 "is_cancelled": 0}):
-		return  # original PI produced no valuation events — nothing to reverse
+		return  # original PI produced no valuation events - nothing to reverse
 
 	_reverse_source_events(doc, original)
 
@@ -190,7 +190,7 @@ def _reverse_source_events(doc, original):
 			# exactly as the forward posting does. Without this the reversal
 			# lands only in its own period: the original invoice-diff cascaded
 			# forward, its reversal did not, and every later period stayed
-			# overstated by the reversed amount — GL and the Period Balance
+			# overstated by the reversed amount - GL and the Period Balance
 			# then disagree permanently (WA-0003-01 item 20 follow-up; found
 			# replaying the client's MH #7 chain, where a reversed 100,000
 			# invoice difference left the next period 100,000 high).

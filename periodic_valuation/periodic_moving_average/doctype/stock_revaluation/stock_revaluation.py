@@ -87,7 +87,7 @@ class StockRevaluation(Document):
 	def before_cancel(self):
 		frappe.throw(
 			_(
-				"Stock Revaluation cannot be cancelled — the valuation ledger is immutable. "
+				"Stock Revaluation cannot be cancelled - the valuation ledger is immutable. "
 				"Post an opposite revaluation instead."
 			),
 			title=_("Immutable Ledger"),

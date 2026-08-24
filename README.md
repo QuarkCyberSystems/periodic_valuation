@@ -2,11 +2,12 @@
 
 Periodic **Moving Average** and **Standard Cost** valuation kernels for ERPNext,
 built on an **immutable stock ledger**: posted events are never modified or
-deleted — every correction is a new, dated, linked event.
+deleted. Every correction is a new, dated, linked event.
 
-The Periodic Moving Average (MAP) kernel is complete. The Periodic Standard Cost kernel
-(monthly/year-to-date variance settlement) is the next phase and plugs into
-the same foundation.
+Both kernels are built. The Periodic Moving Average (MAP) kernel is in user
+acceptance testing; the Periodic Standard Cost kernel (monthly and
+year-to-date variance settlement) plugs into the same foundation and is
+under test.
 
 ---
 
@@ -17,31 +18,31 @@ cost voucher, or a purchase invoice at a different rate triggers **Repost Item
 Valuation**: future Stock Ledger Entries are recomputed and rewritten in place,
 and GL entries are deleted and recreated to match. That design has real costs:
 
-- **Auditability** — the ledger you see today is not the ledger that existed
+- **Auditability**: the ledger you see today is not the ledger that existed
   yesterday. Regulated and audit-heavy environments (IFRS, statutory audits)
   need every posted figure to stay exactly as posted.
-- **GL/stock drift** — repost chains can desynchronise inventory value from the
+- **GL/stock drift**: repost chains can desynchronise inventory value from the
   GL, and reconciliation differences are hard to trace after rows have been
   rewritten.
-- **Unbounded propagation** — one backdated document can silently re-value
+- **Unbounded propagation**: one backdated document can silently re-value
   months of downstream transactions.
 
 The periodic-settlement model used by the major enterprise ERPs takes the
-opposite stance: *first correct the past explicitly, then value the future*. Prices are period-based; backdated postings
-update their own period and flow forward through opening balances; price gaps
-against negative stock post to a dedicated difference account (PRD); nothing is
-ever recomputed retroactively.
+opposite stance: correct the past explicitly, then value the future. Prices
+are period-based; backdated postings update their own period and flow forward
+through opening balances; price gaps against negative stock post to a
+dedicated difference account (PRD); nothing is ever recomputed retroactively.
 
 This app implements that model for ERPNext:
 
-1. **Immutable events** — append-only movement and valuation logs; corrections
+1. **Immutable events**: append-only movement and valuation logs; corrections
    are reversing events linked to their originals.
-2. **Period-based valuation** — posting is allowed only into the current open
+2. **Period-based valuation**: posting is allowed only into the current open
    period and (until settled) the previous one. Older corrections post forward
    with an `original_period` reference.
-3. **Bounded propagation** — a prior-period posting updates that period and the
+3. **Bounded propagation**: a prior-period posting updates that period and the
    current opening (via a carryover bucket). Nothing else moves.
-4. **GL derived from events, never repaired** — every stock GL line carries a
+4. **GL derived from events, never repaired**: every stock GL line carries a
    `valuation_event_id`; the sum of tagged GL always equals the movement table,
    enforced by a hard reconciliation gate at period close.
 
@@ -69,7 +70,7 @@ StockController.make_sl_entries          (companion fork branch)
 
 The kernel still writes **SLE-compatible rows** (flagged
 `posted_via_valuation_kernel`) with correct quantities and values, so Bin, stock
-reports and reconciliations keep working — but the core engine never recomputes
+reports and reconciliations keep working, but the core engine never recomputes
 them, and no Repost Item Valuation is ever created for routed items.
 
 ### The three data layers
@@ -82,26 +83,28 @@ them, and no Repost Item Valuation is ever created for routed items.
 
 Control layer: **Inventory Period** (five-state machine, one OPEN period per
 company) and **Inventory Period Close** (continuity, event-to-GL identity,
-orphan checks, and a strict GL-vs-movement-table reconciliation gate — default
+orphan checks, and a strict GL-vs-movement-table reconciliation gate: default
 tolerance 0.00, manual resolution only, no automatic write-offs).
 An optional **Inventory Period Balance Snapshot** audit log records
 Before/After images of every balance mutation.
 
 ### MAP rules implemented
 
-- **Receipt** blends: `MAP = (value + qty×cost) / (qty_on_hand + qty)`.
-- **Issues** always at the current period MAP — never a user-entered value.
+- **Receipt** blends: `MAP = (value + qty * cost) / (qty_on_hand + qty)`.
+- **Issues** always at the current period MAP, never a user-entered value.
 - **Late costs** (landed cost vouchers, purchase-invoice price differences)
-  split by the **Stock Ratio** `on_hand / received_since_last_zero`: the
-  on-hand share enters inventory and moves MAP; the consumed share posts to
-  Price Difference.
+  split by **stock coverage** `min(1, on_hand / charged_qty)`, where the
+  charged quantity is the invoiced quantity for an invoice difference and the
+  receipt row's quantity for a landed cost. The covered share enters inventory
+  and moves MAP; the remainder posts to Price Difference. Coverage is measured
+  as of the document's own posting period, and each document is judged on its
+  own, so two invoices billing one receipt are assessed independently.
 - **Foreign-currency invoice differences** (IFRS): the price component is
-  measured at the *receipt* exchange rate and split by stock ratio; the FX
+  measured at the *receipt* exchange rate and split by coverage; the FX
   movement goes to Exchange Gain/Loss and never touches inventory.
 - **Negative stock** (configurable): MAP freezes; every receipt against
-  negative stock posts `PRD = (price − frozen MAP) × qty` immediately; the
-  receipt that crosses zero resets MAP to its own price and restarts the
-  stock-ratio cycle.
+  negative stock posts `PRD = (price - frozen MAP) * qty` immediately; the
+  receipt that crosses zero re-prices MAP to its own rate.
 - **Backdated postings** update the prior open period and flow into the
   current period through the carryover bucket. Backdating into a period that
   closed negative additionally posts a system-generated cross-period absorb
@@ -114,11 +117,11 @@ Before/After images of every balance mutation.
   a same-doctype reversal document that mirrors the original's GL on its own
   posting date; originals stay submitted; double reversals and cancellations
   into settled periods are blocked.
-- **Quantity vs value separation**: **Stock Count** (MI07-style) accepts
-  quantities only and values them at period MAP; **Stock Revaluation**
-  (MR21-style) changes value only.
+- **Quantity vs value separation**: **Stock Count** accepts quantities only
+  and values them at period MAP; **Stock Revaluation** changes value only.
 - **Zero-quantity cleanup** clears residual rounding value to a dedicated
-  account and resets MAP and the stock-ratio counter.
+  account. The MAP itself is retained at zero quantity, so an issue taken from
+  an empty balance is still costed at the last known price.
 
 ## Installation & requirements
 
@@ -141,7 +144,7 @@ bench --site <site> install-app periodic_valuation
 
 ## Extending (Standard Cost, or your own kernel)
 
-Kernels register through hooks — no further core edits:
+Kernels register through hooks, with no further core edits:
 
 ```python
 # hooks.py
@@ -160,16 +163,19 @@ complete atomic write (events, period balances, SLE-compatible rows, GL).
 The behavioral spec is executable. Every rule above is enforced by:
 
 - a **pure-Python reference simulator**
-  (`periodic_valuation/periodic_moving_average/reference/`) with conformance tests
-  reproducing the signed workbook anchors to the penny — run with
-  `pytest periodic_valuation/periodic_moving_average/reference/`;
-- three end-to-end smoke suites that drive **real vouchers** on a site and
-  roll back:
+  (`periodic_valuation/periodic_moving_average/reference/`) with conformance
+  tests reproducing the approved sample-entries workbook to the penny. Run
+  with `pytest periodic_valuation/periodic_moving_average/reference/`.
+- end-to-end smoke suites that drive **real vouchers** on a site and roll
+  back, plus replay suites that re-run the workbook scenarios end to end:
 
 ```bash
-bench --site <site> execute periodic_valuation.tests.smoke_kernel.run   # core posting flow
-bench --site <site> execute periodic_valuation.tests.smoke_matrix.run   # full signed test matrix
-bench --site <site> execute periodic_valuation.tests.smoke_edges.run    # backdated/negative/FX/transfer edges
+bench --site <site> execute periodic_valuation.tests.smoke_kernel.run    # core posting flow
+bench --site <site> execute periodic_valuation.tests.smoke_matrix.run    # full approved test matrix
+bench --site <site> execute periodic_valuation.tests.smoke_edges.run     # backdated/negative/FX/transfer edges
+bench --site <site> execute periodic_valuation.tests.replay_map_v9.run   # workbook replay, Moving Average
+bench --site <site> execute periodic_valuation.tests.replay_mtd_v205.run # workbook replay, Standard Cost MTD
+bench --site <site> execute periodic_valuation.tests.replay_ytd_v203.run # workbook replay, Standard Cost YTD
 ```
 
 All suites assert the GL-inventory identity (sum of tagged GL = period-balance
@@ -179,9 +185,9 @@ closing value) after every scenario.
 
 | Component | State |
 |---|---|
-| Shared foundation (events, periods, close gate, settings, routing) | ✅ complete |
-| Periodic Moving Average kernel + MR21/MI07 + cancellation + UI | ✅ complete |
-| Periodic Standard Cost kernel (MTD/YTD settlement) | 🔜 next phase |
+| Shared foundation (events, periods, close gate, settings, routing) | Complete |
+| Periodic Moving Average kernel, revaluation, count, cancellation, UI | Complete, in user acceptance testing |
+| Periodic Standard Cost kernel (MTD/YTD settlement) | Complete, under test |
 
 ## Contributing
 

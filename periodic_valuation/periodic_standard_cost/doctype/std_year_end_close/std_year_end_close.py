@@ -4,7 +4,7 @@
 """Year-end machinery (M12, design §5.4 CARRY_PER_VIEW):
 
 - force-settles December for every STD scope with activity in the fiscal
-  year (the December Sett-Rev — inventory-share only — lands on Jan 1 and
+  year (the December Sett-Rev - inventory-share only - lands on Jan 1 and
   IS the new year's opening variance seed; MTD items start clean),
 - asserts the settlement identities before the fiscal-year flip:
   es_var + out_var = variance, ppv_es + ppv_cons = ppv_pool,

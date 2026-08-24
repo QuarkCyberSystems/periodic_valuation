@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Create Cancellation — the only legal way to undo a posted document that
+"""Create Cancellation - the only legal way to undo a posted document that
 contains periodic-valuation items (signed MAP plan; May 6 universal rule).
 
 Creates a new draft of the SAME doctype with is_cancellation = 1 and
@@ -81,8 +81,8 @@ def _retype_reversal(cancellation):
 	"""Label a Stock Entry reversal with its own transaction type.
 
 	A reversal of a Material Issue is mechanically still an issue-shaped Stock
-	Entry — the kernel decides direction from `is_cancellation`, not from the
-	purpose — but a document that reverses an issue should not announce itself
+	Entry - the kernel decides direction from `is_cancellation`, not from the
+	purpose - but a document that reverses an issue should not announce itself
 	as "Material Issue" (WA-0003-01 item 5).
 
 	The reversal Stock Entry Types carry the SAME `purpose` as the originals
@@ -96,7 +96,7 @@ def _retype_reversal(cancellation):
 
 	target = {v: k for k, v in REVERSAL_STOCK_ENTRY_TYPES.items()}.get(cancellation.purpose)
 	if not target or not frappe.db.exists("Stock Entry Type", target):
-		return          # type not seeded (older site) — keep the original label
+		return          # type not seeded (older site) - keep the original label
 	cancellation.stock_entry_type = target
 
 
@@ -104,7 +104,7 @@ def _still_standing(doctype, names):
 	"""Of `names`, the ones not already reversed.
 
 	A dependent that has itself been reversed no longer stands, so it must not
-	block the parent — otherwise the sanctioned order the client asked for
+	block the parent - otherwise the sanctioned order the client asked for
 	("reverse the return, then reverse the original") is impossible: the return
 	stays docstatus 1 forever (immutable ledger), so a guard keyed on docstatus
 	alone never clears (WA-0003-01 item 11).
@@ -124,11 +124,11 @@ def _still_standing(doctype, names):
 
 def _block_if_has_dependents(doctype, name, original):
 	"""Warn-and-block (client decision 2026-07): a document cannot be reversed
-	while dependent documents still stand — the user must reverse those first
+	while dependent documents still stand - the user must reverse those first
 	(WA-0003-01 #11 returns, #12 invoices). Prevents the dangling-invoice /
 	dangling-return corruption seen in UAT."""
 	# (a) returns raised against this document
-	# (Stock Entry has is_return but no return_against — guard on the
+	# (Stock Entry has is_return but no return_against - guard on the
 	# field actually queried, or every Stock Entry reversal crashes.)
 	if original.meta.has_field("return_against"):
 		returns = frappe.get_all(
@@ -162,7 +162,7 @@ def _block_if_has_dependents(doctype, name, original):
 			)
 			# A reversal credit note also carries the receipt link, so it
 			# comes back from the query above. Listing it tells the user to
-			# reverse a reversal — which the loop guard refuses. Drop the
+			# reverse a reversal - which the loop guard refuses. Drop the
 			# reversal documents themselves, then drop the originals they
 			# have already reversed (WA-0003-01 item 12).
 			invoices = frappe.get_all(

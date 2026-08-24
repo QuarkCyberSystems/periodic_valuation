@@ -5,7 +5,7 @@ frappe.ui.form.on("Stock Revaluation", {
 		// After submit, offer the same View > Stock Ledger / Accounting Ledger
 		// shortcuts every core stock document has. The revaluation posts GL
 		// and SLE rows with no way to reach them from the document, so the
-		// entries read as absent — the same "doesn't create a JV" blind spot
+		// entries read as absent - the same "doesn't create a JV" blind spot
 		// the client hit on Landed Cost and Stock Count (behaviour review
 		// 2026-08-18; Stock Count got these buttons after the 2026-08-12
 		// meeting).
@@ -40,7 +40,7 @@ frappe.ui.form.on("Stock Revaluation", {
 				__("View")
 			);
 		}
-		// the valuation events this revaluation produced — the kernel's own audit trail
+		// the valuation events this revaluation produced - the kernel's own audit trail
 		frm.add_custom_button(
 			__("Valuation Events"),
 			() => {

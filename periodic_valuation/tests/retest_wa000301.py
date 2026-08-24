@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""WA-0003-01 UAT-01 RE-ENTRY — recreate every client-reported issue on the
+"""WA-0003-01 UAT-01 RE-ENTRY - recreate every client-reported issue on the
 LIVE site with fresh items and REAL vouchers, so the fixes can be inspected
 on the actual documents.
 
@@ -36,7 +36,7 @@ def _tag():
 
 def result(issue, label, ok, detail=""):
 	RESULTS.append((issue, label, bool(ok), detail))
-	print(f"{'PASS' if ok else 'FAIL'} [{issue}] {label}" + (f" — {detail}" if detail else ""))
+	print(f"{'PASS' if ok else 'FAIL'} [{issue}] {label}" + (f" - {detail}" if detail else ""))
 
 
 def item(code):
@@ -137,7 +137,7 @@ def run(commit=False):
 	frappe.db.set_single_value("Selling Settings", "maintain_same_sales_rate", 0)
 	T = _tag()
 	today = nowdate()
-	print(f"\n===== WA-0003-01 RE-ENTRY on {CO} — run tag {T} (items prefixed UAT-RT-*-{T}) =====\n")
+	print(f"\n===== WA-0003-01 RE-ENTRY on {CO} - run tag {T} (items prefixed UAT-RT-*-{T}) =====\n")
 
 	def sc(n, tag):
 		return item(f"UAT-RT-{n:02d}-{tag}-{T}")
@@ -242,7 +242,7 @@ def run(commit=False):
 	except Exception as e:
 		result("12", "reverse invoiced receipt", False, str(e)[:120])
 
-	# --- Item 14: MAP cannot go negative (guard) — verified via a value event
+	# --- Item 14: MAP cannot go negative (guard) - verified via a value event
 	try:
 		from periodic_valuation.periodic_moving_average.kernel import post_value_event
 		it = sc(14, "NEGMAP"); pr(it, 100, 10, today); dn(it, 90, today)  # hold 10 @ 100
@@ -259,7 +259,7 @@ def run(commit=False):
 	# --- Item 15: partial-qty invoice at a higher rate (qty-based billing)
 	try:
 		it = sc(15, "PARTBILL"); p = pr(it, 5000, 400, today)
-		i1 = pi(it, p, 3000, 800, today)      # amount 2.4M > 2.0M receipt — used to block
+		i1 = pi(it, p, 3000, 800, today)      # amount 2.4M > 2.0M receipt - used to block
 		i2 = pi(it, p, 2000, 900, today)      # remaining qty at any rate
 		blocked = False
 		try:
@@ -282,4 +282,4 @@ def run(commit=False):
 		print(f"\nCOMMITTED. Filter items by code 'UAT-RT-%-{T}' to inspect the documents.")
 	else:
 		frappe.db.rollback()
-		print("\n(dry run — rolled back; pass commit=True to persist)")
+		print("\n(dry run - rolled back; pass commit=True to persist)")

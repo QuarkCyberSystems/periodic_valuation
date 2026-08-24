@@ -10,7 +10,7 @@ inventory portion -> Stock In Hand + MAP recalc; consumed portion -> Price
 Difference).
 
 Returns True when the voucher was fully handled (all items routed), False
-when no item is routed (core proceeds). Mixed vouchers are rejected — split
+when no item is routed (core proceeds). Mixed vouchers are rejected - split
 the LCV so kernel and core items don't share one in-place revaluation.
 """
 
@@ -72,7 +72,7 @@ def handle_landed_cost(lcv):
 		) if row.get("purchase_receipt_item") else None
 		warehouse = receipt_row.warehouse if receipt_row else None
 
-		# DR-32: the charge covers the RECEIPT ROW's quantity — split by how
+		# DR-32: the charge covers the RECEIPT ROW's quantity - split by how
 		# much of that quantity is still on hand, not by the pool ratio
 		basis_qty = flt(receipt_row.stock_qty) if receipt_row and receipt_row.stock_qty else flt(row.qty)
 		ratio = get_coverage_ratio(
@@ -101,7 +101,9 @@ def handle_landed_cost(lcv):
 
 def _reverse_landed_cost(lcv):
 	"""Cancellation LCV: mirror the ORIGINAL voucher's valuation events with a
-	dated GL swap — never re-run the split (B2 audit fix)."""
+	dated GL swap. The split is never re-run: coverage has moved on since the
+	original posted, so recomputing it would reverse a different amount than
+	was posted."""
 	from erpnext.accounts.general_ledger import make_gl_entries
 
 	from periodic_valuation.shared.immutable import KERNEL_FLAG

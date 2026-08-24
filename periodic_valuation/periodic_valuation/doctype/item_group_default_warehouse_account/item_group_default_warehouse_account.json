@@ -56,7 +56,7 @@
    "options": "Account"
   },
   {
-   "description": "Offset for MR21-style revaluations; NOT a generic expense account.",
+   "description": "Offset for value-only revaluations (Stock Revaluation); NOT a generic expense account.",
    "fieldname": "revaluation_account",
    "fieldtype": "Link",
    "label": "Revaluation Account",
