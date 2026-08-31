@@ -360,8 +360,10 @@ class StdEngine:
 			if trans == "Sett - Reverse":
 				return [(a.stock, -es), (a.cogs_adj, -out), (a.ppv, ppv), (a.reserve, rev)]
 			if trans == "Sett - Rev - Reverse":
-				if xfy:
-					return [(a.stock, es), (a.ppv, -ppv_es), (a.reserve, -rev_es)]
+				# exact negation of whichever Sett - Rev shape was posted above,
+				# so a cancelled settlement leaves no residue on any account
+				if xfy or self.view == "MTD":
+					return [(a.stock, es), (a.ppv, -ppv_es), (a.reserve, -r2(es - ppv_es))]
 				return [(a.stock, es), (a.cogs_adj, out), (a.ppv, -ppv), (a.reserve, -rev)]
 		return []
 
