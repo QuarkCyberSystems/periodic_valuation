@@ -179,3 +179,28 @@ def _block_if_has_dependents(doctype, name, original):
 					).format(name, ", ".join(invoices)),
 					title=_("Reverse Dependents First"),
 				)
+
+	# (c) landed cost has been applied to this document. The charge lives in
+	# the variance pool (or the item value, under MAP) against THIS receipt's
+	# quantity; reversing the receipt underneath it strands the charge exactly
+	# the way a dangling invoice did in UAT.
+	if doctype in ("Purchase Receipt", "Subcontracting Receipt", "Purchase Invoice"):
+		lcvs = frappe.get_all(
+			"Landed Cost Purchase Receipt",
+			filters={"receipt_document_type": doctype, "receipt_document": name, "docstatus": 1},
+			pluck="parent",
+		)
+		lcvs = frappe.get_all(
+			"Landed Cost Voucher",
+			filters={"name": ("in", sorted(set(lcvs))), "is_cancellation": 0},
+			pluck="name",
+		) if lcvs else []
+		lcvs = _still_standing("Landed Cost Voucher", sorted(set(lcvs)))
+		if lcvs:
+			frappe.throw(
+				_(
+					"{0} has landed cost voucher(s) against it ({1}). Reverse the landed "
+					"cost voucher(s) first, then reverse this document."
+				).format(name, ", ".join(lcvs)),
+				title=_("Reverse Dependents First"),
+			)

@@ -779,6 +779,9 @@ def section_g(company, wh, today):
 		and mirror.reversal_of == rec.name, f"{mirror.total_sc}/{mirror.total_ac}")
 	gl_match(38, "mirror GL: Cr Inv 1000 / Cr PPV 200 / Dr GR-IR 1200",
 		gl_net(event=mirror.name), {a38.stock: -1000, a38.ppv: -200, a38.grir: 1200})
+	tc(38, "mirror stamps its inventory effect (value_delta -1000)",
+		flt(frappe.db.get_value("Inventory Valuation Event", mirror.name, "value_delta"), 2) == -1000,
+		str(frappe.db.get_value("Inventory Valuation Event", mirror.name, "value_delta")))
 	try:
 		e38.reverse_event(rec.name, source=s38, posting_date="2026-05-26")
 		tc(38, "double reversal blocked", False, "reversed twice")

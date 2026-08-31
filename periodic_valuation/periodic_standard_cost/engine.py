@@ -836,6 +836,14 @@ class StdEngine:
 			}))
 		if gl_map:
 			make_gl_entries(gl_map, merge_entries=False)
+		# the period-close gates read each event's inventory effect from
+		# value_delta; _post_gl stamps it for ordinary events, this path must too
+		stock_acct = self.accounts().stock
+		stock_net = sum(flt(g.debit) - flt(g.credit) for g in gl_map if g.account == stock_acct)
+		if r2(stock_net):
+			frappe.db.set_value("Inventory Valuation Event", mirror.name,
+				"value_delta", r2(stock_net), update_modified=False)
+			mirror.value_delta = r2(stock_net)
 
 		if locked:
 			for sett in self.settlements(live_only=True):

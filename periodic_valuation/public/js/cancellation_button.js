@@ -6,7 +6,13 @@
 	const DOCTYPES = [
 		"Purchase Receipt", "Delivery Note", "Stock Entry", "Purchase Invoice",
 		"Sales Invoice", "Subcontracting Receipt", "Landed Cost Voucher",
+		"Stock Reconciliation",
 	];
+	// Routed documents the server refuses to cancel AND that have no reversal
+	// document either: hide core Cancel, say why, offer nothing else.
+	const VIEW_ONLY = {
+		"Stock Reconciliation": __("Opening balances are not reversible; correct quantities with a Stock Count."),
+	};
 
 	// A reversal (Cancellation) document is display-only: all fields are locked
 	// except the posting date, and a clear "Reversal of ..." banner is shown
@@ -165,7 +171,12 @@
 	}
 
 	function applyRoutedUx(frm) {
-		frm.add_custom_button(__("Create Cancellation"), () => make_cancellation_dialog(frm));
+		if (VIEW_ONLY[frm.doc.doctype]) {
+			frm._pv_notice = VIEW_ONLY[frm.doc.doctype];
+			renderMessage(frm);
+		} else {
+			frm.add_custom_button(__("Create Cancellation"), () => make_cancellation_dialog(frm));
+		}
 		addLcvLedgerButtons(frm);
 		// Revoke the client-side cancel permission: frappe's own toolbar
 		// logic then omits Cancel wherever it renders it (page action
