@@ -252,6 +252,16 @@ doc_events = {
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
+override_doctype_dashboards = {
+	"Item": "periodic_valuation.dashboards.item",
+	"Purchase Receipt": "periodic_valuation.dashboards.source_document",
+	"Delivery Note": "periodic_valuation.dashboards.source_document",
+	"Stock Entry": "periodic_valuation.dashboards.source_document",
+	"Landed Cost Voucher": "periodic_valuation.dashboards.source_document",
+	"Stock Reconciliation": "periodic_valuation.dashboards.source_document",
+	"Purchase Invoice": "periodic_valuation.dashboards.source_document",
+	"Sales Invoice": "periodic_valuation.dashboards.source_document",
+}
 # override_doctype_dashboards = {
 # 	"Task": "periodic_valuation.task.get_dashboard_data"
 # }
