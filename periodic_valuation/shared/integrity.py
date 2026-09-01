@@ -224,6 +224,61 @@ def align_stock_ledger_value(company, item_code=None, posting_date=None, dry_run
 	return {"aligned" if not dry_run else "would_align": done, "skipped": skipped}
 
 
+def align_carryover(company, period_year, period_month, item_code=None, dry_run=True):
+	"""Repair: make a period's opening + carryover agree with the previous
+	period's closing (the continuity identity the close gate asserts).
+
+	A value event's reversal that did not cascade forward leaves the later month
+	carrying the reversed amount (MH #14 on UAT: a reversed 2,000 landed cost).
+	The correction goes into carryover_value / carryover_qty - the bucket the
+	forward cascade itself writes - and the closing is recomputed. No GL and no
+	events move: the GL already carries the reversal. dry_run=True only reports.
+	"""
+	from periodic_valuation.periodic_moving_average.kernel import recompute_closing, r6
+	from periodic_valuation.shared.immutable import KERNEL_FLAG
+
+	py, pm = (period_year - 1, 12) if int(period_month) == 1 else (period_year, int(period_month) - 1)
+	rows = frappe.get_all(
+		"Inventory Period Balance",
+		filters={"company": company, "period_year": period_year, "period_month": period_month,
+			**({"item_code": item_code} if item_code else {})},
+		fields=["name", "item_code", "warehouse", "opening_qty", "opening_value",
+			"carryover_qty", "carryover_value", "closing_qty", "closing_value"],
+	)
+	out = []
+	for r in rows:
+		prev = frappe.db.get_value(
+			"Inventory Period Balance",
+			{"company": company, "item_code": r.item_code, "warehouse": r.warehouse or "",
+				"period_year": py, "period_month": pm},
+			["closing_qty", "closing_value"], as_dict=True,
+		)
+		if not prev:
+			continue
+		dq = flt(prev.closing_qty) - (flt(r.opening_qty) + flt(r.carryover_qty))
+		dv = flt(prev.closing_value) - (flt(r.opening_value) + flt(r.carryover_value))
+		if abs(dq) < 0.000001 and abs(dv) < 0.01:
+			continue
+		entry = {"item_code": r.item_code, "warehouse": r.warehouse or "(company scope)",
+			"prior_closing": (flt(prev.closing_qty), flt(prev.closing_value, 2)),
+			"opening_plus_carryover": (flt(r.opening_qty) + flt(r.carryover_qty),
+				flt(flt(r.opening_value) + flt(r.carryover_value), 2)),
+			"correction": (dq, flt(dv, 2))}
+		if not dry_run:
+			doc = frappe.get_doc("Inventory Period Balance", r.name)
+			doc.carryover_qty = r6(flt(doc.carryover_qty) + dq)
+			doc.carryover_value = r6(flt(doc.carryover_value) + dv)
+			recompute_closing(doc)
+			frappe.flags[KERNEL_FLAG] = True
+			try:
+				doc.save(ignore_permissions=True)
+			finally:
+				frappe.flags[KERNEL_FLAG] = False
+			entry["new_closing"] = (flt(doc.closing_qty), flt(doc.closing_value, 2))
+		out.append(entry)
+	return out
+
+
 def report_drift(company=None):
 	"""Print a human-readable drift report."""
 	drifts = check_bin_ipb_drift(company)

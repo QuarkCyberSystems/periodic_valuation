@@ -141,6 +141,36 @@ def run(commit=False):
 		flt(ev.value_delta, 2) == -100 and flt(ev.expense_portion, 2) == -200 and flt(c.closing_value, 2) == 0,
 		f"{ev.value_delta}/{ev.expense_portion} closing {c.closing_value}")
 
+	# ---------------- reversing a backdated landed cost undoes the carry too (MH #14)
+	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+	it = make_item("_MR-LCVREV")
+	pr = make_pr(it, wh, 100, 10, posting_date=str(prior.replace(day=5)))   # prior 100 / 1000, carried
+	exp_acct = frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0, "root_type": "Expense"},
+		limit=1, pluck="name")[0]
+	lcv = frappe.get_doc({"doctype": "Landed Cost Voucher", "company": COMPANY,
+		"posting_date": str(prior.replace(day=7)), "distribute_charges_based_on": "Amount",
+		"purchase_receipts": [{"receipt_document_type": "Purchase Receipt", "receipt_document": pr.name,
+			"supplier": "_SMK Supplier", "grand_total": pr.grand_total}],
+		"taxes": [{"expense_account": exp_acct, "description": "freight", "amount": 200}]})
+	lcv.get_items_from_purchase_receipts()
+	lcv.insert(ignore_permissions=True)
+	lcv.submit()
+	c = ipb_period(it, cy, cm)
+	check("LCV into the previous month carries +200 into the current month (1,200)",
+		flt(c.carryover_value, 2) == 1200 and flt(c.closing_value, 2) == 1200, f"{c.carryover_value}/{c.closing_value}")
+	cx = frappe.get_doc("Landed Cost Voucher", make_cancellation("Landed Cost Voucher", lcv.name))
+	cx.submit()
+	p, c = ipb_period(it, py, pm), ipb_period(it, cy, cm)
+	sle_val = flt(frappe.db.sql("SELECT COALESCE(SUM(stock_value_difference),0) FROM `tabStock Ledger Entry` WHERE item_code=%s AND is_cancelled=0", it)[0][0], 2)
+	evs = frappe.get_all("Inventory Valuation Event", filters={"item_code": it, "is_cancelled": 0},
+		fields=["reason_code", "period_month", "value_delta", "source_docname"], order_by="creation")
+	# the cancellation is dated today: the prior month's history stays (1,200) and
+	# the current month takes the -200 as a revaluation against its 1,200 carry
+	check("current-dated LCV reversal: prior month untouched (1,200), current 1,200 carry - 200 = 1,000, stock ledger 1,000",
+		flt(p.closing_value, 2) == 1200 and flt(c.carryover_value, 2) == 1200 and flt(c.reval_value, 2) == -200
+		and flt(c.closing_value, 2) == 1000 and sle_val == 1000,
+		f"prior {p.closing_value} cur carry {c.carryover_value} reval {c.reval_value} adjust {c.adjust_value} closing {c.closing_value} sle {sle_val} events {[(e.reason_code, e.period_month, flt(e.value_delta)) for e in evs]}")
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if failed:

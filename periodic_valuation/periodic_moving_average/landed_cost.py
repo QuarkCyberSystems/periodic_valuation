@@ -168,17 +168,27 @@ def _reverse_landed_cost(lcv):
 			}))
 		if gl_map:
 			make_gl_entries(gl_map, merge_entries=False)
-
-		# restore the MAP scope state the original event moved
+		# restore the MAP scope state the original event moved - and, like the
+		# original, push it through every later period's carryover and mirror the
+		# stock-ledger row (DR-02). Without the cascade a reversal dated in the
+		# previous month left the current month overstated for good (UAT, MH #14:
+		# a reversed 2,000 landed cost carried into August).
 		if flt(orig.value_delta) and orig.reason_code == "landed_cost":
 			from periodic_valuation.periodic_moving_average.kernel import (
-				ScopeState, r2, recompute_closing,
+				ScopeState,
+				_cascade_value_carryover,
+				r2,
+				recompute_closing,
+				write_value_sle,
 			)
 			from periodic_valuation.shared.periods import assert_posting_allowed
-
 			period = assert_posting_allowed(lcv.company, lcv.posting_date)
 			scope = ScopeState(lcv.company, orig.item_code, orig.warehouse)
 			ipb = scope.load(period)
 			ipb.reval_value = r2(flt(ipb.reval_value) - flt(orig.value_delta))
 			recompute_closing(ipb)
 			scope.save(ipb, source=("Landed Cost Voucher", lcv.name))
+			_cascade_value_carryover(scope, period, qty_delta=0.0,
+				value_delta=-flt(orig.value_delta), source=("Landed Cost Voucher", lcv.name))
+			write_value_sle(scope, ipb, source=("Landed Cost Voucher", lcv.name, orig.source_detail_name),
+				posting_date=lcv.posting_date, value_delta=-flt(orig.value_delta))

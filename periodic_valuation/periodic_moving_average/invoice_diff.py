@@ -200,3 +200,8 @@ def _reverse_source_events(doc, original):
 				value_delta=-flt(orig.value_delta),
 				source=("Purchase Invoice", doc.name),
 			)
+			# ...and mirror the original's stock-ledger row (DR-02), or core stock
+			# reports keep the reversed amount forever
+			from periodic_valuation.periodic_moving_average.kernel import write_value_sle
+			write_value_sle(scope, ipb, source=("Purchase Invoice", doc.name, orig.source_detail_name),
+				posting_date=doc.posting_date, value_delta=-flt(orig.value_delta))
