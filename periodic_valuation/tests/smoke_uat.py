@@ -376,6 +376,9 @@ def run_map(company, wh, prior):
 		str(ret_intent))
 
 	# --- C1 period close gate passes + next period opens (LAST)
+	for _prev in frappe.get_all("Inventory Period",
+			filters={"company": company, "status": "PREV_OPEN_UNSETTLED"}, pluck="name"):
+		frappe.db.set_value("Inventory Period", _prev, "status", "SETTLED_FROZEN", update_modified=False)
 	open_p = frappe.get_all("Inventory Period",
 		filters={"company": company, "status": "OPEN"}, pluck="name")[0]
 	ipc = frappe.get_doc({"doctype": "Inventory Period Close", "company": company,

@@ -1362,16 +1362,38 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
 		ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) - issue_value)
 		recompute_closing(ipb_cur)
+		# An issue never moves the MAP - but the carry arrived at the PRIOR
+		# period's rate, which would move it. Re-price the carried units at the
+		# current period's own MAP and send the difference to the issue's
+		# expense account: -(rate - MAP) x qty (MAP Rule, 31 Aug 2026; confirmed
+		# 1 Sep). A frozen (negative) period re-prices at its frozen MAP.
+		expense = _voucher_expense_account(controller, sle) or srbnb
+		target_rate = flt(ipb_cur.frozen_map) if ipb_cur.is_negative else map_before_cur
+		keep_map = r2(flt(ipb_cur.closing_qty) * target_rate - flt(ipb_cur.closing_value))
+		if keep_map:
+			ipb_cur.adjust_value = r6(flt(ipb_cur.adjust_value) + keep_map)
+			recompute_closing(ipb_cur)
 		_pin_map(ipb_cur, map_before_cur)  # still an issue in the current period's eyes
 		_freeze_check(ipb_cur)
 		scope.save(ipb_cur, caused_by=ive, source=source)
-		write_sle(controller, sle, scope, ipb_cur, -issue_value)
-		expense = _voucher_expense_account(controller, sle) or srbnb
+		write_sle(controller, sle, scope, ipb_cur, -issue_value + keep_map)
 		post_gl(
 			controller, posting_date,
 			[(expense, issue_value, inventory_account), (inventory_account, -issue_value, expense)],
 			ive,
 		)
+		if keep_map:
+			first_of_open = f"{open_period.period_year}-{open_period.period_month:02d}-01"
+			__, keep_ive = write_events(
+				scope, ipb_cur, source=source, posting_date=first_of_open,
+				movement_type=None, reason="revaluation", qty_delta=0, value_delta=keep_map,
+				map_before=map_before_cur, caused_by=ive,
+			)
+			post_gl(
+				controller, first_of_open,
+				[(inventory_account, keep_map, expense), (expense, -keep_map, inventory_account)],
+				keep_ive,
+			)
 		return
 
 	rate = flt(sle.get("incoming_rate"))
@@ -1400,17 +1422,25 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 	ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
 	ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) + result["net_to_inventory"])
 
+	# The current period's "should-have" inventory effect of this receipt,
+	# measured against the CURRENT period's stock state (MAP Rule, 31 Aug 2026:
+	# universal forward cascade). Whatever the prior period booked to inventory
+	# is corrected here and the difference is a price difference in the
+	# current period:
+	#   current negative before the carry -> deficit at the current frozen MAP,
+	#     excess at the receipt rate (C2, and the client's Special Cases #1/#2
+	#     where the prior period was positive);
+	#   current positive, prior negative   -> the full receipt value (C1);
+	#   both positive                      -> nothing to correct.
 	absorb = 0.0
-	if prior_was_negative:
-		# Case C: compute the current period's "should-have" inventory effect
-		cur_qty_before = flt(ipb_cur.closing_qty)
-		if cur_qty_before >= 0:
-			should_have = result["receipt_value"]  # C1 - current positive
-		else:
-			clearing_c = min(qty, -cur_qty_before)
-			excess_c = r6(qty - clearing_c)
-			should_have = r6(clearing_c * flt(ipb_cur.frozen_map) + excess_c * rate)  # C2
+	cur_qty_before = flt(ipb_cur.closing_qty)
+	if cur_qty_before < 0:
+		clearing_c = min(qty, -cur_qty_before)
+		excess_c = r6(qty - clearing_c)
+		should_have = r6(clearing_c * flt(ipb_cur.frozen_map) + excess_c * rate)
 		absorb = r2(should_have - result["net_to_inventory"])
+	elif prior_was_negative:
+		absorb = r2(result["receipt_value"] - result["net_to_inventory"])
 
 	# Strictly ABOVE zero is a crossing; landing exactly on zero is not. This has
 	# to mirror _apply_receipt's `closing + qty <= 0` boundary - when the two
@@ -1440,14 +1470,15 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		__, absorb_ive = write_events(
 			scope, ipb_cur, source=source, posting_date=first_of_open,
 			movement_type=None, reason="prd_split", qty_delta=0, value_delta=absorb,
-			map_before=flt(ipb_cur.moving_avg_price), caused_by=ive,
+			prd_amount=r2(-absorb), map_before=flt(ipb_cur.moving_avg_price), caused_by=ive,
 		)
-		variance_account = get_offset_account(
-			scope.company, scope.item_code, scope.physical_warehouse, "negative_stock_adjustment"
-		)
+		# the offset is the price-difference account - the same account the
+		# prior-period leg used: receipt price vs frozen MAP is one economic
+		# thing wherever it lands (client convention, 1 Sep 2026)
+		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
 		post_gl(
 			controller, first_of_open,
-			[(inventory_account, absorb, variance_account), (variance_account, -absorb, inventory_account)],
+			[(inventory_account, absorb, prd_account), (prd_account, -absorb, inventory_account)],
 			absorb_ive,
 		)
 
@@ -1467,6 +1498,15 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	map_before = flt(ipb.moving_avg_price)
 	inventory_account = get_inventory_account(company, item_code, warehouse)
 
+	# Cost Adjustment tree (client, 23 Aug 2026): a cost adjustment may take the
+	# inventory value down to exactly zero and no further - anything beyond that
+	# is a price difference, not negative inventory. Split here so the posting
+	# succeeds with the right accounts instead of being refused.
+	if reason in ("landed_cost", "invoice_diff", "fx_adjust", "revaluation") and flt(value_delta) < 0 \
+			and flt(ipb.closing_qty) > 0 and flt(ipb.closing_value) + flt(value_delta) < 0:
+		excess = r2(flt(ipb.closing_value) + flt(value_delta))   # negative: the part below zero
+		value_delta = r2(-flt(ipb.closing_value))
+		expense_portion = r2(flt(expense_portion or 0) + excess)
 	if reason == "revaluation":
 		if flt(ipb.closing_qty) <= 0:
 			frappe.throw(_("Revaluation requires positive on-hand quantity for {0}.").format(item_code))
@@ -1576,7 +1616,7 @@ def get_coverage_ratio(company, item_code, warehouse, basis_qty, as_of=None):
 	rows = frappe.get_all(
 		"Inventory Period Balance",
 		filters={"company": company, "item_code": item_code, "warehouse": scope.warehouse or ""},
-		fields=["closing_qty", "period_year", "period_month"],
+		fields=["closing_qty", "total_received_since_zero", "period_year", "period_month"],
 		order_by="period_year desc, period_month desc",
 		limit=60,
 	)
@@ -1584,4 +1624,15 @@ def get_coverage_ratio(company, item_code, warehouse, basis_qty, as_of=None):
 		d = getdate(as_of)
 		rows = [r for r in rows if (r.period_year, r.period_month) <= (d.year, d.month)]
 	on_hand = flt(rows[0].closing_qty) if rows else 0.0
-	return min(max(on_hand / flt(basis_qty), 0.0), 1.0)
+	if on_hand <= 0:
+		return 0.0
+	# Cost Adjustment tree (client, 23 Aug 2026; confirmed 1 Sep): on hand covers
+	# the adjusted quantity -> all to inventory; otherwise the inventory share is
+	# on hand over TOTAL RECEIVED SINCE THE LAST ZERO (the pool ratio), not over
+	# the adjusted quantity. Equal counts as covered.
+	if on_hand >= flt(basis_qty):
+		return 1.0
+	since_zero = flt(rows[0].total_received_since_zero)
+	if since_zero <= 0:
+		return 1.0
+	return min(max(on_hand / since_zero, 0.0), 1.0)

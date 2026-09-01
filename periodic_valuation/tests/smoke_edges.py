@@ -526,14 +526,21 @@ def run(commit=False):
 	# would drive inventory value < 0 while positive stock remains is blocked
 	from periodic_valuation.periodic_moving_average.kernel import post_value_event
 	ng = make_item("_SMK-NEGMAP")
-	make_pr(ng, wh, 100, 10); make_dn(ng, wh, 90)          # hold 10 @ value 100
+	ng_pr = make_pr(ng, wh, 100, 10); make_dn(ng, wh, 90)  # hold 10 @ value 100
 	srbnb = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
-	try:
-		post_value_event(COMPANY, ng, wh, source=("Purchase Invoice", "_NEG", "x"),
-			posting_date=nowdate(), reason="invoice_diff", value_delta=-300, offset_account=srbnb)
-		check("negative-MAP value event blocked", False, "posted")
-	except frappe.ValidationError as e:
-		check("negative-MAP value event blocked", "negative" in str(e).lower())
+	# Cost Adjustment tree (client, 23 Aug 2026; confirmed 1 Sep): the adjustment
+	# takes inventory down to exactly zero (-100) and the excess (-200) goes to
+	# price difference - the posting succeeds instead of being refused
+	post_value_event(COMPANY, ng, wh, source=("Purchase Receipt", ng_pr.name, ng_pr.items[0].name),
+		posting_date=nowdate(), reason="invoice_diff", value_delta=-300, offset_account=srbnb)
+	ng_ive = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": ng_pr.name, "reason_code": "invoice_diff"},
+		fields=["value_delta", "expense_portion"])[0]
+	ng_b = ipb(ng)
+	check("negative-MAP value event floors at zero: -100 inventory / -200 price difference",
+		flt(ng_ive.value_delta, 2) == -100 and flt(ng_ive.expense_portion, 2) == -200
+		and flt(ng_b.closing_value, 2) == 0 and flt(ng_b.closing_qty) == 10,
+		f"{ng_ive.value_delta}/{ng_ive.expense_portion} closing {ng_b.closing_value}")
 
 	# ============ Stock Ageing works for routed items (OI-8 / DR-27):
 	# the report replays SLE-compatible rows FIFO by date - valuation-agnostic
@@ -582,16 +589,27 @@ def run(commit=False):
 			"posting_date": nowdate()}, "Periodic Moving Average")))
 
 	dn = make_dn(it, wh, 10, posting_date=str(prior))
-	ive = frappe.get_all("Inventory Valuation Event", filters={"source_docname": dn.name},
+	ive = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": dn.name, "reason_code": "issue"},
 		fields=["value_delta", "map_before"])[0]
 	check("period rate: backdated issue valued at 920, not 996",
 		flt(ive.value_delta, 2) == -9200 and flt(ive.map_before) == 920,
 		f"{ive.value_delta}/{ive.map_before}")
+	# MAP Rule (31 Aug 2026, confirmed 1 Sep): the carry re-prices the departed
+	# units at the CURRENT period's MAP so it stays 996 - the 760 difference is a
+	# revaluation leg to the issue's expense account, and the stock ledger shows
+	# the current period's full effect (-9,960)
+	keep = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": dn.name, "reason_code": "revaluation"},
+		fields=["value_delta"])
+	check("period rate: current period keeps MAP 996 via a -760 revaluation leg",
+		keep and flt(keep[0].value_delta, 2) == -760
+		and flt(ipb(it).moving_avg_price, 2) == 996, f"{keep} MAP {ipb(it).moving_avg_price}")
 	sle = frappe.get_all("Stock Ledger Entry",
 		filters={"voucher_no": dn.name, "is_cancelled": 0},
 		fields=["stock_value_difference"])[0]
-	check("period rate: backdated issue SLE value is -9,200",
-		flt(sle.stock_value_difference, 2) == -9200, str(sle.stock_value_difference))
+	check("period rate: backdated issue SLE value is -9,960 (current-period effect)",
+		flt(sle.stock_value_difference, 2) == -9960, str(sle.stock_value_difference))
 
 	# Stock Reconciliation prefill reads the same period balance
 	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_stock_balance_for
@@ -650,10 +668,10 @@ def run(commit=False):
 	# DR-32: the LCV covers the RECEIPT's 1000 units; 300 remain on hand ->
 	# coverage 0.3 -> 30/70. (The since-zero counter still nets with the
 	# cancellation - asserted here - but no longer drives value splits.)
-	check("partial cancel: in 500 / counter 500; LCV coverage 300/1000 splits 30/70",
+	check("partial cancel: in 500 / counter 500; LCV 300 on hand < 1000 -> pool ratio 300/500 splits 60/40",
 		flt(c.receipt_qty) == 500 and flt(c.total_received_since_zero) == 500
 		and flt(c.closing_qty) == 300
-		and flt(lc_ive.value_delta, 2) == 30 and flt(lc_ive.expense_portion, 2) == 70,
+		and flt(lc_ive.value_delta, 2) == 60 and flt(lc_ive.expense_portion, 2) == 40,
 		f"in={c.receipt_qty} counter={c.total_received_since_zero} close={c.closing_qty} "
 		f"split={lc_ive.value_delta}/{lc_ive.expense_portion}")
 

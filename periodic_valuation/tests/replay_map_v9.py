@@ -159,11 +159,11 @@ def scenario_book2(clock):
 	exp_share = flt(sum(flt(x.expense_portion) for x in ive), 2)
 	# DR-32 coverage: 20 on hand vs the 60-unit receipt -> 0.333333 ->
 	# 66.67 inventory / 133.33 expense (workbook's 0.125 pool row superseded)
-	check("Book2#3 LC 200 splits 66.67 / 133.33 (coverage 20/60)",
-		abs(inv_share - 66.67) <= 0.01 and abs(exp_share - 133.33) <= 0.01,
+	check("Book2#3 LC 200 splits 25 / 175 (pool ratio 20/160 - Cost Adjustment tree, 1 Sep 2026)",
+		abs(inv_share - 25) <= 0.01 and abs(exp_share - 175) <= 0.01,
 		f"{inv_share}/{exp_share}")
-	co.state("Book2#3 post-LC", 20, 358.98, 17.95)
-	co.verify_gl("Book2", 358.98)
+	co.state("Book2#3 post-LC", 20, 317.31, 15.87)
+	co.verify_gl("Book2", 317.31)
 
 
 def run(commit=False):

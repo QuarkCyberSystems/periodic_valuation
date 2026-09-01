@@ -277,8 +277,10 @@ def section_b(company, wh, today):
 	e9 = StdEngine(company, item9, wh)
 	src9 = ("Item", item9)
 	e9.post(trans="Rec", posting_date=prev.replace(day=12), qty=60, sc=10, ac=10, source=src9)
-	e9.post(trans="Rec", posting_date=today.replace(day=2), qty=40, sc=10, ac=10, source=src9)
-	e9.post(trans="Iss", posting_date=today.replace(day=3), qty=30, sc=10, source=src9)
+	# dated today (not a fixed day-of-month): on the 1st a fixed day 2/3 would be a
+	# future date the boundary materializer rightly ignores
+	e9.post(trans="Rec", posting_date=today, qty=40, sc=10, ac=10, source=src9)
+	e9.post(trans="Iss", posting_date=today, qty=30, sc=10, source=src9)
 	scv_release(company, item9, today.year, today.month, 12)
 	materialize_pending_revaluations()
 	revs = {r.std_trans: r for r in one_ive(item_code=item9,

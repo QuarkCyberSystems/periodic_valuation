@@ -20,9 +20,9 @@ class InventoryPeriodClose(Document):
 		period = frappe.get_doc("Inventory Period", self.inventory_period)
 		if period.company != self.company:
 			frappe.throw(_("Inventory Period {0} does not belong to {1}.").format(period.name, self.company))
-		if period.status != "OPEN":
+		if period.status not in ("OPEN", "PREV_OPEN_UNSETTLED"):
 			frappe.throw(
-				_("Inventory Period {0} is {1}; only the OPEN period can be closed.").format(
+				_("Inventory Period {0} is {1}; only an open period (current or previous) can be closed.").format(
 					period.name, period.status
 				),
 				title=_("Invalid Period State"),
@@ -138,8 +138,15 @@ class InventoryPeriodClose(Document):
 				title=_("Period Close Blocked"),
 			)
 
-		seed_next_period_openings(period)
-		period.db_set({"closed_by": frappe.session.user, "closed_on": now_datetime()})
+		if period.status == "PREV_OPEN_UNSETTLED":
+			# the real close: every gate passed on the previous month - freeze it
+			frappe.db.set_value("Inventory Period", period.name, "status", "SETTLED_FROZEN")
+			period.db_set({"closed_by": frappe.session.user, "closed_on": now_datetime()})
+		else:
+			# closing the CURRENT month rolls the machine forward; the month stays
+			# postable as previous-open and is frozen by a later close of its own
+			seed_next_period_openings(period)
+			self.db_set("remarks", _("{0} rolled forward: it is now the previous-open period and stays postable; close it again after settlement to freeze it.").format(period.period_name))
 
 	def before_cancel(self):
 		frappe.throw(

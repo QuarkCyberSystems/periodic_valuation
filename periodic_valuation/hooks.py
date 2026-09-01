@@ -36,6 +36,9 @@ app_include_js = "/assets/periodic_valuation/js/cancellation_button.js"
 scheduler_events = {
 	"daily": [
 		"periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version.materialize_pending_revaluations",
+		# open the new calendar month where the two-open-months rule allows (DR-37);
+		# postings roll on demand as well, this just spares the first user of the month
+		"periodic_valuation.shared.period_close.roll_periods_due",
 	],
 }
 

@@ -32,12 +32,34 @@ def get_open_period(company):
 	return frappe.get_doc("Inventory Period", name) if name else None
 
 
+def _open_on_demand(company, posting_date):
+	"""A posting dated in the month right after the OPEN period rolls the
+	machine forward (DR-37): the OPEN month becomes previous-open and the new
+	month opens - provided the month before is already frozen, which
+	open_next_period enforces with its own message. Any other gap stays a
+	missing period."""
+	from periodic_valuation.shared.period_close import open_next_period
+
+	open_period = get_open_period(company)
+	if not open_period:
+		return None
+	d = getdate(posting_date)
+	ny, nm = (
+		(open_period.period_year + 1, 1)
+		if open_period.period_month == 12
+		else (open_period.period_year, open_period.period_month + 1)
+	)
+	if (d.year, d.month) != (ny, nm):
+		return None
+	return open_next_period(open_period)
+
+
 def assert_posting_allowed(company, posting_date):
 	"""Throw unless posting_date falls in an OPEN or PREV_OPEN_UNSETTLED period.
 
 	Returns the Inventory Period document on success.
 	"""
-	period = get_period(company, posting_date)
+	period = get_period(company, posting_date) or _open_on_demand(company, posting_date)
 	if not period:
 		frappe.throw(
 			_("No Inventory Period covers {0} for {1}. Create the period before posting periodic-valuation items.").format(

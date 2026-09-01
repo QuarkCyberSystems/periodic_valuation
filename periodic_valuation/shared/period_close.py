@@ -266,18 +266,29 @@ def assert_bin_ledger_consistency(period):
 	}
 
 
-def seed_next_period_openings(period):
-	"""Create the next Inventory Period (OPEN) and seed its IPB openings from
-	this period's closings. Called only after every gate has passed."""
+def open_next_period(period):
+	"""Roll the OPEN period forward one month: this period becomes
+	PREV_OPEN_UNSETTLED, the next month opens, and its balances are seeded from
+	this period's closings (provisional - later postings into this period reach
+	the new month through the carryover buckets).
+
+	Two months may be open at once, never three (client rule, DR-37): the month
+	before this one must already be SETTLED_FROZEN. Freezing is never a side
+	effect of rolling - it is the explicit, gated Inventory Period Close of the
+	previous-open month.
+	"""
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 
+	if period.status != "OPEN":
+		frappe.throw(
+			_("Only the OPEN Inventory Period can be rolled forward; {0} is {1}.").format(
+				period.name, period.status
+			),
+			title=_("Invalid Period State"),
+		)
 	next_year, next_month = (
 		(period.period_year + 1, 1) if period.period_month == 12 else (period.period_year, period.period_month + 1)
 	)
-
-	# Freeze any older previous-open period: the close ceremony validates and
-	# freezes in one transaction, so it goes straight to SETTLED_FROZEN once a
-	# newer period closes behind it (DR-25).
 	older = frappe.get_all(
 		"Inventory Period",
 		filters={
@@ -285,11 +296,16 @@ def seed_next_period_openings(period):
 			"status": "PREV_OPEN_UNSETTLED",
 			"name": ("!=", period.name),
 		},
-		pluck="name",
+		fields=["name", "period_name"],
 	)
-	for name in older:
-		frappe.db.set_value("Inventory Period", name, "status", "SETTLED_FROZEN")
-
+	if older:
+		frappe.throw(
+			_(
+				"Cannot open {0}: {1} is still open. At most two periods may be open - the current "
+				"month and the previous one - so close {1} (Inventory Period Close) first."
+			).format(f"{next_year}-{next_month:02d}", older[0].period_name),
+			title=_("Close the Previous Period First"),
+		)
 	next_name = frappe.db.get_value(
 		"Inventory Period",
 		{"company": period.company, "period_year": next_year, "period_month": next_month},
@@ -353,3 +369,40 @@ def seed_next_period_openings(period):
 			).insert(ignore_permissions=True)
 	finally:
 		frappe.flags[KERNEL_FLAG] = False
+	return frappe.get_doc("Inventory Period", {"company": period.company, "period_year": next_year, "period_month": next_month})
+
+
+def seed_next_period_openings(period):
+	"""Kept for callers that predate the roll/close split - same as open_next_period."""
+	return open_next_period(period)
+
+
+def roll_periods_due(commit=True, company=None):
+	"""Daily: open the current calendar month for every company whose OPEN
+	period is behind it, where the two-open-months rule allows. Postings roll
+	the machine on demand too; this only spares the first user of the month
+	the wait. A company blocked by an unclosed older month is skipped and
+	logged - never forced. Tests pass commit=False to stay inside their
+	transaction."""
+	from frappe.utils import getdate, nowdate
+
+	today = getdate(nowdate())
+	filters = {"status": "OPEN"}
+	if company:
+		filters["company"] = company
+	rolled = []
+	for row in frappe.get_all("Inventory Period", filters=filters,
+			fields=["name", "company", "period_year", "period_month"]):
+		if (row.period_year, row.period_month) >= (today.year, today.month):
+			continue
+		savepoint = f"roll_{row.name}".replace("-", "_")
+		frappe.db.savepoint(savepoint)
+		try:
+			open_next_period(frappe.get_doc("Inventory Period", row.name))
+			rolled.append(row.company)
+			if commit:
+				frappe.db.commit()
+		except frappe.ValidationError as e:
+			frappe.db.rollback(save_point=savepoint)
+			frappe.log_error(title="Inventory Period roll skipped", message=f"{row.company}: {e}")
+	return rolled

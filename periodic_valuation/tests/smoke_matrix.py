@@ -237,14 +237,21 @@ def run(commit=False):
 	# ---- GL identity across everything posted so far
 	from periodic_valuation.shared.accounts import get_inventory_account
 	inv_acc = get_inventory_account(COMPANY, ITEM, wh)
+	# scope to THIS item's tagged legs: the inventory account is shared by every
+	# item on the site, so a company-wide sum breaks the moment any other data exists
 	net = frappe.db.sql(
-		"""SELECT COALESCE(SUM(debit-credit),0) FROM `tabGL Entry`
-		WHERE company=%s AND account=%s AND is_cancelled=0 AND COALESCE(valuation_event_id,'') != ''""",
-		(COMPANY, inv_acc))[0][0]
+		"""SELECT COALESCE(SUM(g.debit - g.credit), 0) FROM `tabGL Entry` g
+		JOIN `tabInventory Valuation Event` e ON e.name = g.valuation_event_id
+		WHERE g.company = %s AND g.account = %s AND g.is_cancelled = 0 AND e.item_code = %s""",
+		(COMPANY, inv_acc, ITEM))[0][0]
 	check("GL inventory net == IPB closing value", flt(net, 2) == flt(b.closing_qty and ipb().closing_value, 2),
 		f"gl {net} vs ipb {ipb().closing_value}")
-
 	# ---- period close: reconciliation gate + next period seeding
+	# (DR-37: rolling the OPEN month needs the previous-open month closed first;
+	# the test stands in for that close)
+	for _prev in frappe.get_all("Inventory Period",
+			filters={"company": COMPANY, "status": "PREV_OPEN_UNSETTLED"}, pluck="name"):
+		frappe.db.set_value("Inventory Period", _prev, "status", "SETTLED_FROZEN", update_modified=False)
 	open_period = frappe.get_all("Inventory Period",
 		filters={"company": COMPANY, "status": "OPEN"}, pluck="name")[0]
 	ipc = frappe.get_doc({

@@ -167,10 +167,12 @@ def run(commit=False):
 	# GL stock account net == inventory value
 	from periodic_valuation.shared.accounts import get_inventory_account
 	inv_acc = get_inventory_account(get_company(), ITEM, wh)
+	# scope to THIS item's tagged legs - the inventory account is shared site-wide
 	net = frappe.db.sql(
-		"""SELECT COALESCE(SUM(debit-credit),0) FROM `tabGL Entry`
-		WHERE company=%s AND account=%s AND is_cancelled=0 AND COALESCE(valuation_event_id,'') != ''""",
-		(get_company(), inv_acc),
+		"""SELECT COALESCE(SUM(g.debit - g.credit), 0) FROM `tabGL Entry` g
+		JOIN `tabInventory Valuation Event` e ON e.name = g.valuation_event_id
+		WHERE g.company = %s AND g.account = %s AND g.is_cancelled = 0 AND e.item_code = %s""",
+		(get_company(), inv_acc, ITEM),
 	)[0][0]
 	check("GL inventory net == IPB closing value", flt(net, 2) == flt(ipb.closing_value, 2),
 		f"gl {net} vs ipb {ipb.closing_value}")

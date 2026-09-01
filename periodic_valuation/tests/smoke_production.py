@@ -163,9 +163,21 @@ def run(commit=False):
 		and flt(c.carryover_value, 2) == 300 and flt(c.closing_qty) == 80,
 		f"prior issue {p.issue_value} carry {c.carryover_qty}/{c.carryover_value}")
 	gl = frappe.get_all("GL Entry", filters={"voucher_no": dn.name, "is_cancelled": 0},
-		fields=["posting_date"])
-	check("P8 backdated issue GL on prior date",
-		gl and all(str(g.posting_date) == str(prior) for g in gl))
+		fields=["posting_date", "debit", "credit"])
+	prior_rows = [g for g in gl if str(g.posting_date) == str(prior)]
+	cur_first = str(get_first_day(nowdate()))
+	keep_rows = [g for g in gl if str(g.posting_date) == cur_first]
+	# DR-36: the issue itself posts on the prior date (200 at the prior MAP 10);
+	# the carry re-prices the 20 departed units at the current MAP 12 with a
+	# -(10 - 12) x 20 = 40 revaluation leg on day 1 of the current month
+	check("P8 backdated issue GL on prior date + 40 keep-MAP leg on day 1 (DR-36)",
+		prior_rows and flt(sum(g.debit for g in prior_rows), 2) == 200
+		and keep_rows and flt(sum(g.debit for g in keep_rows), 2) == 40
+		and len(prior_rows) + len(keep_rows) == len(gl),
+		f"prior {[(str(g.posting_date), g.debit, g.credit) for g in gl]}")
+	check("P8 current period keeps MAP 12 (80 units -> 960)",
+		flt(c.moving_avg_price, 2) == 12 and flt(ipb(it).closing_value, 2) == 960,
+		f"MAP {c.moving_avg_price} value {ipb(it).closing_value}")
 
 	# ---------- P9 first-ever posting is backdated (no balances exist yet)
 	it = make_item("_PRD-FIRSTBD")
@@ -367,6 +379,11 @@ def run(commit=False):
 	check("P20b JE on expense accounts still allowed", je2.name is not None)
 
 	# ---------- P19 double period close: activity close, then empty close
+	# DR-37: a roll needs the previous-open month frozen first (the test stands in
+	# for that close); the second close below then freezes the rolled month for real
+	for _prev in frappe.get_all("Inventory Period",
+			filters={"company": company, "status": "PREV_OPEN_UNSETTLED"}, pluck="name"):
+		frappe.db.set_value("Inventory Period", _prev, "status", "SETTLED_FROZEN", update_modified=False)
 	open_p = frappe.get_all("Inventory Period", filters={"company": company, "status": "OPEN"}, pluck="name")[0]
 	ipc1 = frappe.get_doc({"doctype": "Inventory Period Close", "company": company,
 		"inventory_period": open_p, "posting_date": nowdate()})
@@ -375,15 +392,25 @@ def run(commit=False):
 	ipc1.reload()
 	check("P19a close with activity passes gates", ipc1.reconciliation_passed == 1,
 		f"disc {ipc1.discrepancy}")
-	open_p2 = frappe.get_all("Inventory Period", filters={"company": company, "status": "OPEN"}, pluck="name")[0]
+	# close (freeze) the month just rolled to previous-open - the real close under DR-37
 	ipc2 = frappe.get_doc({"doctype": "Inventory Period Close", "company": company,
-		"inventory_period": open_p2, "posting_date": nowdate()})
+		"inventory_period": open_p, "posting_date": nowdate()})
 	ipc2.insert(ignore_permissions=True)
 	ipc2.submit()
 	ipc2.reload()
+	frozen = frappe.db.get_value("Inventory Period", open_p, "status")
+	check("P19b close of the previous-open month passes the gates and freezes it",
+		ipc2.reconciliation_passed == 1 and frozen == "SETTLED_FROZEN", f"{frozen}")
+	# the empty new month can now roll again (a third month opens)
+	open_p2 = frappe.get_all("Inventory Period", filters={"company": company, "status": "OPEN"}, pluck="name")[0]
+	ipc3 = frappe.get_doc({"doctype": "Inventory Period Close", "company": company,
+		"inventory_period": open_p2, "posting_date": nowdate()})
+	ipc3.insert(ignore_permissions=True)
+	ipc3.submit()
+	ipc3.reload()
 	third = frappe.get_all("Inventory Period", filters={"company": company, "status": "OPEN"}, pluck="name")
-	check("P19b empty-period close passes vacuously and opens the next",
-		ipc2.reconciliation_passed == 1 and bool(third), str(third))
+	check("P19b2 empty-period close passes vacuously and opens the next",
+		ipc3.reconciliation_passed == 1 and bool(third) and third[0] != open_p2, str(third))
 	neg = ipb("_PRD-WHNEG", warehouse=wh)
 	check("P19c negative/frozen state survives period close",
 		neg.is_negative == 1 and flt(neg.frozen_map) == 10,
