@@ -180,7 +180,10 @@ def run_reconciliation_gate(period):
 	(see _scope_rows_as_of).
 	"""
 	rows = _scope_rows_as_of(period)
-	movement_total = flt(sum(flt(r.closing_value) for r in rows), 2)
+	# balances carry 6 decimals, GL rows carry 2: measure each scope at currency
+	# precision before summing, or sub-cent residue across many scopes reads as
+	# a one- or two-cent "discrepancy" no posting can ever clear
+	movement_total = flt(sum(flt(r.closing_value, 2) for r in rows), 2)
 
 	inventory_accounts = get_all_inventory_accounts(period.company, rows)
 	gl_balance = 0.0
