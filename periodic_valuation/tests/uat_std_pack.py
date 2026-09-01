@@ -451,8 +451,8 @@ def cost_change_current(wh, a, cy, cm, prev, today):
 		"single Rev Beg 200: Inv +200 / Reserve -200", fmt(g))
 
 	# TC09: change with in-month activity -> granular triplet
-	pr9b = make_pr("UAT-STD-TC09", wh, 40, 10, posting_date=str(today.replace(day=2)))
-	dn9 = make_dn("UAT-STD-TC09", wh, 30, posting_date=str(today.replace(day=3)))
+	pr9b = make_pr("UAT-STD-TC09", wh, 40, 10, posting_date=str(today))
+	dn9 = make_dn("UAT-STD-TC09", wh, 30, posting_date=str(today))
 	scv9 = scv_release("UAT-STD-TC09", cy, cm, 12)
 	materialize_pending_revaluations()
 	revs = {r.std_trans: r for r in ives(item_code="UAT-STD-TC09",
