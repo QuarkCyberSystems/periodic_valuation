@@ -195,7 +195,7 @@ class StdEngine:
 	def post(self, *, trans, posting_date, qty=None, sc=None, ac=None, source,
 			entry_date=None, ref="", t_sc_override=None, t_ac_override=None,
 			cost_version=None, post_gl=True, qty_adj_override=None, reversal_of=None,
-			posting_intent=None):
+			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0):
 		"""Append one STD event (and its GL unless Sett-family)."""
 		flags = flags_for(trans, self.view)
 		pst = getdate(posting_date)
@@ -235,6 +235,22 @@ class StdEngine:
 
 		total_sc = t_sc_override if t_sc_override is not None else r2((sc or 0) * qty_adj)
 		total_ac = t_ac_override if t_ac_override is not None else r2((ac or 0) * qty_adj)
+		# UOM rounding residual (plan, rounding sequence step 4): qty x unit cost
+		# minus the rounded line amount. Sub-cent by construction, so it cannot
+		# be booked to GL; it is recorded on the event and a residual larger than
+		# the tolerance is a data fault (UOM conversion) and blocks the posting.
+		rounding_residual = 0.0
+		if t_sc_override is None and sc is not None and qty_adj:
+			rounding_residual = flt(flt(sc) * qty_adj - total_sc, 6)
+			tolerance = get_std_setting(self.company, "uom_rounding_tolerance")
+			tolerance = 0.01 if tolerance is None else flt(tolerance)
+			if abs(rounding_residual) > tolerance:
+				frappe.throw(
+					_("Rounding residual {0} on {1} x {2} exceeds the UOM rounding tolerance {3}; check the item's UOM conversion.").format(
+						rounding_residual, qty_adj, sc, tolerance
+					),
+					title=_("UOM Rounding Tolerance"),
+				)
 
 		if trans in ("Rev Beg", "REV In", "REV out") and t_sc_override is not None \
 				and sc is not None and ac is not None:
@@ -281,6 +297,9 @@ class StdEngine:
 				"settlement_ref": str(ref) if ref else "",
 				"cost_version": cost_version,
 				"reversal_of": reversal_of,
+				"exchange_rate_at_receipt": exchange_rate_at_receipt,
+				"fx_variance": r2(fx_variance) if fx_variance else 0,
+				"rounding_residual": rounding_residual,
 			}).insert(ignore_permissions=True)
 		finally:
 			frappe.flags[KERNEL_FLAG] = False
@@ -368,11 +387,19 @@ class StdEngine:
 		return []
 
 	def _post_gl(self, ive, trans, total_sc, total_ac, settlement=None, offset_override=None,
-			posting_date=None):
+			posting_date=None, fx_variance=0.0):
 		from erpnext.accounts.general_ledger import make_gl_entries
 
 		a = self.accounts()
 		legs = self._legs(trans, flt(total_sc), flt(total_ac), a, settlement, offset_override)
+		if trans == "LC" and r2(fx_variance):
+			# IFRS: the exchange movement between receipt and invoice is never
+			# inventory or PPV - it goes to Exchange Gain/Loss, and the offset
+			# (GR/IR) carries the full base-currency difference
+			fx_account = frappe.get_cached_value("Company", self.company, "exchange_gain_loss_account")
+			offset = offset_override or a.grir
+			legs = [(a.ppv, flt(total_ac)), (fx_account, r2(fx_variance)),
+				(offset, -r2(flt(total_ac) + fx_variance))]
 		gl_map = []
 		cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
 		for account, amount in legs:
@@ -616,9 +643,39 @@ class StdEngine:
 				title=_("Year End Open"),
 			)
 
+	def _lock_for_settlement(self, year, month):
+		"""Serialize settlements on this scope's period(s): row-lock the company's
+		Inventory Period rows for the month (every month of the fiscal year for a
+		YTD scope, whose pool reads the whole year - plan, YTD lock scope), falling
+		back to the company's settings row when no period row exists. Held to
+		commit/rollback; a concurrent close then waits and re-checks the lock
+		state instead of settling the same scope twice (plan TC16 / TC35).
+		Deadlock-safe: rows are always taken in (year, month) order."""
+		filters = {"company": self.company, "period_year": year}
+		if self.view != "YTD":
+			filters["period_month"] = month
+		rows = frappe.get_all("Inventory Period", filters=filters, pluck="name",
+			order_by="period_year asc, period_month asc")
+		if rows:
+			frappe.db.sql("SELECT name FROM `tabInventory Period` WHERE name IN %s ORDER BY name FOR UPDATE",
+				(tuple(rows),))
+			return rows
+		settings = frappe.db.get_value("Periodic Standard Cost Settings", {"company": self.company}, "name")
+		if settings:
+			frappe.db.sql("SELECT name FROM `tabPeriodic Standard Cost Settings` WHERE name = %s FOR UPDATE",
+				(settings,))
+		return [settings] if settings else []
+
 	def close_period(self, *, year, month, sc, source, entry_date=None, ref=None,
 			es_qty_override=None, out_qty_override=None, settlement_run=None):
 		self._assert_prior_fy_closed(year)
+		self._lock_for_settlement(year, month)
+		if self.is_period_locked(year, month):
+			raise PeriodLockedError(
+				_("{0} {1}-{2:02d} is already settled (a concurrent settlement completed first).").format(
+					self.item_code, year, month
+				)
+			)
 		before = now_datetime()
 		if self.view == "MTD":
 			beg_qty = self.beg_qty_mtd(year, month)
@@ -760,6 +817,8 @@ class StdEngine:
 	# --------------------------------------------------------- sett reverse
 	def sett_reverse(self, settlement_name, *, source, entry_date=None):
 		sett = frappe.get_doc("Inventory Period Settlement", settlement_name)
+		self._lock_for_settlement(sett.period_year, sett.period_month)
+		sett.reload()
 		if sett.cancelled:
 			frappe.throw(_("{0} is already cancelled.").format(settlement_name))
 		if not sett.sett_rev_event:

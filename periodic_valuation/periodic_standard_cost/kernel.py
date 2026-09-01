@@ -102,8 +102,12 @@ def _post_entry(controller, sle, is_return):
 	if qty > 0 and not is_return:
 		trans = "REC (BY)" if (cross_month and cross_fy) else ("REC (BD)" if cross_month else "Rec")
 		ac = flt(sle.get("incoming_rate"))
+		# DR-28 m1 parity with MAP: a foreign-currency receipt stamps its exchange
+		# rate so the invoice-difference FX split never needs a runtime join
+		fx_rate = flt(controller.get("conversion_rate"))
 		engine.post(trans=trans, posting_date=posting_date, qty=qty, sc=sc, ac=ac,
-			source=source, cost_version=scv.name)
+			source=source, cost_version=scv.name,
+			exchange_rate_at_receipt=fx_rate if fx_rate and fx_rate != 1 else None)
 		value = r2(qty * sc)
 		_post_companion_if_needed(engine, controller, sle, trans, qty, sc, source, today)
 	elif qty < 0 and not is_return:
@@ -441,10 +445,23 @@ def on_purchase_invoice_submit_std(doc, item, pr_row):
 	base_diff = r2((flt(item.base_net_rate) - flt(pr_row.base_net_rate)) * qty)
 	if not base_diff:
 		return
+	# IFRS decomposition (plan, FX handling): only the price movement measured at
+	# the RECEIPT's exchange rate enters the variance pool; the exchange movement
+	# between receipt and invoice is FX gain/loss, never inventory or PPV (DR-39,
+	# mirroring the Moving Average rule DR-14)
+	price_component, fx_variance, receipt_fx = base_diff, 0.0, None
+	company_currency = frappe.get_cached_value("Company", doc.company, "default_currency")
+	if doc.currency and doc.currency != company_currency:
+		receipt_fx = flt(frappe.db.get_value("Purchase Receipt", item.purchase_receipt, "conversion_rate")) or None
+		if receipt_fx:
+			unit_diff_foreign = flt(item.net_rate) - flt(pr_row.net_rate)
+			price_component = r2(unit_diff_foreign * qty * receipt_fx)
+			fx_variance = r2(base_diff - price_component)
 	engine = StdEngine(doc.company, item.item_code, pr_row.warehouse)
 	scv = get_active_standard_cost(doc.company, item.item_code, pr_row.warehouse, doc.posting_date)
 	srbnb = frappe.get_cached_value("Company", doc.company, "stock_received_but_not_billed")
 	ive = engine.post(trans="LC", posting_date=doc.posting_date,
 		source=("Purchase Invoice", doc.name, item.name),
-		t_sc_override=0, t_ac_override=base_diff, cost_version=scv.name, post_gl=False)
-	engine._post_gl(ive, "LC", 0, base_diff, offset_override=srbnb)
+		t_sc_override=0, t_ac_override=price_component, cost_version=scv.name, post_gl=False,
+		exchange_rate_at_receipt=receipt_fx, fx_variance=fx_variance)
+	engine._post_gl(ive, "LC", 0, price_component, offset_override=srbnb, fx_variance=fx_variance)

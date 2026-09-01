@@ -904,6 +904,96 @@ def section_h(company, wh, today):
 		before == after == 1, f"{before}->{after}")
 
 
+# ===================================================================== I
+def section_i(company, wh, today):
+	"""Declared-but-unbuilt items closed 1 Sep 2026: STD FX decomposition (plan
+	'Foreign Currency (FX) Handling', DR-39), settlement row lock (TC16/TC35,
+	DR-40), UOM rounding residual + tolerance (plan 'Rounding sequence', DR-41)."""
+	from periodic_valuation.periodic_standard_cost.engine import PeriodLockedError, StdEngine
+
+	# ---- DR-39: invoice difference in a foreign currency splits price vs FX
+	item = std_item("_TCV-I-FX")
+	scv_release(company, item, today.year, today.month, 40)
+	a = accounts_for(company, item, wh)
+	fx_acct = frappe.get_cached_value("Company", company, "exchange_gain_loss_account")
+	base_ccy = frappe.get_cached_value("Company", company, "default_currency")
+	fccy = "EUR" if base_ccy != "EUR" else "USD"
+	if not frappe.db.exists("Currency", fccy):
+		frappe.get_doc({"doctype": "Currency", "currency_name": fccy, "enabled": 1}).insert(ignore_permissions=True)
+	frappe.db.set_value("Currency", fccy, "enabled", 1, update_modified=False)
+	pr = frappe.get_doc({"doctype": "Purchase Receipt", "company": company, "supplier": "_SMK Supplier",
+		"posting_date": nowdate(), "set_posting_time": 1, "currency": fccy, "conversion_rate": 4.0,
+		"ignore_pricing_rule": 1,
+		"items": [{"item_code": item, "qty": 10, "rate": 10, "warehouse": wh}]})   # 10 x 10 EUR @ 4.00 = 400 base
+	pr.insert(ignore_permissions=True)
+	pr.submit()
+	rec = one_ive(source_docname=pr.name)[0]
+	tc(90, "FX receipt stamps its exchange rate (4.0) - SC 400 / AC 400",
+		flt(frappe.db.get_value("Inventory Valuation Event", rec.name, "exchange_rate_at_receipt")) == 4.0
+		and flt(rec.total_ac) == 400, f"{rec}")
+	# a foreign-currency invoice needs a payable account in that currency
+	abbr = frappe.db.get_value("Company", company, "abbr")
+	payable_fx = f"Creditors {fccy} - {abbr}"
+	if not frappe.db.exists("Account", payable_fx):
+		parent = frappe.db.get_value("Account", {"company": company, "is_group": 1,
+			"account_type": "Payable"}, "name") or frappe.db.get_value("Account",
+			{"company": company, "is_group": 1, "root_type": "Liability"}, "name")
+		frappe.get_doc({"doctype": "Account", "account_name": f"Creditors {fccy}", "company": company,
+			"parent_account": parent, "account_type": "Payable", "account_currency": fccy,
+			"root_type": "Liability"}).insert(ignore_permissions=True)
+	pi = frappe.get_doc({"doctype": "Purchase Invoice", "company": company, "supplier": "_SMK Supplier",
+		"posting_date": nowdate(), "currency": fccy, "conversion_rate": 4.5, "ignore_pricing_rule": 1,
+		"credit_to": payable_fx,
+		"items": [{"item_code": item, "qty": 10, "rate": 11, "warehouse": wh,
+			"purchase_receipt": pr.name, "pr_detail": pr.items[0].name}]})   # 10 x 11 EUR @ 4.50 = 495 base
+	pi.insert(ignore_permissions=True)
+	pi.submit()
+	lc = one_ive(source_docname=pi.name, std_trans="LC")
+	# base diff 495 - 400 = 95; price component (11-10) x 10 x 4.0 = 40 -> PPV; FX 55 -> gain/loss
+	tc(90, "FX invoice difference 95 splits: PPV pool 40 (price at receipt rate) + FX variance 55",
+		lc and flt(lc[0].total_ac) == 40
+		and flt(frappe.db.get_value("Inventory Valuation Event", lc[0].name, "fx_variance")) == 55, str(lc))
+	if lc:
+		gl_match(90, "FX GL: Dr PPV 40 / Dr Exchange Gain-Loss 55 / Cr GR-IR 95",
+			gl_net(event=lc[0].name), {a.ppv: 40, fx_acct: 55, a.grir: -95})
+	e = StdEngine(company, item, wh)
+	tc(90, "only the price component enters the PPV pool (40)",
+		flt(e.own_ppv(today.year, today.month), 2) == 40, str(e.own_ppv(today.year, today.month)))
+
+	# ---- DR-40: settlement row lock + double-settle guard
+	i40 = std_item("_TCV-I-LOCK")
+	e40 = StdEngine(company, i40, wh)
+	s40 = ("Item", i40)
+	e40.post(trans="Rec", posting_date="2026-04-05", qty=10, sc=10, t_ac_override=120, source=s40)
+	keys = e40._lock_for_settlement(2026, 4)
+	tc(91, "settlement takes a row lock (period rows or the company settings row)", bool(keys), str(keys))
+	e40.close_period(year=2026, month=4, sc=10, source=s40, entry_date="2026-05-01")
+	try:
+		e40.close_period(year=2026, month=4, sc=10, source=s40, entry_date="2026-05-01")
+		tc(91, "a second close of the same scope-period is refused", False, "settled twice")
+	except PeriodLockedError:
+		tc(91, "a second close of the same scope-period is refused", True)
+
+	# ---- DR-41: rounding residual recorded; tolerance guard
+	i41 = std_item("_TCV-I-ROUND")
+	e41 = StdEngine(company, i41, wh)
+	s41 = ("Item", i41)
+	ev = e41.post(trans="Rec", posting_date=str(today), qty=33.333, sc=0.0025, ac=0.0025, source=s41)
+	# 33.333 x 0.0025 = 0.0833325 -> line 0.08; residual 0.0033325 (plan worked example shape)
+	tc(92, "rounding residual recorded on the event (0.003333)",
+		abs(flt(ev.rounding_residual) - 0.003333) < 0.000001 and flt(ev.total_sc) == 0.08,
+		f"{ev.rounding_residual} / {ev.total_sc}")
+	settings = frappe.db.get_value("Periodic Standard Cost Settings", {"company": company}, "name")
+	frappe.db.set_value("Periodic Standard Cost Settings", settings, "uom_rounding_tolerance", 0.001, update_modified=False)
+	try:
+		e41.post(trans="Rec", posting_date=str(today), qty=33.333, sc=0.0025, ac=0.0025, source=s41)
+		tc(92, "residual above the tolerance blocks the posting", False, "posted")
+	except frappe.ValidationError as ex:
+		tc(92, "residual above the tolerance blocks the posting", "UOM rounding tolerance" in str(ex) or "Rounding residual" in str(ex), str(ex)[:100])
+	finally:
+		frappe.db.set_value("Periodic Standard Cost Settings", settings, "uom_rounding_tolerance", 0.01, update_modified=False)
+
+
 # ================================================================== main
 def run(commit=False):
 	wh = ensure_masters()
@@ -914,7 +1004,7 @@ def run(commit=False):
 	today = getdate(nowdate())
 
 	sections = [section_a, section_b, section_c, section_d, section_e,
-		section_f, section_g, section_h]
+		section_f, section_g, section_h, section_i]
 	for fn in sections:
 		try:
 			fn(company, wh, today)

@@ -33,6 +33,7 @@
   "expense_portion",
   "prd_amount",
   "fx_variance",
+  "rounding_residual",
   "exchange_rate_at_receipt",
   "sec_map",
   "map_before",
@@ -248,6 +249,14 @@
    "fieldtype": "Currency",
    "label": "FX Variance",
    "read_only": 1
+  },
+  {
+   "fieldname": "rounding_residual",
+   "fieldtype": "Float",
+   "label": "Rounding Residual",
+   "precision": "6",
+   "read_only": 1,
+   "description": "qty x unit cost minus the rounded line amount (STD). Sub-cent by construction; guarded by uom_rounding_tolerance."
   },
   {
    "fieldname": "exchange_rate_at_receipt",

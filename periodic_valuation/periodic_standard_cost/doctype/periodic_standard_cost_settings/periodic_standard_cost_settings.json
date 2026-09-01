@@ -20,6 +20,7 @@
   "default_settlement_view",
   "year_end_variance_carryforward",
   "block_negative_stock_std",
+  "uom_rounding_tolerance",
   "cb2",
   "view_default_locked",
   "mark_release_separation_required"
@@ -103,6 +104,14 @@
    "fieldname": "block_negative_stock_std",
    "fieldtype": "Check",
    "label": "Block Negative Stock"
+  },
+  {
+   "fieldname": "uom_rounding_tolerance",
+   "fieldtype": "Float",
+   "label": "UOM Rounding Tolerance",
+   "default": "0.01",
+   "precision": "6",
+   "description": "Largest allowed difference between qty x unit cost and the rounded line amount on one STD event. Larger residuals point at a UOM conversion fault and block the posting."
   },
   {
    "fieldname": "cb2",
