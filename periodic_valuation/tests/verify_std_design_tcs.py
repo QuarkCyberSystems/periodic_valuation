@@ -921,7 +921,14 @@ def section_i(company, wh, today):
 	if not frappe.db.exists("Currency", fccy):
 		frappe.get_doc({"doctype": "Currency", "currency_name": fccy, "enabled": 1}).insert(ignore_permissions=True)
 	frappe.db.set_value("Currency", fccy, "enabled", 1, update_modified=False)
-	pr = frappe.get_doc({"doctype": "Purchase Receipt", "company": company, "supplier": "_SMK Supplier",
+	# ERPNext lets a party carry entries in one foreign currency only, so the FX
+	# scenario uses its own supplier instead of the shared smoke supplier
+	fx_supplier = f"_SMK Supplier FX {fccy}"
+	if not frappe.db.exists("Supplier", fx_supplier):
+		frappe.get_doc({"doctype": "Supplier", "supplier_name": fx_supplier, "default_currency": fccy,
+			"supplier_group": frappe.db.get_value("Supplier", "_SMK Supplier", "supplier_group")
+				or frappe.get_all("Supplier Group", limit=1, pluck="name")[0]}).insert(ignore_permissions=True)
+	pr = frappe.get_doc({"doctype": "Purchase Receipt", "company": company, "supplier": fx_supplier,
 		"posting_date": nowdate(), "set_posting_time": 1, "currency": fccy, "conversion_rate": 4.0,
 		"ignore_pricing_rule": 1,
 		"items": [{"item_code": item, "qty": 10, "rate": 10, "warehouse": wh}]})   # 10 x 10 EUR @ 4.00 = 400 base
@@ -941,7 +948,7 @@ def section_i(company, wh, today):
 		frappe.get_doc({"doctype": "Account", "account_name": f"Creditors {fccy}", "company": company,
 			"parent_account": parent, "account_type": "Payable", "account_currency": fccy,
 			"root_type": "Liability"}).insert(ignore_permissions=True)
-	pi = frappe.get_doc({"doctype": "Purchase Invoice", "company": company, "supplier": "_SMK Supplier",
+	pi = frappe.get_doc({"doctype": "Purchase Invoice", "company": company, "supplier": fx_supplier,
 		"posting_date": nowdate(), "currency": fccy, "conversion_rate": 4.5, "ignore_pricing_rule": 1,
 		"credit_to": payable_fx,
 		"items": [{"item_code": item, "qty": 10, "rate": 11, "warehouse": wh,
