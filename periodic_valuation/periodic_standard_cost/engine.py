@@ -659,6 +659,14 @@ class StdEngine:
 		out_var = r2(var * out_qty / denom)
 		share = end_qty / denom
 		cons_share = out_qty / denom
+		# FULL_SETTLE_AT_YEAR_END (DR-16 option, DR-38): December allocates the
+		# whole pool to consumption - nothing capitalises, nothing carries into
+		# the new year, so no Sett-Rev is posted and the prior year is hard-closed.
+		full_settle = month == 12 and (
+			get_std_setting(self.company, "year_end_variance_carryforward") == "FULL_SETTLE_AT_YEAR_END"
+		)
+		if full_settle:
+			es_var, out_var, share, cons_share = 0.0, r2(var), 0.0, 1.0
 
 		frappe.flags[KERNEL_FLAG] = True
 		try:
@@ -688,13 +696,16 @@ class StdEngine:
 		sett_event = self.post(trans="Sett", posting_date=last_day, source=source,
 			entry_date=entry_date, ref=ref_str, t_sc_override=es_var, post_gl=False)
 		self._post_gl(sett_event, "Sett", es_var, 0, settlement=sett, posting_date=last_day)
-		sett_rev_event = self.post(trans="Sett - Rev", posting_date=next_day, source=source,
-			entry_date=entry_date, ref=ref_str, t_sc_override=-es_var, post_gl=False)
-		self._post_gl(sett_rev_event, "Sett - Rev", -es_var, 0, settlement=sett,
-			posting_date=next_day)
+		sett_rev_event = None
+		if not full_settle:
+			sett_rev_event = self.post(trans="Sett - Rev", posting_date=next_day, source=source,
+				entry_date=entry_date, ref=ref_str, t_sc_override=-es_var, post_gl=False)
+			self._post_gl(sett_rev_event, "Sett - Rev", -es_var, 0, settlement=sett,
+				posting_date=next_day)
 
 		frappe.db.set_value("Inventory Period Settlement", sett.name,
-			{"sett_event": sett_event.name, "sett_rev_event": sett_rev_event.name},
+			{"sett_event": sett_event.name,
+			 "sett_rev_event": sett_rev_event.name if sett_rev_event else None},
 			update_modified=False)
 		self._stamp_ipb_settlement(sett, year, month, sc)
 		self._absorb_settlement_value(sett, year, month, es_var)
@@ -751,6 +762,11 @@ class StdEngine:
 		sett = frappe.get_doc("Inventory Period Settlement", settlement_name)
 		if sett.cancelled:
 			frappe.throw(_("{0} is already cancelled.").format(settlement_name))
+		if not sett.sett_rev_event:
+			frappe.throw(
+				_("{0} settled December under FULL_SETTLE_AT_YEAR_END: the fiscal year is hard-closed and the settlement cannot be reversed.").format(settlement_name),
+				title=_("Fiscal Year Hard-Closed"),
+			)
 		ent = getdate(entry_date) if entry_date else getdate(frappe.utils.nowdate())
 		ty, tm = sett.period_year, sett.period_month
 		# DR-08 is a boundary against OLD settlements: reversible while the

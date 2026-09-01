@@ -581,9 +581,44 @@ def section_d(company, wh, today):
 	tc(24, "new-FY Jan pool = carry 60 + own 20 = 80 (CARRY_PER_VIEW)",
 		flt(sj24.variance, 2) == 80, str(sj24.variance))
 
-	# ---- TC25
-	note(25, "FULL_SETTLE_AT_YEAR_END mode is NOT built - design settled on "
-		"CARRY_PER_VIEW only (M12, design section 5.4); plan scenario retired")
+	# ---- TC25: FULL_SETTLE_AT_YEAR_END (DR-38) - December allocates the whole
+	# pool to consumption, posts no Sett-Rev, the new year opens with no carry
+	settings_name = frappe.db.get_value("Periodic Standard Cost Settings", {"company": company}, "name")
+	sdoc = frappe.get_doc("Periodic Standard Cost Settings", settings_name)
+	sdoc.year_end_variance_carryforward = "FULL_SETTLE_AT_YEAR_END"
+	sdoc.save(ignore_permissions=True)   # allowed: no December of the current FY is settled yet
+	frappe.clear_cache()
+	try:
+		i25 = std_item("_TCV-D25", view="YTD")
+		scv_release(company, i25, 2025, 12, 10)
+		e25 = StdEngine(company, i25, wh)
+		s25 = ("Item", i25)
+		e25.post(trans="Rec", posting_date="2025-12-05", qty=40, sc=10, t_ac_override=480, source=s25)
+		e25.post(trans="Iss", posting_date="2025-12-15", qty=10, sc=10, source=s25)
+		sd25 = e25.close_period(year=2025, month=12, sc=10, source=s25, entry_date="2026-01-01")
+		tc(25, "FULL_SETTLE December: whole pool 80 to consumption, nothing capitalised",
+			flt(sd25.es_var, 2) == 0 and flt(sd25.out_var, 2) == 80 and flt(sd25.variance, 2) == 80,
+			f"{sd25.es_var}/{sd25.out_var}")
+		gl_match(25, "Sett GL: Dr COGS Adj 80 / Cr PPV 80 - no inventory leg",
+			gl_net(event=sd25.sett_event), {a.cogs_adj: 80, a.ppv: -80})
+		tc(25, "no Sett-Rev posted on 1 January (nothing to carry)",
+			not sd25.sett_rev_event and not one_ive(item_code=i25, std_trans="Sett - Rev"),
+			str(sd25.sett_rev_event))
+		try:
+			e25.sett_reverse(sd25.name, source=s25, entry_date="2026-01-05")
+			tc(25, "December under FULL_SETTLE is hard-closed (reverse refused)", False, "reversed")
+		except frappe.ValidationError as e:
+			tc(25, "December under FULL_SETTLE is hard-closed (reverse refused)",
+				"hard-closed" in str(e), str(e)[:100])
+		e25.post(trans="Rec", posting_date="2026-01-08", qty=10, sc=10, t_ac_override=120, source=s25)
+		sj25 = e25.close_period(year=2026, month=1, sc=10, source=s25, entry_date="2026-02-01")
+		tc(25, "new-FY January pool = own 20 only (year_opening_variance 0)",
+			flt(sj25.variance, 2) == 20, str(sj25.variance))
+	finally:
+		sdoc = frappe.get_doc("Periodic Standard Cost Settings", settings_name)
+		sdoc.year_end_variance_carryforward = "CARRY_PER_VIEW"
+		sdoc.save(ignore_permissions=True)
+		frappe.clear_cache()
 
 
 # ===================================================================== E

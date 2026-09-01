@@ -18,6 +18,7 @@
   "fy_carry_forward_account",
   "sec2",
   "default_settlement_view",
+  "year_end_variance_carryforward",
   "block_negative_stock_std",
   "cb2",
   "view_default_locked",
@@ -88,6 +89,14 @@
    "fieldtype": "Select",
    "label": "Default Settlement View",
    "options": "MTD\nYTD"
+  },
+  {
+   "fieldname": "year_end_variance_carryforward",
+   "fieldtype": "Select",
+   "label": "Year-End Variance Carryforward",
+   "options": "CARRY_PER_VIEW\nFULL_SETTLE_AT_YEAR_END",
+   "default": "CARRY_PER_VIEW",
+   "description": "CARRY_PER_VIEW: December's inventory share carries into 1 January as the new year's opening variance. FULL_SETTLE_AT_YEAR_END: December allocates the whole pool to consumption, no carry, the prior year is hard-closed. One mode per company for the whole fiscal year."
   },
   {
    "default": "1",
