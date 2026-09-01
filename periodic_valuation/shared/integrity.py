@@ -162,6 +162,68 @@ def align_bin_to_ledger(item_code=None, company=None, max_drift=None):
 	return fixed
 
 
+def align_stock_ledger_value(company, item_code=None, posting_date=None, dry_run=True):
+	"""Repair: write the missing value-only Stock Ledger rows so the stock
+	ledger agrees with the valuation ledger (IPB) again.
+
+	Value events posted before DR-02 landed never wrote their SLE row, so the
+	IPB and GL are right while every core stock report under-states inventory
+	by the missing amount. For each drifted scope this posts ONE zero-quantity,
+	kernel-flagged SLE carrying the difference, dated `posting_date` (default:
+	the last day of the scope's latest period) and recorded against that
+	Inventory Period as its voucher. It moves no GL and no IPB value - the
+	ledger is already correct; only the shadow catches up. Single-warehouse
+	company-scope and warehouse-scope items only; multi-warehouse company-scope
+	scopes are reported and skipped. dry_run=True (default) only reports.
+	"""
+	from frappe.utils import get_last_day
+
+	from periodic_valuation.periodic_moving_average.kernel import write_value_sle
+
+	drifts = [d for d in check_sle_ipb_value_drift(company)
+		if item_code is None or d["item_code"] == item_code]
+	done, skipped = [], []
+	for d in drifts:
+		it = d["item_code"]
+		include_wh = frappe.get_cached_value("Item", it, "valuation_includes_warehouse")
+		latest = frappe.get_all(
+			"Inventory Period Balance",
+			filters={"company": d["company"], "item_code": it,
+				**({"warehouse": d["warehouse"]} if include_wh else {})},
+			fields=["name", "warehouse", "closing_qty", "closing_value", "moving_avg_price",
+				"period_year", "period_month"],
+			order_by="period_year desc, period_month desc", limit=1)[0]
+		if include_wh:
+			physical = latest.warehouse
+		else:
+			whs = frappe.get_all("Stock Ledger Entry", filters={"item_code": it, "company": d["company"],
+				"is_cancelled": 0}, pluck="warehouse", distinct=True)
+			if len(whs) != 1:
+				skipped.append({**d, "reason": f"{len(whs)} warehouses in the stock ledger - per-warehouse decision needed"})
+				continue
+			physical = whs[0]
+		period_name = frappe.db.get_value("Inventory Period", {"company": d["company"],
+			"period_year": latest.period_year, "period_month": latest.period_month})
+		if not period_name:
+			skipped.append({**d, "reason": "no Inventory Period row for the latest balance"})
+			continue
+		when = posting_date or get_last_day(f"{latest.period_year}-{latest.period_month:02d}-01")
+		catch_up = flt(d["ipb_value"] - d["sle_value"], 2)
+		entry = {**d, "warehouse": physical, "catch_up": catch_up, "posting_date": str(when),
+			"voucher": period_name}
+		if dry_run:
+			done.append(entry)
+			continue
+		scope = frappe._dict(company=d["company"], item_code=it, physical_warehouse=physical)
+		ipb = frappe._dict(moving_avg_price=latest.moving_avg_price, closing_qty=latest.closing_qty,
+			closing_value=latest.closing_value)
+		sle = write_value_sle(scope, ipb, source=("Inventory Period", period_name, None),
+			posting_date=when, value_delta=catch_up)
+		entry["sle"] = sle
+		done.append(entry)
+	return {"aligned" if not dry_run else "would_align": done, "skipped": skipped}
+
+
 def report_drift(company=None):
 	"""Print a human-readable drift report."""
 	drifts = check_bin_ipb_drift(company)
