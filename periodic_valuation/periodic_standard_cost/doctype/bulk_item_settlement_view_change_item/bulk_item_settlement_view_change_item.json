@@ -1,0 +1,65 @@
+{
+ "actions": [],
+ "creation": "2026-09-01 14:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "item_code",
+  "current_view",
+  "eligible",
+  "note",
+  "isvc"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_view",
+   "fieldtype": "Data",
+   "label": "Current View",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "eligible",
+   "fieldtype": "Check",
+   "label": "Eligible",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Data",
+   "label": "Note",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "isvc",
+   "fieldtype": "Link",
+   "label": "Request",
+   "options": "Item Settlement View Change",
+   "in_list_view": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-01 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Standard Cost",
+ "name": "Bulk Item Settlement View Change Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

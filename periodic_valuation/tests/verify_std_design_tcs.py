@@ -994,6 +994,112 @@ def section_i(company, wh, today):
 		frappe.db.set_value("Periodic Standard Cost Settings", settings, "uom_rounding_tolerance", 0.01, update_modified=False)
 
 
+# ===================================================================== J
+def section_j(company, wh, today):
+	"""Plan components built 1 Sep 2026 (DR-43): Standard Cost Costing Variant
+	feeding the Standard Cost Estimate; Bulk Item Settlement View Change
+	creating Draft ISVCs for an Item Group (plan TC46/47)."""
+	# ---- Costing Variant -> SCE picks overhead % and BOM rate source
+	comp = std_item("_TCV-J-COMP")
+	fg = std_item("_TCV-J-FG")
+	scv_release(company, comp, today.year, today.month, 4)
+	frappe.db.set_value("Item", comp, "valuation_rate", 3.5, update_modified=False)
+	frappe.clear_document_cache("Item", comp)
+	vname = "_TCV-J Variant"
+	if not frappe.db.exists("Standard Cost Costing Variant", vname):
+		frappe.get_doc({"doctype": "Standard Cost Costing Variant", "variant_name": vname,
+			"company": company, "overhead_percent": 25,
+			"default_rate_source": "VALUATION_RATE"}).insert(ignore_permissions=True)
+	if not frappe.db.exists("BOM", {"item": fg, "docstatus": 1}):
+		bom = frappe.get_doc({"doctype": "BOM", "item": fg, "company": company, "quantity": 1,
+			"currency": frappe.get_cached_value("Company", company, "default_currency"),
+			"rm_cost_as_per": "Valuation Rate", "with_operations": 0,
+			"items": [{"item_code": comp, "qty": 5, "rate": 3.5, "uom": frappe.db.get_value("Item", comp, "stock_uom"),
+				"stock_uom": frappe.db.get_value("Item", comp, "stock_uom"), "conversion_factor": 1}]})
+		bom.insert(ignore_permissions=True)
+		bom.submit()
+	bom_name = frappe.db.get_value("BOM", {"item": fg, "docstatus": 1})
+	sce = frappe.get_doc({"doctype": "Standard Cost Estimate", "company": company,
+		"item_code": fg, "valid_from_year": today.year, "valid_from_month": today.month,
+		"bom": bom_name, "costing_variant": vname})
+	sce.insert(ignore_permissions=True)
+	sce.calculate()
+	tc(46, "variant supplies overhead 25% to an estimate that left it blank",
+		flt(sce.overhead_percent) == 25, sce.overhead_percent)
+	tc(46, "BOM-exploded component takes the variant rate source (VALUATION_RATE 3.5, not STD 4)",
+		sce.components[0].rate_source == "VALUATION_RATE" and flt(sce.components[0].rate) == 3.5,
+		f"{sce.components[0].rate_source} {sce.components[0].rate}")
+	tc(46, "roll-up 5 x 3.5 = 17.5 + 25% (overhead rounded 2dp) = 21.88", flt(sce.standard_cost, 2) == 21.88, sce.standard_cost)
+	sce2 = frappe.get_doc({"doctype": "Standard Cost Estimate", "company": company,
+		"item_code": fg, "valid_from_year": today.year, "valid_from_month": today.month,
+		"overhead_percent": 10, "costing_variant": vname,
+		"components": [{"item_code": comp, "qty": 5, "rate_source": "LEAF_STD"}]})
+	sce2.insert(ignore_permissions=True)
+	sce2.calculate()
+	tc(46, "estimate's own overhead (10%) and hand-chosen LEAF_STD win over the variant: 5x4 = 20 + 10% = 22",
+		flt(sce2.overhead_percent) == 10 and flt(sce2.standard_cost, 2) == 22, sce2.standard_cost)
+	frappe.db.set_value("Standard Cost Costing Variant", vname, "disabled", 1)
+	frappe.clear_document_cache("Standard Cost Costing Variant", vname)
+	sce3 = frappe.get_doc({"doctype": "Standard Cost Estimate", "company": company,
+		"item_code": fg, "valid_from_year": today.year, "valid_from_month": today.month,
+		"bom": bom_name, "costing_variant": vname})
+	sce3.insert(ignore_permissions=True)
+	try:
+		sce3.calculate()
+		tc(46, "disabled variant refused", False, "calculated")
+	except frappe.ValidationError:
+		tc(46, "disabled variant refused", True)
+	frappe.db.set_value("Standard Cost Costing Variant", vname, "disabled", 0)
+	frappe.clear_document_cache("Standard Cost Costing Variant", vname)
+
+	# ---- Bulk ISVC: preview eligibility, create drafts only, second run creates none
+	grp = "_TCV-J Group"
+	if not frappe.db.exists("Item Group", grp):
+		frappe.get_doc({"doctype": "Item Group", "item_group_name": grp,
+			"parent_item_group": frappe.db.get_value("Item Group", {"is_group": 1, "parent_item_group": ""})}).insert(ignore_permissions=True)
+	codes = []
+	for n, view in (("A", "MTD"), ("B", "MTD"), ("C", "YTD")):
+		code = f"_TCV-J-BULK-{n}"
+		if not frappe.db.exists("Item", code):
+			frappe.get_doc({"doctype": "Item", "item_code": code, "item_name": code, "item_group": grp,
+				"stock_uom": frappe.db.get_value("Item", comp, "stock_uom"), "is_stock_item": 1,
+				"valuation_method": "Periodic Standard Cost", "settlement_view": view}).insert(ignore_permissions=True)
+		codes.append(code)
+	bulk = frappe.get_doc({"doctype": "Bulk Item Settlement View Change", "company": company,
+		"item_group": grp, "to_view": "YTD", "reason": "design TC47 bulk"})
+	bulk.insert(ignore_permissions=True)
+	res = bulk.preview()
+	rows = {r.item_code: r for r in bulk.items}
+	tc(47, "preview lists the 3 STD items of the group", res["total"] == 3 and set(rows) == set(codes), str(res))
+	tc(47, "2 eligible (MTD -> YTD); the YTD item is skipped with a reason",
+		res["eligible"] == 2 and not rows[codes[2]].eligible and "already YTD" in (rows[codes[2]].note or ""),
+		str([(r.item_code, r.eligible, r.note) for r in bulk.items]))
+	res = bulk.create_drafts()
+	drafts = frappe.get_all("Item Settlement View Change",
+		filters={"item_code": ("in", codes), "docstatus": 0}, fields=["item_code", "status", "docstatus", "to_view", "from_view", "reason"])
+	tc(47, "creates exactly 2 ISVC requests, all Draft (never approved/posted)",
+		res["created"] == 2 and len(drafts) == 2 and all(d.status == "Draft" and d.docstatus == 0 for d in drafts)
+		and all(d.to_view == "YTD" and d.from_view == "MTD" and d.reason == "design TC47 bulk" for d in drafts), str(drafts))
+	tc(47, "items untouched until each request is approved and posted",
+		all(frappe.db.get_value("Item", c, "settlement_view") == "MTD" for c in codes[:2]))
+	tc(47, "bulk record locked after creation (status Created, rows carry the ISVC names)",
+		bulk.status == "Created" and bulk.created_count == 2
+		and all(r.isvc for r in bulk.items if r.eligible), bulk.status)
+	try:
+		bulk.reason = "edit after create"
+		bulk.save(ignore_permissions=True)
+		tc(47, "edit after creation refused", False, "saved")
+	except frappe.ValidationError:
+		tc(47, "edit after creation refused", True)
+	bulk2 = frappe.get_doc({"doctype": "Bulk Item Settlement View Change", "company": company,
+		"item_group": grp, "to_view": "YTD", "reason": "design TC47 rerun"})
+	bulk2.insert(ignore_permissions=True)
+	res = bulk2.preview()
+	tc(47, "re-run on the same group: 0 eligible (open requests block duplicates)",
+		res["eligible"] == 0 and all("open request" in (r.note or "") for r in bulk2.items if r.item_code in codes[:2]),
+		str([(r.item_code, r.note) for r in bulk2.items]))
+
+
 # ================================================================== main
 def run(commit=False):
 	wh = ensure_masters()
@@ -1004,7 +1110,7 @@ def run(commit=False):
 	today = getdate(nowdate())
 
 	sections = [section_a, section_b, section_c, section_d, section_e,
-		section_f, section_g, section_h, section_i]
+		section_f, section_g, section_h, section_i, section_j]
 	for fn in sections:
 		try:
 			fn(company, wh, today)

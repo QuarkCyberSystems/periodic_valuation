@@ -10,6 +10,7 @@
   "company",
   "item_code",
   "bom",
+  "costing_variant",
   "cb1",
   "valid_from_year",
   "valid_from_month",
@@ -50,6 +51,13 @@
    "fieldtype": "Link",
    "label": "BOM",
    "options": "BOM"
+  },
+  {
+   "fieldname": "costing_variant",
+   "fieldtype": "Link",
+   "label": "Costing Variant",
+   "options": "Standard Cost Costing Variant",
+   "description": "Supplies the overhead % (when the estimate leaves it blank) and the default rate source for components without one."
   },
   {
    "fieldname": "cb1",
@@ -116,7 +124,9 @@
    "fieldname": "overhead_percent",
    "fieldtype": "Float",
    "label": "Overhead %",
-   "precision": "2"
+   "precision": "2",
+   "fetch_from": "costing_variant.overhead_percent",
+   "fetch_if_empty": 1
   },
   {
    "fieldname": "cb3",

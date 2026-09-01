@@ -26,16 +26,30 @@ class StandardCostEstimate(Document):
 		"""Explode the BOM one level and price each component."""
 		if self.status in ("MARKED", "RELEASED"):
 			frappe.throw(_("A {0} estimate is locked. Create a new estimate to re-cost.").format(self.status))
+		# a costing variant supplies the assumptions the estimate leaves blank
+		# (DR-43): overhead % and the rate source of BOM-exploded components
+		variant = None
+		if self.costing_variant:
+			variant = frappe.get_cached_doc("Standard Cost Costing Variant", self.costing_variant)
+			if variant.disabled:
+				frappe.throw(_("Costing Variant {0} is disabled.").format(self.costing_variant))
+			if variant.company != self.company:
+				frappe.throw(_("Costing Variant {0} belongs to {1}.").format(self.costing_variant, variant.company))
+			if not flt(self.overhead_percent):
+				self.overhead_percent = flt(variant.overhead_percent)
 		if self.bom and not self.components:
 			bom = frappe.get_doc("BOM", self.bom)
 			for row in bom.items:
 				self.append("components", {
 					"item_code": row.item_code,
 					"qty": flt(row.qty) / flt(bom.quantity or 1),
-					"rate_source": "LEAF_STD",
+					"rate_source": (variant and variant.default_rate_source) or "LEAF_STD",
 				})
 		if not self.components:
 			frappe.throw(_("Add components or link a BOM first."))
+		for row in self.components:
+			if not row.rate_source:
+				row.rate_source = (variant and variant.default_rate_source) or "LEAF_STD"
 
 		from periodic_valuation.periodic_standard_cost.engine import get_active_standard_cost
 

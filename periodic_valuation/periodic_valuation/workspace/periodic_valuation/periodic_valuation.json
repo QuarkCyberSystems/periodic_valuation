@@ -13,29 +13,227 @@
  "is_hidden": 0,
  "label": "Periodic Valuation",
  "links": [
-  {"hidden": 0, "is_query_report": 0, "label": "Standard Cost", "link_count": 5, "onboard": 0, "type": "Card Break"},
-  {"hidden": 0, "is_query_report": 0, "label": "Item Standard Cost Version", "link_to": "Item Standard Cost Version", "link_type": "DocType", "onboard": 1, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Standard Cost Estimate", "link_to": "Standard Cost Estimate", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Item Settlement View Change", "link_to": "Item Settlement View Change", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Inventory Period Settlement", "link_to": "Inventory Period Settlement", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "STD Year End Close", "link_to": "STD Year End Close", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Stock Documents", "link_count": 4, "onboard": 0, "type": "Card Break"},
-  {"hidden": 0, "is_query_report": 0, "label": "Stock Count", "link_to": "Stock Count", "link_type": "DocType", "onboard": 1, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Stock Revaluation", "link_to": "Stock Revaluation", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Purchase Receipt", "link_to": "Purchase Receipt", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Landed Cost Voucher", "link_to": "Landed Cost Voucher", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Reports", "link_count": 6, "onboard": 0, "type": "Card Break"},
-  {"hidden": 0, "is_query_report": 1, "label": "Inventory Book vs Reference", "link_to": "Inventory Book vs Reference", "link_type": "Report", "onboard": 1, "type": "Link"},
-  {"hidden": 0, "is_query_report": 1, "label": "Settlement Register", "link_to": "Settlement Register", "link_type": "Report", "onboard": 1, "type": "Link"},
-  {"hidden": 0, "is_query_report": 1, "label": "Cross Fiscal Year Late Entries", "link_to": "Cross Fiscal Year Late Entries", "link_type": "Report", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 1, "label": "Stock Ledger", "link_to": "Stock Ledger", "link_type": "Report", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 1, "label": "Stock Balance", "link_to": "Stock Balance", "link_type": "Report", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 1, "label": "General Ledger", "link_to": "General Ledger", "link_type": "Report", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Settings", "link_count": 4, "onboard": 0, "type": "Card Break"},
-  {"hidden": 0, "is_query_report": 0, "label": "Periodic Standard Cost Settings", "link_to": "Periodic Standard Cost Settings", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Periodic Moving Average Settings", "link_to": "Periodic Moving Average Settings", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Item Default Warehouse Account", "link_to": "Item Default Warehouse Account", "link_type": "DocType", "onboard": 0, "type": "Link"},
-  {"hidden": 0, "is_query_report": 0, "label": "Item Group Default Warehouse Account", "link_to": "Item Group Default Warehouse Account", "link_type": "DocType", "onboard": 0, "type": "Link"}
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Standard Cost",
+   "link_count": 7,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Standard Cost Version",
+   "link_to": "Item Standard Cost Version",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Standard Cost Estimate",
+   "link_to": "Standard Cost Estimate",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Standard Cost Costing Variant",
+   "link_to": "Standard Cost Costing Variant",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Settlement View Change",
+   "link_to": "Item Settlement View Change",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Bulk Item Settlement View Change",
+   "link_to": "Bulk Item Settlement View Change",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Inventory Period Settlement",
+   "link_to": "Inventory Period Settlement",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "STD Year End Close",
+   "link_to": "STD Year End Close",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock Documents",
+   "link_count": 4,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock Count",
+   "link_to": "Stock Count",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock Revaluation",
+   "link_to": "Stock Revaluation",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Purchase Receipt",
+   "link_to": "Purchase Receipt",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Landed Cost Voucher",
+   "link_to": "Landed Cost Voucher",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports",
+   "link_count": 6,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Inventory Book vs Reference",
+   "link_to": "Inventory Book vs Reference",
+   "link_type": "Report",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Settlement Register",
+   "link_to": "Settlement Register",
+   "link_type": "Report",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Cross Fiscal Year Late Entries",
+   "link_to": "Cross Fiscal Year Late Entries",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Stock Ledger",
+   "link_to": "Stock Ledger",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Stock Balance",
+   "link_to": "Stock Balance",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "General Ledger",
+   "link_to": "General Ledger",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Settings",
+   "link_count": 4,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Periodic Standard Cost Settings",
+   "link_to": "Periodic Standard Cost Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Periodic Moving Average Settings",
+   "link_to": "Periodic Moving Average Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Default Warehouse Account",
+   "link_to": "Item Default Warehouse Account",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Group Default Warehouse Account",
+   "link_to": "Item Group Default Warehouse Account",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
  ],
  "modified": "2026-08-31 16:00:00.000000",
  "modified_by": "Administrator",
@@ -50,13 +248,48 @@
  "roles": [],
  "sequence_id": 30.0,
  "shortcuts": [
-  {"color": "Blue", "label": "Inventory Period", "link_to": "Inventory Period", "type": "DocType"},
-  {"color": "Green", "label": "Settlement Run", "link_to": "Inventory Period Settlement Run", "type": "DocType"},
-  {"color": "Grey", "label": "Settlements", "link_to": "Inventory Period Settlement", "type": "DocType"},
-  {"color": "Orange", "label": "Year End Close", "link_to": "STD Year End Close", "type": "DocType"},
-  {"color": "Grey", "label": "Period Balances", "link_to": "Inventory Period Balance", "type": "DocType"},
-  {"color": "Grey", "label": "Valuation Events", "link_to": "Inventory Valuation Event", "type": "DocType"},
-  {"color": "Grey", "label": "Movement Events", "link_to": "Stock Movement Event", "type": "DocType"}
+  {
+   "color": "Blue",
+   "label": "Inventory Period",
+   "link_to": "Inventory Period",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "label": "Settlement Run",
+   "link_to": "Inventory Period Settlement Run",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "label": "Settlements",
+   "link_to": "Inventory Period Settlement",
+   "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "label": "Year End Close",
+   "link_to": "STD Year End Close",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "label": "Period Balances",
+   "link_to": "Inventory Period Balance",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "label": "Valuation Events",
+   "link_to": "Inventory Valuation Event",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "label": "Movement Events",
+   "link_to": "Stock Movement Event",
+   "type": "DocType"
+  }
  ],
  "title": "Periodic Valuation",
  "type": "Workspace"
