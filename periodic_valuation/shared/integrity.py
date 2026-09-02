@@ -14,6 +14,7 @@ Run:  bench --site <site> execute periodic_valuation.shared.integrity.report_dri
 """
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 
@@ -222,6 +223,93 @@ def align_stock_ledger_value(company, item_code=None, posting_date=None, dry_run
 		entry["sle"] = sle
 		done.append(entry)
 	return {"aligned" if not dry_run else "would_align": done, "skipped": skipped}
+
+
+def sweep_stranded_to_prd(company, period_year, period_month, item_code=None, dry_run=True):
+	"""Finance-invoked repair for PRE-DR-44 stranded value (never automatic,
+	Apr-22 rule): post the PRD leg the DR-44 floor would have posted at
+	reversal time.
+
+	For each scope the stranded-value gate reports for the period (zero
+	closing quantity, residual value beyond tolerance), posts Dr Inventory /
+	Cr PRD (or mirrored for a positive residual) dated the period's last day,
+	with the IVE, the GL pair, the IPB reval bucket, the value-only SLE and
+	the forward carryover cascade - exactly the shape the floor now posts
+	inline. Single-physical-warehouse scopes only; others are reported and
+	skipped."""
+	from erpnext.accounts.general_ledger import make_gl_entries
+	from frappe.utils import get_last_day
+
+	from periodic_valuation.periodic_moving_average.kernel import (
+		ScopeState,
+		_cascade_value_carryover,
+		get_offset_account,
+		recompute_closing,
+		write_events,
+		write_value_sle,
+	)
+	from periodic_valuation.shared.accounts import get_inventory_account
+	from periodic_valuation.shared.period_close import assert_no_stranded_value
+
+	period = frappe.get_doc("Inventory Period", {"company": company,
+		"period_year": period_year, "period_month": period_month})
+	stranded = [r for r in assert_no_stranded_value(period)["stranded"]
+		if item_code is None or r["item_code"] == item_code]
+	done, skipped = [], []
+	for row in stranded:
+		it = row["item_code"]
+		amount = flt(-row["closing_value"], 2)  # what brings the scope to zero
+		whs = frappe.get_all("Stock Ledger Entry", filters={"item_code": it,
+			"company": company, "is_cancelled": 0}, pluck="warehouse", distinct=True)
+		if len(whs) != 1:
+			skipped.append({**row, "reason": f"{len(whs)} warehouses in the stock ledger - per-warehouse decision needed"})
+			continue
+		physical = whs[0]
+		when = get_last_day(f"{period_year}-{period_month:02d}-01")
+		entry = {**row, "sweep": amount, "posting_date": str(when), "warehouse": physical}
+		if dry_run:
+			done.append(entry)
+			continue
+		scope = ScopeState(company, it, physical)
+		ipb = scope.load(period)
+		if flt(ipb.closing_qty, 6) != 0:
+			skipped.append({**row, "reason": "closing qty is no longer zero - re-inspect"})
+			continue
+		map_before = flt(ipb.moving_avg_price)
+		ipb.reval_value = flt(ipb.reval_value) + amount
+		recompute_closing(ipb)
+		ipb.moving_avg_price = map_before  # zero-qty scope keeps its MAP
+		period_voucher = period.name
+		sme, ive = write_events(scope, ipb,
+			source=("Inventory Period", period_voucher, None),
+			posting_date=when, movement_type=None, reason="stranded_sweep",
+			qty_delta=0.0, value_delta=amount, map_before=map_before,
+			prd_amount=flt(-amount, 2))
+		scope.save(ipb, caused_by=ive, source=("Inventory Period", period_voucher))
+		inv_acct = get_inventory_account(company, it, physical)
+		prd_acct = get_offset_account(company, it, physical, "prd")
+		cost_center = frappe.get_cached_value("Company", company, "cost_center")
+		gl_map = []
+		for acct, amt in ((inv_acct, amount), (prd_acct, -amount)):
+			gl_map.append(frappe._dict({
+				"account": acct, "against": prd_acct if acct == inv_acct else inv_acct,
+				"debit": amt if amt > 0 else 0, "credit": -amt if amt < 0 else 0,
+				"debit_in_account_currency": amt if amt > 0 else 0,
+				"credit_in_account_currency": -amt if amt < 0 else 0,
+				"posting_date": when, "voucher_type": "Inventory Period",
+				"voucher_no": period_voucher, "company": company,
+				"cost_center": cost_center,
+				"remarks": _("DR-44 stranded-value sweep ({0})").format(it),
+				"valuation_event_id": ive,
+			}))
+		make_gl_entries(gl_map, merge_entries=False)
+		_cascade_value_carryover(scope, period, qty_delta=0.0, value_delta=amount,
+			source=("Inventory Period", period_voucher))
+		write_value_sle(scope, ipb, source=("Inventory Period", period_voucher, None),
+			posting_date=when, value_delta=amount)
+		entry["ive"] = ive
+		done.append(entry)
+	return {"swept" if not dry_run else "would_sweep": done, "skipped": skipped}
 
 
 def align_carryover(company, period_year, period_month, item_code=None, dry_run=True):

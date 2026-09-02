@@ -166,7 +166,7 @@ def recompute_closing(ipb):
 
 
 # ------------------------------------------------------------------- writers
-SYSTEM_REASONS = {"prd_split", "rounding_cleanup", "settlement", "settlement_reverse"}
+SYSTEM_REASONS = {"prd_split", "rounding_cleanup", "settlement", "settlement_reverse", "stranded_sweep"}
 
 
 def _derive_intent(reason):
@@ -311,6 +311,23 @@ def write_sle(controller, sle_dict, scope, ipb, value_delta, bin_absolute=None):
 	sle.submit()
 	update_bin(scope, ipb, sle_dict.get("actual_qty") or 0, absolute=bin_absolute)
 	return sle.name
+
+
+def ensure_physical_warehouse(scope):
+	"""Company-scope callers (SCV boundary restate, settlement absorb) hold no
+	physical warehouse, so their value-only SLE mirror had nowhere to land.
+	When the item's whole stock-ledger history sits in ONE warehouse - the
+	normal single-store case - resolve it; otherwise leave the scope as-is
+	(the mirror is skipped and align_stock_ledger_value reports the drift for
+	a per-warehouse decision)."""
+	if scope.physical_warehouse:
+		return scope
+	whs = frappe.get_all("Stock Ledger Entry",
+		filters={"company": scope.company, "item_code": scope.item_code, "is_cancelled": 0},
+		pluck="warehouse", distinct=True)
+	if len(whs) == 1:
+		scope.physical_warehouse = whs[0]
+	return scope
 
 
 def write_value_sle(scope, ipb, *, source, posting_date, value_delta, qty_delta=0.0,
@@ -1255,9 +1272,29 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# scaled GL mirror; gross movement stays visible in the Stock Movement
 	# Event log.
 	RETURN_REASONS = ("return_with_ref", "return_no_ref")
-	if orig.reason_code in ("receipt", "receipt_neg", "receipt_cross_zero") or (
+	# DR-44: a reversal is exact on quantity and reference, but its inventory
+	# value leg is FLOORED at the value the scope actually carries. Issues in
+	# between consumed part of the cancelled receipt's value at the blended
+	# MAP, so an exact value mirror would drive the scope's value negative -
+	# stranded value the period-close gate refuses and the Apr-22 rule forbids
+	# writing off. The shortfall posts to PRD (the Cost Adjustment tree's
+	# account for value beyond zero, DR-34), mirroring the over-blended
+	# consumption already booked. Additive reversals (issue cancellations)
+	# stay exact: they cannot strand.
+	is_receipt_family = orig.reason_code in ("receipt", "receipt_neg", "receipt_cross_zero") or (
 		orig.reason_code in RETURN_REASONS and orig_qty < 0
-	):
+	)
+	prd_floor = 0.0
+	# the floor guards the STRANDING case only (resulting qty stays >= 0 while
+	# value would go negative). A cancellation that takes the quantity itself
+	# negative is a legitimate negative-stock excursion (OI-5): its value
+	# follows the frozen-MAP machinery exactly and must not be floored.
+	if is_receipt_family and value < 0 and flt(ipb.closing_qty) + qty >= 0:
+		available = max(flt(ipb.closing_value), 0.0)
+		if r6(available + value) < 0:
+			prd_floor = r2(available + value)  # negative: the part inventory cannot cover
+			value = r6(-available)
+	if is_receipt_family:
 		# the original filled (or, for a purchase return, netted) the In side:
 		# take the cancelled share back out of it. receipt_value carried the
 		# GROSS receipt value for negative-stock receipts, with the PRD offset
@@ -1268,6 +1305,11 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		ipb.receipt_value = r6(flt(ipb.receipt_value) - bucket_value)
 		if prd_share:
 			ipb.prd_value = r6(flt(ipb.prd_value) + prd_share)
+		if prd_floor:
+			# the receipt bucket still shrinks by the gross cancelled value;
+			# the uncovered part sits in the PRD bucket so the movement table
+			# mirrors the PRD GL leg (same convention as receipt_neg)
+			ipb.prd_value = r6(flt(ipb.prd_value) - prd_floor)
 		# the counter measures the same receipts the bucket does (WA-0003-01
 		# item 7): net it with the bucket, floored - a cancellation can never
 		# imply negative receipts. (For a cancelled purchase return orig_qty is
@@ -1302,6 +1344,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		# the mirror's P&L side is the original's, reversed and scaled - the
 		# derivation cannot know it (reason is just "cancellation")
 		expense_portion=r2(-flt(orig.expense_portion) * share),
+		prd_amount=r2(prd_floor),
 	)
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
 	mirrored_sle = dict(sle)
@@ -1316,6 +1359,15 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		fields=["account", "debit", "credit"],
 	):
 		legs.append((g.account, r2((flt(g.credit) - flt(g.debit)) * share), inventory_account))
+	if prd_floor:
+		# cap the inventory credit at the covered value; the shortfall credits
+		# PRD (DR-44). The offset side keeps the original's full amount.
+		for i, (acct, amt, against) in enumerate(legs):
+			if acct == inventory_account:
+				legs[i] = (acct, r2(amt - prd_floor), against)
+				break
+		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
+		legs.append((prd_account, r2(prd_floor), inventory_account))
 	post_gl(controller, posting_date, legs, ive)
 
 

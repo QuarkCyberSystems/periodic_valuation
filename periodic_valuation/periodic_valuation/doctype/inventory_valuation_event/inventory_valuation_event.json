@@ -182,7 +182,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Reason Code",
-   "options": "\nreceipt\nissue\nlanded_cost\ninvoice_diff\ncount_diff\nrevaluation\nreturn_with_ref\nreturn_no_ref\ncancellation\ntransfer\nreceipt_neg\nreceipt_cross_zero\nprd_split\nfx_adjust\nrounding_cleanup\nstd_event\nsettlement\nsettlement_reverse",
+   "options": "\nreceipt\nissue\nlanded_cost\ninvoice_diff\ncount_diff\nrevaluation\nreturn_with_ref\nreturn_no_ref\ncancellation\ntransfer\nreceipt_neg\nreceipt_cross_zero\nprd_split\nfx_adjust\nrounding_cleanup\nstd_event\nsettlement\nsettlement_reverse\nstranded_sweep",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1

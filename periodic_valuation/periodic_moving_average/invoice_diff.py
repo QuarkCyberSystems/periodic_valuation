@@ -136,6 +136,26 @@ def _reverse_source_events(doc, original):
 				{"reversal_of": orig.name, "is_cancelled": 0}):
 			frappe.throw(_("{0} is already reversed.").format(orig.name),
 				title=_("Double Reversal Blocked"))
+		# DR-44 floor: never remove more value than the scope still carries;
+		# the uncovered share (consumed at the blended MAP since the original
+		# posted) credits PRD instead of stranding negative inventory.
+		removal = -flt(orig.value_delta)
+		prd_excess = 0.0
+		if orig.reason_code in ("invoice_diff", "fx_adjust") and removal < 0:
+			scope_wh = orig.warehouse if frappe.get_cached_value(
+				"Item", orig.item_code, "valuation_includes_warehouse") else ""
+			row = frappe.get_all("Inventory Period Balance",
+				filters={"company": orig.company, "item_code": orig.item_code,
+					"warehouse": scope_wh or ""},
+				fields=["closing_value", "closing_qty"],
+				order_by="period_year desc, period_month desc", limit=1)
+			available = max(flt(row[0].closing_value) if row else 0.0, 0.0)
+			scope_qty = flt(row[0].closing_qty) if row else 0.0
+			# floor only the stranding case: a negative-qty excursion carries
+			# its value through the frozen-MAP machinery and stays exact
+			if scope_qty >= 0 and flt(available + removal, 2) < 0:
+				prd_excess = flt(available + removal, 2)  # negative
+				removal = flt(-available, 2)
 		frappe.flags[KERNEL_FLAG] = True
 		try:
 			mirror = frappe.get_doc({
@@ -149,8 +169,10 @@ def _reverse_source_events(doc, original):
 				"source_doctype": "Purchase Invoice", "source_docname": doc.name,
 				"source_detail_name": orig.source_detail_name,
 				"reason_code": "cancellation", "std_trans": orig.std_trans,
-				"qty_basis": 0, "value_delta": -flt(orig.value_delta),
-				"inventory_portion": -flt(orig.inventory_portion),
+				"qty_basis": 0,
+				"value_delta": removal if orig.reason_code in ("invoice_diff", "fx_adjust") else -flt(orig.value_delta),
+				"prd_amount": prd_excess,
+				"inventory_portion": removal if orig.reason_code in ("invoice_diff", "fx_adjust") else -flt(orig.inventory_portion),
 				"expense_portion": -flt(orig.expense_portion),
 				"fx_variance": -flt(orig.fx_variance),
 				"total_sc": -flt(orig.total_sc or 0), "total_ac": -flt(orig.total_ac or 0),
@@ -176,6 +198,24 @@ def _reverse_source_events(doc, original):
 				"remarks": _("Exact reversal of {0}").format(orig.name),
 				"valuation_event_id": mirror.name,
 			}))
+		if prd_excess:
+			from periodic_valuation.shared.accounts import get_inventory_account, get_offset_account
+			inv_acct = get_inventory_account(doc.company, orig.item_code, orig.warehouse)
+			for g in gl_map:
+				if g["account"] == inv_acct and flt(g["credit"]):
+					g["credit"] = flt(g["credit"]) + prd_excess
+					g["credit_in_account_currency"] = g["credit"]
+					break
+			prd_acct = get_offset_account(doc.company, orig.item_code, orig.warehouse, "prd")
+			gl_map.append(frappe._dict({
+				"account": prd_acct, "against": "",
+				"debit": 0, "credit": -prd_excess,
+				"debit_in_account_currency": 0, "credit_in_account_currency": -prd_excess,
+				"posting_date": doc.posting_date, "voucher_type": "Purchase Invoice",
+				"voucher_no": doc.name, "company": doc.company, "cost_center": cost_center,
+				"remarks": _("DR-44 floor: uncovered share of the reversed invoice difference"),
+				"valuation_event_id": mirror.name,
+			}))
 		if gl_map:
 			make_gl_entries(gl_map, merge_entries=False)
 
@@ -183,7 +223,7 @@ def _reverse_source_events(doc, original):
 			period = assert_posting_allowed(doc.company, doc.posting_date)
 			scope = ScopeState(doc.company, orig.item_code, orig.warehouse)
 			ipb = scope.load(period)
-			ipb.reval_value = r2(flt(ipb.reval_value) - flt(orig.value_delta))
+			ipb.reval_value = r2(flt(ipb.reval_value) + removal)
 			recompute_closing(ipb)
 			scope.save(ipb, source=("Purchase Invoice", doc.name))
 			# ...and push the same delta through every LATER period's carryover,
@@ -197,11 +237,11 @@ def _reverse_source_events(doc, original):
 			_cascade_value_carryover(
 				scope, period,
 				qty_delta=0.0,
-				value_delta=-flt(orig.value_delta),
+				value_delta=removal,
 				source=("Purchase Invoice", doc.name),
 			)
 			# ...and mirror the original's stock-ledger row (DR-02), or core stock
 			# reports keep the reversed amount forever
 			from periodic_valuation.periodic_moving_average.kernel import write_value_sle
 			write_value_sle(scope, ipb, source=("Purchase Invoice", doc.name, orig.source_detail_name),
-				posting_date=doc.posting_date, value_delta=-flt(orig.value_delta))
+				posting_date=doc.posting_date, value_delta=removal)

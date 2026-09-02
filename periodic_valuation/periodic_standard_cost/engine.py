@@ -774,12 +774,21 @@ class StdEngine:
 		balances so GL == movement table holds (B1 audit fix)."""
 		if not r2(es_var):
 			return
-		from periodic_valuation.periodic_moving_average.kernel import ScopeState, recompute_closing
+		from periodic_valuation.periodic_moving_average.kernel import (
+			ScopeState,
+			ensure_physical_warehouse,
+			recompute_closing,
+			write_value_sle,
+		)
 		from periodic_valuation.shared.periods import get_period
 
 		from periodic_valuation.periodic_standard_cost.kernel import _cascade_backdated_ipb
 
 		ny, nm = (year + 1, 1) if month == 12 else (year, month + 1)
+		leg_dates = {
+			(year, month): date(year, month, calendar.monthrange(year, month)[1]),
+			(ny, nm): date(ny, nm, 1),
+		}
 		for py, pm, amount in ((year, month, sign * es_var), (ny, nm, -sign * es_var)):
 			period = get_period(self.company, f"{py}-{pm:02d}-01")
 			if not period:
@@ -796,6 +805,14 @@ class StdEngine:
 			if flt(ipb.period_standard_cost):
 				ipb.moving_avg_price = flt(ipb.period_standard_cost)
 			scope.save(ipb, source=("Inventory Period Settlement", sett.name))
+			# ...and mirror the leg into the stock ledger (DR-02): the Sett leg
+			# debits Stock In Hand on the last day and the Sett-Rev credits it
+			# back on day 1, so without these rows every core stock report is
+			# off by es_var between the two dates (and for good under
+			# FULL_SETTLE, which posts no reverse leg).
+			write_value_sle(ensure_physical_warehouse(scope), ipb,
+				source=("Inventory Period Settlement", sett.name, None),
+				posting_date=leg_dates[(py, pm)], value_delta=r2(amount))
 
 	def _stamp_ipb_settlement(self, sett, year, month, sc):
 		"""Reporting snapshot on the scope's Inventory Period Balance row."""

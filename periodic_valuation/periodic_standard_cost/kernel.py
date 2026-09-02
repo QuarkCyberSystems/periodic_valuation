@@ -319,6 +319,8 @@ def _post_companion_if_needed(engine, controller, sle, trans, qty, sc_original, 
 
 		period = get_period(engine.company, today)
 		if period:
+			from periodic_valuation.periodic_moving_average.kernel import write_value_sle
+
 			scope = ScopeState(engine.company, engine.item_code, engine.physical_warehouse)
 			ipb = scope.load(period)
 			ipb.reval_value = flt(ipb.reval_value) + companion_value
@@ -326,6 +328,14 @@ def _post_companion_if_needed(engine, controller, sle, trans, qty, sc_original, 
 			if flt(ipb.period_standard_cost):
 				ipb.closing_reference_value = r2(flt(ipb.closing_qty) * flt(ipb.period_standard_cost))
 			scope.save(ipb, source=source)
+			# mirror the bridge into the stock ledger (DR-02): the companion
+			# permanently moves inventory value (qty x SC delta) with no SLE of
+			# its own, so core stock reports drifted by exactly this amount
+			# (UAT: ABC Item - STD YTD Test - MH S03, 20,000)
+			write_value_sle(scope, ipb,
+				source=(source[0], source[1], source[2] if len(source) > 2 else None),
+				posting_date=today, value_delta=r2(companion_value),
+				stock_uom=sle.get("stock_uom"))
 
 
 def _assert_stock_available(engine, qty_needed):

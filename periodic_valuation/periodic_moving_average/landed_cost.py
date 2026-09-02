@@ -126,6 +126,27 @@ def _reverse_landed_cost(lcv):
 				{"reversal_of": orig.name, "is_cancelled": 0}):
 			frappe.throw(_("{0} is already reversed.").format(orig.name),
 				title=_("Double Reversal Blocked"))
+		# DR-44 floor: the reversal removes the landed cost from inventory, but
+		# never more than the scope still carries - consumption since the
+		# original posting took part of the charge out at the blended MAP. The
+		# uncovered part credits PRD instead of stranding negative value.
+		removal = -flt(orig.value_delta)
+		prd_excess = 0.0
+		if orig.reason_code == "landed_cost" and removal < 0:
+			scope_wh = orig.warehouse if frappe.get_cached_value(
+				"Item", orig.item_code, "valuation_includes_warehouse") else ""
+			row = frappe.get_all("Inventory Period Balance",
+				filters={"company": orig.company, "item_code": orig.item_code,
+					"warehouse": scope_wh or ""},
+				fields=["closing_value", "closing_qty"],
+				order_by="period_year desc, period_month desc", limit=1)
+			available = max(flt(row[0].closing_value) if row else 0.0, 0.0)
+			scope_qty = flt(row[0].closing_qty) if row else 0.0
+			# floor only the stranding case: a negative-qty excursion carries
+			# its value through the frozen-MAP machinery and stays exact
+			if scope_qty >= 0 and flt(available + removal, 2) < 0:
+				prd_excess = flt(available + removal, 2)  # negative
+				removal = flt(-available, 2)
 		frappe.flags[KERNEL_FLAG] = True
 		try:
 			mirror = frappe.get_doc({
@@ -140,8 +161,9 @@ def _reverse_landed_cost(lcv):
 				"source_detail_name": orig.source_detail_name,
 				"reason_code": "cancellation", "std_trans": orig.std_trans,
 				"qty_basis": 0,
-				"value_delta": -flt(orig.value_delta),
-				"inventory_portion": -flt(orig.inventory_portion),
+				"value_delta": removal if orig.reason_code == "landed_cost" else -flt(orig.value_delta),
+				"prd_amount": prd_excess,
+				"inventory_portion": removal if orig.reason_code == "landed_cost" else -flt(orig.inventory_portion),
 				"expense_portion": -flt(orig.expense_portion),
 				"total_sc": -flt(orig.total_sc or 0), "total_ac": -flt(orig.total_ac or 0),
 				"in_flag": orig.in_flag, "out_flag": orig.out_flag,
@@ -166,6 +188,24 @@ def _reverse_landed_cost(lcv):
 				"remarks": _("Exact reversal of {0}").format(orig.name),
 				"valuation_event_id": mirror.name,
 			}))
+		if prd_excess:
+			from periodic_valuation.shared.accounts import get_inventory_account
+			inv_acct = get_inventory_account(lcv.company, orig.item_code, orig.warehouse)
+			for g in gl_map:
+				if g["account"] == inv_acct and flt(g["credit"]):
+					g["credit"] = flt(g["credit"]) + prd_excess
+					g["credit_in_account_currency"] = g["credit"]
+					break
+			prd_acct = get_offset_account(lcv.company, orig.item_code, orig.warehouse, "prd")
+			gl_map.append(frappe._dict({
+				"account": prd_acct, "against": "",
+				"debit": 0, "credit": -prd_excess,
+				"debit_in_account_currency": 0, "credit_in_account_currency": -prd_excess,
+				"posting_date": lcv.posting_date, "voucher_type": "Landed Cost Voucher",
+				"voucher_no": lcv.name, "company": lcv.company, "cost_center": cost_center,
+				"remarks": _("DR-44 floor: uncovered share of the reversed landed cost"),
+				"valuation_event_id": mirror.name,
+			}))
 		if gl_map:
 			make_gl_entries(gl_map, merge_entries=False)
 		# restore the MAP scope state the original event moved - and, like the
@@ -185,10 +225,10 @@ def _reverse_landed_cost(lcv):
 			period = assert_posting_allowed(lcv.company, lcv.posting_date)
 			scope = ScopeState(lcv.company, orig.item_code, orig.warehouse)
 			ipb = scope.load(period)
-			ipb.reval_value = r2(flt(ipb.reval_value) - flt(orig.value_delta))
+			ipb.reval_value = r2(flt(ipb.reval_value) + removal)
 			recompute_closing(ipb)
 			scope.save(ipb, source=("Landed Cost Voucher", lcv.name))
 			_cascade_value_carryover(scope, period, qty_delta=0.0,
-				value_delta=-flt(orig.value_delta), source=("Landed Cost Voucher", lcv.name))
+				value_delta=removal, source=("Landed Cost Voucher", lcv.name))
 			write_value_sle(scope, ipb, source=("Landed Cost Voucher", lcv.name, orig.source_detail_name),
-				posting_date=lcv.posting_date, value_delta=-flt(orig.value_delta))
+				posting_date=lcv.posting_date, value_delta=removal)

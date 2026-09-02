@@ -197,7 +197,12 @@ class ItemStandardCostVersion(Document):
 		self.db_set("revaluation_posted", 1, update_modified=False)
 
 	def _restate_period_balance(self, engine, today, delta, beg, in_qty, out_qty):
-		from periodic_valuation.periodic_moving_average.kernel import ScopeState, recompute_closing
+		from periodic_valuation.periodic_moving_average.kernel import (
+			ScopeState,
+			ensure_physical_warehouse,
+			recompute_closing,
+			write_value_sle,
+		)
 		from periodic_valuation.shared.periods import get_period
 
 		period = get_period(self.company, today)
@@ -211,6 +216,12 @@ class ItemStandardCostVersion(Document):
 		ipb.moving_avg_price = flt(self.standard_cost)
 		ipb.period_standard_cost = flt(self.standard_cost)
 		scope.save(ipb, source=(self.doctype, self.name))
+		# mirror the net stock effect into the stock ledger (DR-02): the
+		# revaluation triplet restates on-hand value at the new SC with no
+		# SLE of its own, so core stock reports kept the old valuation
+		write_value_sle(ensure_physical_warehouse(scope), ipb,
+			source=(self.doctype, self.name, None),
+			posting_date=today, value_delta=net_stock_effect)
 
 	def on_trash(self):
 		if self.status != "DRAFT":

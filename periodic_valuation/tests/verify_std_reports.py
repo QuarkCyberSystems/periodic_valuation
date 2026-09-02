@@ -65,8 +65,11 @@ def run(commit=False):
 		r and flt(r["closing_qty"]) == 80 and flt(r["unit_cost"]) == 10
 		and flt(r["reference_value"], 2) == 800 and flt(r["capitalized_variance"], 2) == 160
 		and flt(r["book_value"], 2) == 960 and flt(r["check"], 2) == 0, str(r))
-	check("R1 stock ledger value shows the reference figure (800)",
-		r and flt(r["stock_ledger_value"], 2) == 800, str(r and r["stock_ledger_value"]))
+	# DR-44: the settlement's Sett leg mirrors into the stock ledger on the
+	# period's last day, so as of period end the stock ledger equals the BOOK
+	# value (960), no longer the un-capitalized reference figure
+	check("R1 stock ledger value equals book value at period end (960, Sett leg mirrored)",
+		r and flt(r["stock_ledger_value"], 2) == 960, str(r and r["stock_ledger_value"]))
 
 	# ---- R2: Settlement Register, live then reversed
 	rows = run_report("Settlement Register", {"company": company, "item_code": item})

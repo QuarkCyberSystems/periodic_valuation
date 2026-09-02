@@ -1107,6 +1107,74 @@ def section_j(company, wh, today):
 		str([(r.item_code, r.note) for r in bulk2.items]))
 
 
+# ===================================================================== K
+def section_k(company, wh, today):
+	"""STD value-only events mirror into the stock ledger (DR-02 closure,
+	found 2 Sep 2026 via UAT drift MH S03): SCV revaluation triplet restate,
+	backdated companion bridge, settlement Sett/Sett-Rev legs."""
+	from periodic_valuation.periodic_standard_cost.engine import StdEngine
+
+	def sle_total(code):
+		return flt(frappe.db.sql(
+			"SELECT COALESCE(SUM(stock_value_difference),0) FROM `tabStock Ledger Entry` "
+			"WHERE item_code=%s AND is_cancelled=0", code)[0][0], 2)
+
+	# ---- SCV re-release triplet: on-hand restates to the new SC in the SLE too
+	item = std_item("_TCV-K1")
+	scv_release(company, item, today.year, today.month, 10)
+	make_pr(item, wh, 100, 12)                       # stock 100 x 10 = 1000
+	scv_release(company, item, today.year, today.month, 12)  # triplet: Rev Beg +200
+	bal = frappe.get_all("Inventory Period Balance",
+		filters={"company": company, "item_code": item},
+		fields=["closing_qty", "closing_value"],
+		order_by="period_year desc, period_month desc", limit=1)[0]
+	tc(48, "triplet restates the balance to 100 x 12",
+		flt(bal.closing_qty) == 100 and flt(bal.closing_value, 2) == 1200,
+		f"{bal.closing_qty}/{bal.closing_value}")
+	tc(48, "stock ledger carries the same 1,200 (value-only mirror for the triplet)",
+		sle_total(item) == 1200, sle_total(item))
+	mirror = frappe.get_all("Stock Ledger Entry",
+		filters={"item_code": item, "voucher_type": "Item Standard Cost Version", "is_cancelled": 0},
+		fields=["actual_qty", "stock_value_difference"])
+	tc(48, "the mirror is a zero-qty SLE of +200 against the cost version",
+		len(mirror) == 1 and flt(mirror[0].actual_qty) == 0
+		and flt(mirror[0].stock_value_difference, 2) == 200, str(mirror))
+
+	# ---- settlement legs: Sett (last day) and Sett-Rev (day 1) mirror too
+	item = std_item("_TCV-K2")
+	# the Sett-Rev leg lands in the NEXT period - make sure its row exists,
+	# as it does in production (the next period is open when a month settles)
+	ny, nm = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+	if not frappe.db.exists("Inventory Period",
+			{"company": company, "period_year": ny, "period_month": nm}):
+		# mimic the production roll (one OPEN per company): current month
+		# becomes PREV_OPEN_UNSETTLED, the next month opens
+		cur_name = frappe.db.get_value("Inventory Period",
+			{"company": company, "period_year": today.year, "period_month": today.month})
+		if cur_name and frappe.db.get_value("Inventory Period", cur_name, "status") == "OPEN":
+			frappe.db.set_value("Inventory Period", cur_name, "status",
+				"PREV_OPEN_UNSETTLED", update_modified=False)
+		frappe.get_doc({"doctype": "Inventory Period", "company": company,
+			"start_date": f"{ny}-{nm:02d}-01", "status": "OPEN"}).insert(ignore_permissions=True)
+	e = StdEngine(company, item, wh)
+	src = ("Item", item)
+	e.post(trans="Rec", posting_date=f"{today.year}-{today.month:02d}-05", qty=100, sc=10,
+		t_ac_override=1080, source=src)          # PPV 80
+	e.post(trans="Iss", posting_date=f"{today.year}-{today.month:02d}-10", qty=20, sc=10, source=src)
+	sett = e.close_period(year=today.year, month=today.month, sc=10, source=src)
+	es = flt(sett.es_var, 2)
+	tc(49, "settlement splits the 80 pool 64/16", es == 64 and flt(sett.out_var, 2) == 16,
+		f"{sett.es_var}/{sett.out_var}")
+	legs = frappe.get_all("Stock Ledger Entry",
+		filters={"item_code": item, "voucher_type": "Inventory Period Settlement", "is_cancelled": 0},
+		fields=["posting_date", "actual_qty", "stock_value_difference"], order_by="posting_date")
+	tc(49, "Sett leg +64 (last day) and Sett-Rev leg -64 (day 1) both mirror to the stock ledger",
+		len(legs) == 2 and flt(legs[0].stock_value_difference, 2) == es
+		and flt(legs[1].stock_value_difference, 2) == -es
+		and all(flt(l.actual_qty) == 0 for l in legs), str(legs))
+	tc(49, "the pair nets to zero in the stock ledger (engine-level scope: only the mirrors)",
+		sle_total(item) == 0, sle_total(item))
+
 # ================================================================== main
 def run(commit=False):
 	wh = ensure_masters()
@@ -1117,7 +1185,7 @@ def run(commit=False):
 	today = getdate(nowdate())
 
 	sections = [section_a, section_b, section_c, section_d, section_e,
-		section_f, section_g, section_h, section_i, section_j]
+		section_f, section_g, section_h, section_i, section_j, section_k]
 	for fn in sections:
 		try:
 			fn(company, wh, today)

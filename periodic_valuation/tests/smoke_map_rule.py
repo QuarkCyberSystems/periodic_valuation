@@ -171,6 +171,119 @@ def run(commit=False):
 		and flt(c.closing_value, 2) == 1000 and sle_val == 1000,
 		f"prior {p.closing_value} cur carry {c.carryover_value} reval {c.reval_value} adjust {c.adjust_value} closing {c.closing_value} sle {sle_val} events {[(e.reason_code, e.period_month, flt(e.value_delta)) for e in evs]}")
 
+	# ================ DR-44: reversal value floor (cancel after consumption)
+	# a) the client's Cancel Netting Demo replayed: exact mirror would strand
+	#    -65,625 at zero qty; the floor caps inventory at the covered value
+	#    and credits PRD with the shortfall
+	it = make_item("_MR-DR44A")
+	stock44 = get_inventory_account(COMPANY, it, wh)
+	prd44 = get_offset_account(COMPANY, it, wh, "prd")
+	pr1 = make_pr(it, wh, 1500, 1175)
+	make_pr(it, wh, 500, 1000)                    # MAP 1131.25
+	make_dn(it, wh, 500)                          # -565,625 at blended MAP
+	cx = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr1.name))
+	cx.submit()
+	c = ipb(it)
+	check("DR-44a cancel-after-issue lands on 0 qty / 0 value (no stranded -65,625)",
+		flt(c.closing_qty) == 0 and flt(c.closing_value, 2) == 0,
+		f"{c.closing_qty}/{c.closing_value}")
+	ev = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": cx.name, "reason_code": "cancellation"},
+		fields=["value_delta", "prd_amount"])[0]
+	check("DR-44a IVE: inventory leg floored to -1,696,875, PRD -65,625",
+		flt(ev.value_delta, 2) == -1696875 and flt(ev.prd_amount, 2) == -65625,
+		f"{ev.value_delta}/{ev.prd_amount}")
+	check("DR-44a GL: Cr Inventory 1,696,875 / Cr PRD 65,625",
+		gl_net(cx.name, stock44) == -1696875 and gl_net(cx.name, prd44) == -65625,
+		f"stock {gl_net(cx.name, stock44)} prd {gl_net(cx.name, prd44)}")
+	sle44 = flt(frappe.db.sql("SELECT COALESCE(SUM(stock_value_difference),0) FROM `tabStock Ledger Entry` WHERE item_code=%s AND is_cancelled=0", it)[0][0], 2)
+	check("DR-44a stock ledger agrees (0)", sle44 == 0, str(sle44))
+
+	# b) floor can trigger with quantity still on hand: the leftover unit
+	#    carries zero value, never negative
+	it = make_item("_MR-DR44B")
+	pr1 = make_pr(it, wh, 15, 10)
+	make_pr(it, wh, 5, 4)                         # 20 qty / 170, MAP 8.5
+	make_dn(it, wh, 4)                            # 16 qty / 136
+	cx = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr1.name))
+	cx.submit()
+	c = ipb(it)
+	ev = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": cx.name, "reason_code": "cancellation"},
+		fields=["value_delta", "prd_amount"])[0]
+	check("DR-44b floor at positive qty: 1 unit left at 0 value, PRD -14",
+		flt(c.closing_qty) == 1 and flt(c.closing_value, 2) == 0
+		and flt(ev.value_delta, 2) == -136 and flt(ev.prd_amount, 2) == -14,
+		f"{c.closing_qty}/{c.closing_value} ev {ev.value_delta}/{ev.prd_amount}")
+
+	# c) an unconsumed cancellation stays exact - no PRD leg
+	it = make_item("_MR-DR44C")
+	prd44c = get_offset_account(COMPANY, it, wh, "prd")
+	pr1 = make_pr(it, wh, 10, 10)
+	cx = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr1.name))
+	cx.submit()
+	c = ipb(it)
+	ev = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": cx.name, "reason_code": "cancellation"},
+		fields=["value_delta", "prd_amount"])[0]
+	check("DR-44c unconsumed cancel is exact: 0/0, value -100, no PRD",
+		flt(c.closing_qty) == 0 and flt(c.closing_value, 2) == 0
+		and flt(ev.value_delta, 2) == -100 and flt(ev.prd_amount, 2) == 0
+		and gl_net(cx.name, prd44c) == 0,
+		f"{c.closing_qty}/{c.closing_value} ev {ev.value_delta}/{ev.prd_amount}")
+
+	# d) LCV reversal floors the same way
+	it = make_item("_MR-DR44D")
+	stock44d = get_inventory_account(COMPANY, it, wh)
+	prd44d = get_offset_account(COMPANY, it, wh, "prd")
+	pr = make_pr(it, wh, 10, 10)
+	lcv = frappe.get_doc({"doctype": "Landed Cost Voucher", "company": COMPANY,
+		"posting_date": nowdate(), "distribute_charges_based_on": "Amount",
+		"purchase_receipts": [{"receipt_document_type": "Purchase Receipt", "receipt_document": pr.name,
+			"supplier": "_SMK Supplier", "grand_total": pr.grand_total}],
+		"taxes": [{"expense_account": exp_acct, "description": "freight", "amount": 50}]})
+	lcv.get_items_from_purchase_receipts()
+	lcv.insert(ignore_permissions=True)
+	lcv.submit()                                   # 10 qty / 150, MAP 15
+	make_dn(it, wh, 9)                             # 1 qty / 15
+	cxl = frappe.get_doc("Landed Cost Voucher", make_cancellation("Landed Cost Voucher", lcv.name))
+	cxl.submit()
+	c = ipb(it)
+	ev = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": cxl.name, "reason_code": "cancellation"},
+		fields=["value_delta", "prd_amount"])[0]
+	check("DR-44d LCV reversal floored: 1 qty / 0 value, inventory -15, PRD -35",
+		flt(c.closing_qty) == 1 and flt(c.closing_value, 2) == 0
+		and flt(ev.value_delta, 2) == -15 and flt(ev.prd_amount, 2) == -35
+		and gl_net(cxl.name, stock44d) == -15 and gl_net(cxl.name, prd44d) == -35,
+		f"{c.closing_qty}/{c.closing_value} ev {ev.value_delta}/{ev.prd_amount} "
+		f"gl stock {gl_net(cxl.name, stock44d)} prd {gl_net(cxl.name, prd44d)}")
+
+	# e) PI debit-note reversal floors the same way
+	it = make_item("_MR-DR44E")
+	stock44e = get_inventory_account(COMPANY, it, wh)
+	prd44e = get_offset_account(COMPANY, it, wh, "prd")
+	pr = make_pr(it, wh, 10, 10)
+	pi = frappe.get_doc({"doctype": "Purchase Invoice", "company": COMPANY,
+		"supplier": "_SMK Supplier", "posting_date": nowdate(),
+		"items": [{"item_code": it, "qty": 10, "rate": 15, "warehouse": wh,
+			"purchase_receipt": pr.name, "pr_detail": pr.items[0].name}]})
+	pi.insert(ignore_permissions=True)
+	pi.submit()                                    # +50 diff, 10 qty / 150
+	make_dn(it, wh, 9)                             # 1 qty / 15
+	cxp = frappe.get_doc("Purchase Invoice", make_cancellation("Purchase Invoice", pi.name))
+	cxp.submit()
+	c = ipb(it)
+	ev = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": cxp.name, "reason_code": "cancellation"},
+		fields=["value_delta", "prd_amount"])[0]
+	check("DR-44e PI reversal floored: 1 qty / 0 value, inventory -15, PRD -35",
+		flt(c.closing_qty) == 1 and flt(c.closing_value, 2) == 0
+		and flt(ev.value_delta, 2) == -15 and flt(ev.prd_amount, 2) == -35
+		and gl_net(cxp.name, stock44e) == -15 and gl_net(cxp.name, prd44e) == -35,
+		f"{c.closing_qty}/{c.closing_value} ev {ev.value_delta}/{ev.prd_amount} "
+		f"gl stock {gl_net(cxp.name, stock44e)} prd {gl_net(cxp.name, prd44e)}")
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if failed:
