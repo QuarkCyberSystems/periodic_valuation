@@ -10,6 +10,9 @@ from frappe.utils import get_first_day, get_last_day, getdate
 # SETTLEMENT_ALLOWED / SETTLING_LOCKED phases never occur in this build: the
 # close ceremony validates and freezes inside one transaction, so the ledger
 # is never observable in a half-locked state.
+# SETTLED_FROZEN -> PREV_OPEN_UNSETTLED exists too, but only through the gated
+# Inventory Period Reopen document (DR-45: immediately-previous month, reason,
+# audit stamps); it is deliberately absent here so ad-hoc edits cannot do it.
 STATE_TRANSITIONS = {
 	"OPEN": {"PREV_OPEN_UNSETTLED"},
 	"PREV_OPEN_UNSETTLED": {"SETTLED_FROZEN"},

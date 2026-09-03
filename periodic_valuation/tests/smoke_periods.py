@@ -8,7 +8,9 @@ PREV_OPEN_UNSETTLED), never three. A posting dated in the month after the
 OPEN one rolls the machine forward on demand; the roll is refused while the
 older previous-open month is unclosed; Inventory Period Close of a
 previous-open month freezes it after the gates; closing the OPEN month
-rolls instead of freezing. Runs in its own company so the site's real
+rolls instead of freezing; a closed month is reopenable only through the
+gated Inventory Period Reopen and only while it is the immediately-previous
+month (DR-45 / DR-08). Runs in its own company so the site's real
 periods are never touched. Rolled back unless commit=True."""
 
 import frappe
@@ -183,6 +185,69 @@ def run(commit=False):
 	nxt = get_first_day(add_months(m0, 1))
 	check("Close of the OPEN month rolls forward instead of freezing",
 		status_of(*ym(m0)) == "PREV_OPEN_UNSETTLED" and status_of(*ym(nxt)) == "OPEN", f"{status_of(*ym(m0))} / {status_of(*ym(nxt))}")
+
+	# ---- 8. gated reopen (DR-45 / DR-08 window)
+	# state: m1 frozen, m0 previous-open, nxt OPEN
+	def try_reopen(y, m, reason="test reopen"):
+		doc = frappe.get_doc({"doctype": "Inventory Period Reopen", "company": COMPANY,
+			"inventory_period": period(y, m).name, "posting_date": nowdate(), "reason": reason})
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		return doc
+	try:
+		try_reopen(*ym(m1))
+		check("reopen refused while another month is still previous-open", False, "reopened")
+	except frappe.ValidationError as e:
+		check("reopen refused while another month is still previous-open", "still open as the previous period" in str(e), str(e)[:140])
+	close3 = frappe.get_doc({"doctype": "Inventory Period Close", "company": COMPANY,
+		"inventory_period": period(*ym(m0)).name, "posting_date": nowdate()})
+	close3.insert(ignore_permissions=True)
+	close3.submit()
+	check("m0 frozen by its own close (setup)", status_of(*ym(m0)) == "SETTLED_FROZEN", status_of(*ym(m0)))
+	try:
+		try_reopen(*ym(m1))
+		check("reopen refused for a month older than the immediately-previous one", False, "reopened")
+	except frappe.ValidationError as e:
+		check("reopen refused for a month older than the immediately-previous one", "Outside the Reopen Window" in str(e) or "immediately-previous" in str(e), str(e)[:140])
+	try:
+		try_reopen(*ym(nxt))
+		check("reopen refused for a period that is not closed", False, "reopened")
+	except frappe.ValidationError as e:
+		check("reopen refused for a period that is not closed", "Only a closed period" in str(e), str(e)[:140])
+	ro = try_reopen(*ym(m0), "UAT needs backdated August tests")
+	p0 = period(*ym(m0))
+	check("reopen of the immediately-previous frozen month: PREV_OPEN_UNSETTLED again, audit stamped",
+		p0.status == "PREV_OPEN_UNSETTLED" and p0.reopened_by == frappe.session.user and p0.reopen_count == 1
+		and p0.last_reopen == ro.name and ro.status_before == "SETTLED_FROZEN" and ro.reopen_sequence == 1,
+		f"{p0.status} by {p0.reopened_by} count {p0.reopen_count} doc {ro.name}")
+	before = ipb(item, *ym(nxt))
+	make_pr(item, wh, 3, 15, str(m0.replace(day=1)))   # m0 is the current calendar month: stay in the past
+	after = ipb(item, *ym(nxt))
+	check("backdated posting into the reopened month is accepted and carries into the open month (+3)",
+		flt(after.closing_qty) == flt(before.closing_qty) + 3, f"{before.closing_qty} -> {after.closing_qty}")
+	try:
+		open_next_period(period(*ym(nxt)))
+		check("machine cannot roll past the open month while the reopened month is unclosed", False, "rolled")
+	except frappe.ValidationError as e:
+		check("machine cannot roll past the open month while the reopened month is unclosed", "still open" in str(e), str(e)[:140])
+	try:
+		ro.cancel()
+		check("reopen document cannot be cancelled (forward-only)", False, "cancelled")
+	except frappe.ValidationError as e:
+		check("reopen document cannot be cancelled (forward-only)", "cannot be cancelled" in str(e), str(e)[:140])
+	close4 = frappe.get_doc({"doctype": "Inventory Period Close", "company": COMPANY,
+		"inventory_period": period(*ym(m0)).name, "posting_date": nowdate()})
+	close4.insert(ignore_permissions=True)
+	close4.submit()
+	check("re-close through Inventory Period Close freezes the reopened month again (gates re-run)",
+		status_of(*ym(m0)) == "SETTLED_FROZEN", status_of(*ym(m0)))
+	try:
+		try_reopen(*ym(m0), "second time")
+		p0 = period(*ym(m0))
+		check("a second reopen counts up (reopen no. 2) and keeps the first document in history",
+			p0.reopen_count == 2 and p0.status == "PREV_OPEN_UNSETTLED" and p0.last_reopen != ro.name, f"{p0.reopen_count} {p0.last_reopen}")
+	except frappe.ValidationError as e:
+		check("a second reopen counts up (reopen no. 2) and keeps the first document in history", False, str(e)[:140])
 
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")

@@ -1,7 +1,7 @@
 {
  "app": "periodic_valuation",
  "charts": [],
- "content": "[{\"id\":\"pv_hdr_ops\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Period Operations</b></span>\",\"col\":12}},{\"id\":\"pv_sc_period\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Inventory Period\",\"col\":3}},{\"id\":\"pv_sc_run\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Settlement Run\",\"col\":3}},{\"id\":\"pv_sc_sett\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Settlements\",\"col\":3}},{\"id\":\"pv_sc_yec\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Year End Close\",\"col\":3}},{\"id\":\"pv_hdr_ledger\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Ledgers</b></span>\",\"col\":12}},{\"id\":\"pv_sc_ipb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Period Balances\",\"col\":3}},{\"id\":\"pv_sc_ive\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Valuation Events\",\"col\":3}},{\"id\":\"pv_sc_sme\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Movement Events\",\"col\":3}},{\"id\":\"pv_sp1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"pv_card_std\",\"type\":\"card\",\"data\":{\"card_name\":\"Standard Cost\",\"col\":4}},{\"id\":\"pv_card_docs\",\"type\":\"card\",\"data\":{\"card_name\":\"Stock Documents\",\"col\":4}},{\"id\":\"pv_card_reports\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":4}},{\"id\":\"pv_card_setup\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}}]",
+ "content": "[{\"id\": \"pv_hdr_ops\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Period Operations</b></span>\", \"col\": 12}}, {\"id\": \"pv_sc_period\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Inventory Period\", \"col\": 3}}, {\"id\": \"pv_sc_run\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settlement Run\", \"col\": 3}}, {\"id\": \"pv_sc_sett\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settlements\", \"col\": 3}}, {\"id\": \"pv_sc_yec\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Year End Close\", \"col\": 3}}, {\"id\": \"pv_sc_close\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Period Close\", \"col\": 3}}, {\"id\": \"pv_sc_reopen\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Period Reopen\", \"col\": 3}}, {\"id\": \"pv_hdr_ledger\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Ledgers</b></span>\", \"col\": 12}}, {\"id\": \"pv_sc_ipb\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Period Balances\", \"col\": 3}}, {\"id\": \"pv_sc_ive\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Valuation Events\", \"col\": 3}}, {\"id\": \"pv_sc_sme\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Movement Events\", \"col\": 3}}, {\"id\": \"pv_sp1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"pv_card_std\", \"type\": \"card\", \"data\": {\"card_name\": \"Standard Cost\", \"col\": 4}}, {\"id\": \"pv_card_docs\", \"type\": \"card\", \"data\": {\"card_name\": \"Stock Documents\", \"col\": 4}}, {\"id\": \"pv_card_reports\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports\", \"col\": 4}}, {\"id\": \"pv_card_setup\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}]",
  "creation": "2026-08-31 16:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
@@ -288,6 +288,18 @@
    "color": "Grey",
    "label": "Movement Events",
    "link_to": "Stock Movement Event",
+   "type": "DocType"
+  },
+  {
+   "color": "Red",
+   "label": "Period Close",
+   "link_to": "Inventory Period Close",
+   "type": "DocType"
+  },
+  {
+   "color": "Yellow",
+   "label": "Period Reopen",
+   "link_to": "Inventory Period Reopen",
    "type": "DocType"
   }
  ],

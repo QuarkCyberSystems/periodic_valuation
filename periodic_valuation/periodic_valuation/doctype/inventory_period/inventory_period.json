@@ -19,7 +19,13 @@
   "sec_close",
   "closed_by",
   "col_close",
-  "closed_on"
+  "closed_on",
+  "sec_reopen",
+  "reopened_by",
+  "reopened_on",
+  "col_reopen",
+  "reopen_count",
+  "last_reopen"
  ],
  "fields": [
   {
@@ -99,6 +105,43 @@
    "fieldname": "closed_on",
    "fieldtype": "Datetime",
    "label": "Closed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_reopen",
+   "fieldtype": "Section Break",
+   "label": "Reopen Audit",
+   "depends_on": "eval:doc.reopen_count",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "reopened_by",
+   "fieldtype": "Link",
+   "label": "Last Reopened By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reopened_on",
+   "fieldtype": "Datetime",
+   "label": "Last Reopened On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_reopen",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reopen_count",
+   "fieldtype": "Int",
+   "label": "Times Reopened",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_reopen",
+   "fieldtype": "Link",
+   "label": "Last Reopen Document",
+   "options": "Inventory Period Reopen",
    "read_only": 1
   }
  ],
