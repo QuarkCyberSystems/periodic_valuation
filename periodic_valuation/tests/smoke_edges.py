@@ -595,21 +595,22 @@ def run(commit=False):
 	check("period rate: backdated issue valued at 920, not 996",
 		flt(ive.value_delta, 2) == -9200 and flt(ive.map_before) == 920,
 		f"{ive.value_delta}/{ive.map_before}")
-	# MAP Rule (31 Aug 2026, confirmed 1 Sep): the carry re-prices the departed
-	# units at the CURRENT period's MAP so it stays 996 - the 760 difference is a
-	# revaluation leg to the issue's expense account, and the stock ledger shows
-	# the current period's full effect (-9,960)
-	keep = frappe.get_all("Inventory Valuation Event",
-		filters={"source_docname": dn.name, "reason_code": "revaluation"},
+	# DR-46 (client MAP-001, 10 Sep 2026): the carried value flows into the
+	# current period unchanged and its MAP re-derives - 190 units carrying
+	# 199,200 - 9,200 = 190,000 -> 1,000.00. No correcting leg, and the stock
+	# ledger shows the value the prior period booked (-9,200).
+	extra = frappe.get_all("Inventory Valuation Event",
+		filters={"source_docname": dn.name, "reason_code": ("in", ("revaluation", "prd_split"))},
 		fields=["value_delta"])
-	check("period rate: current period keeps MAP 996 via a -760 revaluation leg",
-		keep and flt(keep[0].value_delta, 2) == -760
-		and flt(ipb(it).moving_avg_price, 2) == 996, f"{keep} MAP {ipb(it).moving_avg_price}")
+	check("period rate: current MAP re-derives to 1,000.00 with no correcting leg",
+		not extra and flt(ipb(it).closing_value, 2) == 190000
+		and flt(ipb(it).moving_avg_price, 2) == 1000, f"{extra} MAP {ipb(it).moving_avg_price}")
 	sle = frappe.get_all("Stock Ledger Entry",
 		filters={"voucher_no": dn.name, "is_cancelled": 0},
-		fields=["stock_value_difference"])[0]
-	check("period rate: backdated issue SLE value is -9,960 (current-period effect)",
-		flt(sle.stock_value_difference, 2) == -9960, str(sle.stock_value_difference))
+		fields=["stock_value_difference", "valuation_rate"])[0]
+	check("period rate: backdated issue SLE value is -9,200 at the prior period's price",
+		flt(sle.stock_value_difference, 2) == -9200 and flt(sle.valuation_rate, 2) == 1000,
+		f"{sle.stock_value_difference} @ {sle.valuation_rate}")
 
 	# Stock Reconciliation prefill reads the same period balance
 	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_stock_balance_for

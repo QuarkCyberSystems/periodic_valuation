@@ -1332,6 +1332,27 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		ipb.issue_value = r6(flt(ipb.issue_value) - value)
 	else:
 		ipb.reval_value = r6(flt(ipb.reval_value) + value)
+
+	# A backdated original also posted a day-1 leg in the period it carried
+	# into (prd_split under DR-35/DR-46, the earlier revaluation leg under
+	# DR-36), linked to it by caused_by_event_id and sitting in the adjust
+	# bucket. It is part of the same posting and unwinds with it, scaled by
+	# the same share - otherwise the reversal leaves the price-difference
+	# leg behind with no transaction to explain it.
+	companions = [
+		c for c in frappe.get_all(
+			"Inventory Valuation Event",
+			filters={"caused_by_event_id": orig.name, "item_code": scope.item_code, "is_cancelled": 0},
+			fields=["name", "value_delta", "prd_amount", "expense_portion"],
+			order_by="creation",
+		)
+		if not frappe.db.exists("Inventory Valuation Event", {"reversal_of": c.name, "is_cancelled": 0})
+	]
+	companion_value = 0.0
+	for c in companions:
+		c.mirror = r6(-flt(c.value_delta) * share)
+		ipb.adjust_value = r6(flt(ipb.adjust_value) + c.mirror)
+		companion_value = r6(companion_value + c.mirror)
 	recompute_closing(ipb)
 	_freeze_check(ipb)
 
@@ -1346,10 +1367,29 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		expense_portion=r2(-flt(orig.expense_portion) * share),
 		prd_amount=r2(prd_floor),
 	)
+	companion_ives = []
+	for c in companions:
+		__, c_ive = write_events(
+			scope, ipb, source=source, posting_date=posting_date,
+			movement_type=None, reason="cancellation", qty_delta=0, value_delta=c.mirror,
+			map_before=map_before, reversal_of=c.name, caused_by=ive,
+			expense_portion=r2(-flt(c.expense_portion) * share),
+			prd_amount=r2(-flt(c.prd_amount) * share),
+		)
+		companion_ives.append((c, c_ive))
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
 	mirrored_sle = dict(sle)
 	mirrored_sle["actual_qty"] = qty
-	write_sle(controller, mirrored_sle, scope, ipb, value)
+	write_sle(controller, mirrored_sle, scope, ipb, r6(value + companion_value))
+	for c, c_ive in companion_ives:
+		post_gl(
+			controller, posting_date,
+			[(g.account, r2((flt(g.credit) - flt(g.debit)) * share), inventory_account)
+				for g in frappe.get_all("GL Entry",
+					filters={"valuation_event_id": c.name, "is_cancelled": 0},
+					fields=["account", "debit", "credit"])],
+			c_ive,
+		)
 	# mirror the original event's GL with swapped sides on the cancellation date,
 	# scaled to the share of the original this cancellation actually reverses
 	legs = []
@@ -1377,8 +1417,10 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 
 	Receipt into positive prior: plain math in prior + carryover to current.
 	Receipt into negative prior: PRD math (Case A/B) in prior + carryover +
-	cross-period absorb in the current period (C1/C2). Issues: plain prior
-	math + carryover.
+	cross-period absorb in the current period (C1/C2). Issues: valued at the
+	prior period's MAP, carried as booked, the current MAP re-derives (DR-46);
+	a current period that is or becomes negative re-prices the deficit at its
+	frozen MAP and a positive one is floored at zero value, difference to PRD.
 	"""
 	qty = flt(sle.get("actual_qty"))
 	if is_return or controller.get("is_cancellation"):
@@ -1410,42 +1452,50 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 			value_delta=-issue_value, map_before=map_before_prior, stock_uom=sle.get("stock_uom"),
 		)
 		scope.save(ipb_prior, caused_by=ive, movement_event=sme, source=source)
-		map_before_cur = flt(ipb_cur.moving_avg_price)
-		ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
-		ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) - issue_value)
-		recompute_closing(ipb_cur)
-		# An issue never moves the MAP - but the carry arrived at the PRIOR
-		# period's rate, which would move it. Re-price the carried units at the
-		# current period's own MAP and send the difference to the issue's
-		# expense account: -(rate - MAP) x qty (MAP Rule, 31 Aug 2026; confirmed
-		# 1 Sep). A frozen (negative) period re-prices at its frozen MAP.
 		expense = _voucher_expense_account(controller, sle) or srbnb
-		target_rate = flt(ipb_cur.frozen_map) if ipb_cur.is_negative else map_before_cur
-		keep_map = r2(flt(ipb_cur.closing_qty) * target_rate - flt(ipb_cur.closing_value))
-		if keep_map:
-			ipb_cur.adjust_value = r6(flt(ipb_cur.adjust_value) + keep_map)
-			recompute_closing(ipb_cur)
-		_pin_map(ipb_cur, map_before_cur)  # still an issue in the current period's eyes
-		_freeze_check(ipb_cur)
-		scope.save(ipb_cur, caused_by=ive, source=source)
-		write_sle(controller, sle, scope, ipb_cur, -issue_value + keep_map)
 		post_gl(
 			controller, posting_date,
 			[(expense, issue_value, inventory_account), (inventory_account, -issue_value, expense)],
 			ive,
 		)
-		if keep_map:
-			first_of_open = f"{open_period.period_year}-{open_period.period_month:02d}-01"
-			__, keep_ive = write_events(
-				scope, ipb_cur, source=source, posting_date=first_of_open,
-				movement_type=None, reason="revaluation", qty_delta=0, value_delta=keep_map,
-				map_before=map_before_cur, caused_by=ive,
+
+		# The carry flows into the current period at the value the prior period
+		# booked, and the current MAP re-derives from the carried value (signed
+		# plan: carryover_value is the sum of backdated value deltas; MAP-001,
+		# client 10 Sep 2026, DR-46 - supersedes DR-36's correcting leg). The
+		# MAP moves because the two months carry different prices, not because
+		# the issue was valued at anything but a MAP.
+		map_before_cur = flt(ipb_cur.moving_avg_price)
+		ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
+		ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) - issue_value)
+		recompute_closing(ipb_cur)
+		# A current period that is, or becomes, negative (landing on zero
+		# included) is re-priced: the negative-stock model values the deficit
+		# at the frozen MAP (the MAP at the moment of crossing, or the existing
+		# frozen MAP), and the difference against the carried value is a price
+		# difference in the current period, offset to the PRD account - the
+		# same convention as the receipt cases. A positive period whose value
+		# the carry has driven below zero is floored at zero (DR-34: inventory
+		# value goes down to exactly zero and no further), the rest to PRD.
+		absorb = 0.0
+		cur_qty, cur_value = flt(ipb_cur.closing_qty), flt(ipb_cur.closing_value)
+		if cur_qty <= 0:
+			target_rate = flt(ipb_cur.frozen_map) if ipb_cur.is_negative else map_before_cur
+			absorb = r2(cur_qty * target_rate - cur_value)
+		elif cur_value < 0:
+			absorb = r2(-cur_value)
+		if absorb:
+			ipb_cur.adjust_value = r6(flt(ipb_cur.adjust_value) + absorb)
+			recompute_closing(ipb_cur)
+		_freeze_check(ipb_cur)
+		absorb_ive = None
+		if absorb:
+			absorb_ive = _post_day1_absorb(
+				controller, scope, ipb_cur, open_period, absorb, ive, map_before_cur,
+				inventory_account, source,
 			)
-			post_gl(
-				controller, first_of_open,
-				[(inventory_account, keep_map, expense), (expense, -keep_map, inventory_account)],
-				keep_ive,
-			)
+		scope.save(ipb_cur, caused_by=absorb_ive or ive, source=source)
+		write_sle(controller, sle, scope, ipb_cur, -issue_value + absorb)
 		return
 
 	rate = flt(sle.get("incoming_rate"))
@@ -1518,24 +1568,37 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 
 	absorb_ive = None
 	if absorb:
-		first_of_open = f"{open_period.period_year}-{open_period.period_month:02d}-01"
-		__, absorb_ive = write_events(
-			scope, ipb_cur, source=source, posting_date=first_of_open,
-			movement_type=None, reason="prd_split", qty_delta=0, value_delta=absorb,
-			prd_amount=r2(-absorb), map_before=flt(ipb_cur.moving_avg_price), caused_by=ive,
-		)
-		# the offset is the price-difference account - the same account the
-		# prior-period leg used: receipt price vs frozen MAP is one economic
-		# thing wherever it lands (client convention, 1 Sep 2026)
-		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
-		post_gl(
-			controller, first_of_open,
-			[(inventory_account, absorb, prd_account), (prd_account, -absorb, inventory_account)],
-			absorb_ive,
+		absorb_ive = _post_day1_absorb(
+			controller, scope, ipb_cur, open_period, absorb, ive, flt(ipb_cur.moving_avg_price),
+			inventory_account, source,
 		)
 
 	scope.save(ipb_cur, caused_by=absorb_ive or ive, source=source)
 	write_sle(controller, sle, scope, ipb_cur, result["net_to_inventory"] + absorb)
+
+
+def _post_day1_absorb(controller, scope, ipb_cur, open_period, absorb, ive, map_before,
+		inventory_account, source):
+	"""The current-period leg of a backdated posting's carry, dated day 1 of the
+	open period: the difference between what the prior period booked and what
+	the current period's stock state says the carry is worth (DR-35 receipts,
+	DR-46 issues). The offset is the price-difference account - the same
+	account the prior-period leg used: price vs frozen MAP is one economic
+	thing wherever it lands (client convention, 1 Sep 2026). The event is
+	linked to the posting's own event so a cancellation unwinds both."""
+	first_of_open = f"{open_period.period_year}-{open_period.period_month:02d}-01"
+	__, absorb_ive = write_events(
+		scope, ipb_cur, source=source, posting_date=first_of_open,
+		movement_type=None, reason="prd_split", qty_delta=0, value_delta=absorb,
+		prd_amount=r2(-absorb), map_before=map_before, caused_by=ive,
+	)
+	prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
+	post_gl(
+		controller, first_of_open,
+		[(inventory_account, absorb, prd_account), (prd_account, -absorb, inventory_account)],
+		absorb_ive,
+	)
+	return absorb_ive
 
 
 # ------------------------------------------------------- value-only postings

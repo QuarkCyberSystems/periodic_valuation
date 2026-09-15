@@ -167,16 +167,15 @@ def run(commit=False):
 	prior_rows = [g for g in gl if str(g.posting_date) == str(prior)]
 	cur_first = str(get_first_day(nowdate()))
 	keep_rows = [g for g in gl if str(g.posting_date) == cur_first]
-	# DR-36: the issue itself posts on the prior date (200 at the prior MAP 10);
-	# the carry re-prices the 20 departed units at the current MAP 12 with a
-	# -(10 - 12) x 20 = 40 revaluation leg on day 1 of the current month
-	check("P8 backdated issue GL on prior date + 40 keep-MAP leg on day 1 (DR-36)",
+	# DR-46 (MAP-001): the issue posts on the prior date (200 at the prior MAP
+	# 10) and that value carries into the current month unchanged - no
+	# correcting leg; the current MAP re-derives (1,000 / 80 = 12.50)
+	check("P8 backdated issue GL on the prior date only, no day-1 leg (DR-46)",
 		prior_rows and flt(sum(g.debit for g in prior_rows), 2) == 200
-		and keep_rows and flt(sum(g.debit for g in keep_rows), 2) == 40
-		and len(prior_rows) + len(keep_rows) == len(gl),
+		and not keep_rows and len(prior_rows) == len(gl),
 		f"prior {[(str(g.posting_date), g.debit, g.credit) for g in gl]}")
-	check("P8 current period keeps MAP 12 (80 units -> 960)",
-		flt(c.moving_avg_price, 2) == 12 and flt(ipb(it).closing_value, 2) == 960,
+	check("P8 current MAP re-derives to 12.50 (80 units carrying 1,000)",
+		flt(c.moving_avg_price, 2) == 12.5 and flt(ipb(it).closing_value, 2) == 1000,
 		f"MAP {c.moving_avg_price} value {ipb(it).closing_value}")
 
 	# ---------- P9 first-ever posting is backdated (no balances exist yet)
