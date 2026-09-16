@@ -1255,6 +1255,27 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	value = r6(-flt(orig.value_delta) * share)
 	orig_qty = -qty  # the cancelled share of the original's SIGNED quantity
 
+	# A backdated original also posted a day-1 leg in the period it carried
+	# into (prd_split under DR-35/DR-46, the earlier revaluation leg under
+	# DR-36), linked to it by caused_by_event_id and sitting in the adjust
+	# bucket. It is part of the same posting and unwinds with it, scaled by
+	# the same share - otherwise the reversal leaves the price-difference
+	# leg behind with no transaction to explain it. Collected here, before
+	# the value floor below, because the floor has to see the whole mirror.
+	companions = [
+		c for c in frappe.get_all(
+			"Inventory Valuation Event",
+			filters={"caused_by_event_id": orig.name, "item_code": scope.item_code, "is_cancelled": 0},
+			fields=["name", "value_delta", "prd_amount", "expense_portion"],
+			order_by="creation",
+		)
+		if not frappe.db.exists("Inventory Valuation Event", {"reversal_of": c.name, "is_cancelled": 0})
+	]
+	companion_value = 0.0
+	for c in companions:
+		c.mirror = r6(-flt(c.value_delta) * share)
+		companion_value = r6(companion_value + c.mirror)
+
 	# A cancellation nets the bucket the ORIGINAL event filled - it is never
 	# re-classified by its physical direction (OI-5 bucket mapping, confirmed
 	# by the client in the 2026-08-18 behaviour review, MAT-PRE-2026-00375:
@@ -1289,11 +1310,16 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# value would go negative). A cancellation that takes the quantity itself
 	# negative is a legitimate negative-stock excursion (OI-5): its value
 	# follows the frozen-MAP machinery exactly and must not be floored.
-	if is_receipt_family and value < 0 and flt(ipb.closing_qty) + qty >= 0:
+	# The floor measures the WHOLE mirror - the paired event plus its day-1
+	# companion - against what the scope carries: a C1-shaped original (prior
+	# PRD reversed into inventory on day 1) unwinds subtractively on both
+	# legs, and flooring only the first left positive stock at negative value.
+	total_mirror = r6(value + companion_value)
+	if is_receipt_family and total_mirror < 0 and flt(ipb.closing_qty) + qty >= 0:
 		available = max(flt(ipb.closing_value), 0.0)
-		if r6(available + value) < 0:
-			prd_floor = r2(available + value)  # negative: the part inventory cannot cover
-			value = r6(-available)
+		if r6(available + total_mirror) < 0:
+			prd_floor = r2(available + total_mirror)  # negative: the part inventory cannot cover
+			value = r6(value - prd_floor)
 	if is_receipt_family:
 		# the original filled (or, for a purchase return, netted) the In side:
 		# take the cancelled share back out of it. receipt_value carried the
@@ -1333,28 +1359,11 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	else:
 		ipb.reval_value = r6(flt(ipb.reval_value) + value)
 
-	# A backdated original also posted a day-1 leg in the period it carried
-	# into (prd_split under DR-35/DR-46, the earlier revaluation leg under
-	# DR-36), linked to it by caused_by_event_id and sitting in the adjust
-	# bucket. It is part of the same posting and unwinds with it, scaled by
-	# the same share - otherwise the reversal leaves the price-difference
-	# leg behind with no transaction to explain it.
-	companions = [
-		c for c in frappe.get_all(
-			"Inventory Valuation Event",
-			filters={"caused_by_event_id": orig.name, "item_code": scope.item_code, "is_cancelled": 0},
-			fields=["name", "value_delta", "prd_amount", "expense_portion"],
-			order_by="creation",
-		)
-		if not frappe.db.exists("Inventory Valuation Event", {"reversal_of": c.name, "is_cancelled": 0})
-	]
-	companion_value = 0.0
 	for c in companions:
-		c.mirror = r6(-flt(c.value_delta) * share)
 		ipb.adjust_value = r6(flt(ipb.adjust_value) + c.mirror)
-		companion_value = r6(companion_value + c.mirror)
 	recompute_closing(ipb)
 	_freeze_check(ipb)
+	_guard_positive_value(ipb, scope.item_code, "cancellation")
 
 	orig_sme = frappe.db.get_value("Inventory Valuation Event", orig.name, "movement_event_id")
 	sme, ive = write_events(

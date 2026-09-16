@@ -262,6 +262,37 @@ def run(commit=False):
 		gl_net(bd.name, prd) + gl_net(cx.name, prd) == 0 and gl_net(bd.name, stock) + gl_net(cx.name, stock) == 0,
 		f"prd {gl_net(bd.name, prd)}+{gl_net(cx.name, prd)} stock {gl_net(bd.name, stock)}+{gl_net(cx.name, stock)}")
 
+	# ---------------- cancelling a C1-shaped backdated receipt AFTER consumption:
+	# both mirror legs are subtractive (the paired event and its day-1 +252),
+	# so the DR-44 floor has to measure the whole mirror - never negative value
+	# on positive stock
+	it = make_item("_MR-C1CX")
+	docs = [make_pr(it, wh, 10, 15, posting_date=str(prior.replace(day=10))),
+		make_dn(it, wh, 20, posting_date=str(prior.replace(day=12))),       # prior -10 / -150 frozen 15
+		make_pr(it, wh, 20, 17.5)]                                          # current 10 / 175
+	rv = frappe.get_doc({"doctype": "Stock Revaluation", "company": COMPANY, "posting_date": nowdate(),
+		"items": [{"item_code": it, "warehouse": wh, "new_valuation_rate": 20}]})
+	rv.insert(ignore_permissions=True)
+	rv.submit()                                                              # current 10 / 200
+	docs.append(rv)
+	bd = make_pr(it, wh, 9, 43, posting_date=str(prior.replace(day=20)))   # C1: current 19 / 587 @ 30.8947
+	docs.append(bd)
+	docs.append(make_dn(it, wh, 9))                                          # 10 / 308.95 left; cancelling 9 leaves 1
+	cx = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", bd.name))
+	cx.submit()
+	docs.append(cx)
+	c = ipb_period(it, cy, cm)
+	stock_total = flt(sum(gl_net(d.name, stock) for d in docs), 2)
+	check("CANCEL C1 after consumption: 1 unit at value 0.00, never negative, unfrozen",
+		flt(c.closing_qty) == 1 and flt(c.closing_value, 2) == 0 and not c.is_negative
+		and flt(c.moving_avg_price) >= 0, f"{c.closing_qty}/{c.closing_value} MAP {c.moving_avg_price} neg {c.is_negative}")
+	check("CANCEL C1 after consumption: inventory GL across all documents equals the period balance",
+		stock_total == flt(c.closing_value, 2), f"gl {stock_total} ipb {c.closing_value}")
+	check("CANCEL C1 after consumption: the shortfall sits in PRD on the cancellation",
+		gl_net(cx.name, prd) < 0 and len(frappe.get_all("Inventory Valuation Event",
+			filters={"source_docname": cx.name, "is_cancelled": 0})) == 2,
+		f"prd {gl_net(cx.name, prd)}")
+
 	# ---------------- Cost Adjustment floor: inventory to zero, excess to PRD
 	from periodic_valuation.periodic_moving_average.kernel import post_value_event
 	it = make_item("_MR-FLOOR")
