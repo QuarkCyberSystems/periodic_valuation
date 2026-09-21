@@ -168,10 +168,18 @@ def run():
 	_allowed("PR FIFO + fixed-asset (no routed row) allowed",
 		_pr([_row(fifo, 5, 8), _row(fa, 1, 1000, asset_location=loc)]))
 	if frappe.get_meta("Purchase Receipt Item").has_field("project_accounting"):
-		project = frappe.db.get_value("Project Accounting", {"company": co}, "name")
+		# a project may enforce its own cost centre / warehouse (PA policy) -
+		# pick one that does not, so the only rule under test is the mixed-voucher one
+		project = frappe.db.get_value(
+			"Project Accounting",
+			{"company": co, "enforce_project_cost_center": 0, "enforce_project_warehouse": 0},
+			"name",
+		)
 		if project:
 			_allowed("PR routed + project dimension (no own posting) allowed",
 				_pr([_row(MAP_ITEM, 10, 5, project_accounting=project)]))
+		else:
+			check("PR routed + project dimension (no unenforced project on site) - skipped", True)
 	si = frappe.get_doc({
 		"doctype": "Sales Invoice", "company": co, "customer": "_SMK Customer",
 		"posting_date": nowdate(), "set_posting_time": 1,
