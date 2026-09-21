@@ -47,8 +47,9 @@ scheduler_events = {
 _cancel_guard = {"before_cancel": "periodic_valuation.overrides.cancel_guard.block_direct_cancel"}
 # Interim (D-030 term 2): a document on which another owner - core, project
 # accounting - posts its own rows beside routed items is refused, because the
-# Cancellation copy re-posts those rows. Lifted when the platform coordinator
-# reverses every owner together.
+# Cancellation copy re-posts those rows. Replaced by the platform dispatcher's
+# posts_rows answers at qcs_platform 0.1, deleted when the 0.3 coordinator
+# reverses every owner together (see overrides/mixed_voucher.py).
 _mixed_guard = "periodic_valuation.overrides.mixed_voucher.refuse_mixed_voucher"
 doc_events = {
 	"Purchase Receipt": {**_cancel_guard, "validate": _mixed_guard},
