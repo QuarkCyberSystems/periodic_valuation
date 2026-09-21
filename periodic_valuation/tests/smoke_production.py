@@ -106,7 +106,11 @@ def run(commit=False):
 		flt(c.closing_qty) == 30 and flt(c.closing_value, 2) == 360
 		and flt(c.moving_avg_price, 6) == 12, f"{c.closing_qty}/{c.closing_value}")
 
-	# ---------- P6 mixed voucher: routed + FIFO item coexist
+	# ---------- P6 mixed voucher: routed + FIFO item coexist at POSTING.
+	# Reversing such a document is not yet safe (the Cancellation copy re-posts
+	# the FIFO row - D-030 (d)), so validate refuses the shape unless a fixture
+	# says otherwise; smoke_mixed_voucher proves the refusal, this case keeps
+	# proving the posting arithmetic.
 	fifo_item = "_PRD-FIFO"
 	if not frappe.db.exists("Item", fifo_item):
 		frappe.get_doc({"doctype": "Item", "item_code": fifo_item, "item_name": fifo_item,
@@ -120,8 +124,12 @@ def run(commit=False):
 			{"item_code": it, "qty": 10, "rate": 10, "warehouse": wh},
 			{"item_code": fifo_item, "qty": 5, "rate": 8, "warehouse": wh},
 		]})
-	pr.insert(ignore_permissions=True)
-	pr.submit()
+	frappe.flags.qcs_allow_mixed_voucher = True
+	try:
+		pr.insert(ignore_permissions=True)
+		pr.submit()
+	finally:
+		frappe.flags.qcs_allow_mixed_voucher = False
 	gl = frappe.get_all("GL Entry", filters={"voucher_no": pr.name, "is_cancelled": 0},
 		fields=["account", "debit", "credit", "valuation_event_id"])
 	dr = flt(sum(g.debit for g in gl), 2)

@@ -45,22 +45,31 @@ scheduler_events = {
 # Universal cancellation rule: docstatus 1 -> 2 is never allowed for documents
 # containing periodic-valuation items; a dated Cancellation document is used instead.
 _cancel_guard = {"before_cancel": "periodic_valuation.overrides.cancel_guard.block_direct_cancel"}
+# Interim (D-030 term 2): a document on which another owner - core, project
+# accounting - posts its own rows beside routed items is refused, because the
+# Cancellation copy re-posts those rows. Lifted when the platform coordinator
+# reverses every owner together.
+_mixed_guard = "periodic_valuation.overrides.mixed_voucher.refuse_mixed_voucher"
 doc_events = {
-	"Purchase Receipt": _cancel_guard,
-	"Delivery Note": _cancel_guard,
+	"Purchase Receipt": {**_cancel_guard, "validate": _mixed_guard},
+	"Delivery Note": {**_cancel_guard, "validate": _mixed_guard},
 	"Stock Entry": {
 		**_cancel_guard,
-		# a reversal shows the ORIGINAL rate, not the valuation at reversal time
-		# (WA-0003-01 item 5)
-		"validate": "periodic_valuation.overrides.reversal_rate.restore_original_rates",
+		"validate": [
+			_mixed_guard,
+			# a reversal shows the ORIGINAL rate, not the valuation at reversal time
+			# (WA-0003-01 item 5)
+			"periodic_valuation.overrides.reversal_rate.restore_original_rates",
+		],
 	},
 	"Purchase Invoice": {
 		**_cancel_guard,
+		"validate": _mixed_guard,
 		"on_submit": "periodic_valuation.periodic_moving_average.invoice_diff.on_purchase_invoice_submit",
 	},
-	"Sales Invoice": _cancel_guard,
-	"Subcontracting Receipt": _cancel_guard,
-	"Landed Cost Voucher": _cancel_guard,
+	"Sales Invoice": {**_cancel_guard, "validate": _mixed_guard},
+	"Subcontracting Receipt": {**_cancel_guard, "validate": _mixed_guard},
+	"Landed Cost Voucher": {**_cancel_guard, "validate": _mixed_guard},
 	"Stock Reconciliation": _cancel_guard,
 	# defaults-as-templates: blank STD items get the group default stamped on save
 	"Item": {"validate": "periodic_valuation.overrides.cancel_guard.stamp_settlement_view"},
