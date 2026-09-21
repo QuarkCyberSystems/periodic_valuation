@@ -180,12 +180,23 @@ def run():
 	si.set_missing_values()
 	_allowed("SI routed + FIFO row allowed (return-reversed: core rows reverse natively)", si)
 
-	# --- the fixture flag builds the refused shape
+	# --- the fixture flag builds the refused shape; reversing it is then refused
+	# with the "predates this rule" text, not "raise a separate voucher"
 	frappe.flags.qcs_allow_mixed_voucher = True
 	try:
-		_allowed("flag qcs_allow_mixed_voucher builds routed + FIFO PR", _pr([_row(MAP_ITEM, 10, 5), _row(fifo, 5, 8)]))
+		mixed = _pr([_row(MAP_ITEM, 10, 5), _row(fifo, 5, 8)])
+		_allowed("flag qcs_allow_mixed_voucher builds routed + FIFO PR", mixed)
+		mixed.submit()
 	finally:
 		frappe.flags.qcs_allow_mixed_voucher = False
+	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+
+	try:
+		make_cancellation("Purchase Receipt", mixed.name)
+		check("Create Cancellation of a pre-rule mixed PR refused", False, "cancellation created")
+	except frappe.ValidationError as e:
+		check("Create Cancellation of a pre-rule mixed PR refused with the reversal text",
+			"predates this rule" in str(e) and "separate" not in str(e), str(e)[:160])
 
 	from periodic_valuation.tests import smoke_kernel
 
