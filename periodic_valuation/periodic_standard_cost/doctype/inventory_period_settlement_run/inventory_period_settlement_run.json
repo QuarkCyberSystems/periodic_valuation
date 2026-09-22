@@ -14,6 +14,11 @@
   "cb1",
   "run_type",
   "status",
+  "sec_scope",
+  "item_code",
+  "warehouse",
+  "cb_scope",
+  "item_group",
   "sec2",
   "scopes_settled",
   "total_es_var",
@@ -66,6 +71,36 @@
    "label": "Status",
    "options": "Draft\nCompleted\nFailed",
    "read_only": 1
+  },
+  {
+   "fieldname": "sec_scope",
+   "fieldtype": "Section Break",
+   "label": "Scope (optional)",
+   "description": "Leave empty to settle every Periodic Standard Cost item in the company for the month. Fill Item (and Warehouse for warehouse-valued items) or Item Group to settle just those scopes; the month can be settled item by item and the remaining scopes later."
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "depends_on": "item_code"
+  },
+  {
+   "fieldname": "cb_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Item Group",
+   "options": "Item Group",
+   "description": "All Periodic Standard Cost items in this group and its sub-groups."
   },
   {
    "fieldname": "sec2",

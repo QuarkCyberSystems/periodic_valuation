@@ -15,16 +15,39 @@ class InventoryPeriodSettlementRun(Document):
 	def validate(self):
 		if not (1 <= (self.period_month or 0) <= 12):
 			frappe.throw(_("Period Month must be 1-12."))
+		if self.item_code and frappe.db.get_value("Item", self.item_code, "valuation_method") != "Periodic Standard Cost":
+			frappe.throw(_("{0} is not a Periodic Standard Cost item.").format(self.item_code))
+		if self.warehouse and not self.item_code:
+			frappe.throw(_("Choose the Item before narrowing to a Warehouse."))
 
 	def on_submit(self):
+		# optional scope filter (DR-47): settle one item, one warehouse scope or
+		# one item group instead of the whole company - the settlement itself
+		# was always per scope, this only narrows which scopes the run visits
+		conditions, params = "", [self.company]
+		if self.item_code:
+			conditions += " AND ive.item_code = %s"
+			params.append(self.item_code)
+			if self.warehouse:
+				conditions += " AND ive.warehouse = %s"
+				params.append(self.warehouse)
+		if self.item_group:
+			lft, rgt = frappe.db.get_value("Item Group", self.item_group, ["lft", "rgt"])
+			conditions += " AND i.item_group IN (SELECT name FROM `tabItem Group` WHERE lft >= %s AND rgt <= %s)"
+			params += [lft, rgt]
 		scopes = frappe.db.sql(
-			"""SELECT DISTINCT ive.item_code, ive.warehouse
+			f"""SELECT DISTINCT ive.item_code, ive.warehouse
 			FROM `tabInventory Valuation Event` ive
 			JOIN `tabItem` i ON i.name = ive.item_code
 			WHERE ive.company = %s AND ive.is_cancelled = 0
-				AND COALESCE(ive.std_trans, '') != '' AND i.valuation_method = 'Periodic Standard Cost'""",
-			(self.company,), as_dict=True,
+				AND COALESCE(ive.std_trans, '') != '' AND i.valuation_method = 'Periodic Standard Cost'{conditions}""",
+			tuple(params), as_dict=True,
 		)
+		if not scopes and (self.item_code or self.item_group):
+			frappe.throw(
+				_("No Periodic Standard Cost activity found for the selected scope in {0}.").format(self.company),
+				title=_("Nothing To Settle"),
+			)
 		settled, total_es, total_out = 0, 0.0, 0.0
 		notes = []
 		# per-scope failure isolation (m3): one scope's error must not abort

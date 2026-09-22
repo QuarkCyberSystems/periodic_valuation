@@ -45,6 +45,7 @@ class InventoryPeriodClose(Document):
 		from periodic_valuation.shared.period_close import (
 			assert_bin_ledger_consistency,
 			assert_no_stranded_value,
+			assert_std_scopes_settled,
 		)
 
 		continuity = assert_continuity(period)
@@ -53,6 +54,9 @@ class InventoryPeriodClose(Document):
 		recon = run_reconciliation_gate(period)
 		bin_ledger = assert_bin_ledger_consistency(period)
 		stranded = assert_no_stranded_value(period)
+		# the settlement gate only bites on the real close (freeze of the
+		# previous-open month); closing the OPEN month just rolls forward
+		std_settled = assert_std_scopes_settled(period) if period.status == "PREV_OPEN_UNSETTLED" else {"ok": True, "unsettled": []}
 
 		self.db_set(
 			{
@@ -129,6 +133,20 @@ class InventoryPeriodClose(Document):
 					"A value event did not write its SLE row, so core stock reports "
 					"under-state inventory by the difference."
 				).format(detail)
+			)
+
+		if std_settled["unsettled"]:
+			detail = ", ".join(
+				"{0} {1} ({2})".format(u["item_code"], u["warehouse"], u["view"])
+				for u in std_settled["unsettled"][:10]
+			)
+			more = len(std_settled["unsettled"]) - 10
+			failures.append(
+				_(
+					"Standard-cost scopes not yet settled for {0}: {1}{2}. A month freezes only once every "
+					"Periodic Standard Cost item with activity carries a settlement - run Inventory Period "
+					"Settlement Run (for the company, an item group or a single item) first."
+				).format(period.period_name, detail, _(" and {0} more").format(more) if more > 0 else "")
 			)
 
 		if failures:

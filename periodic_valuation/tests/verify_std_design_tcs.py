@@ -1175,6 +1175,76 @@ def section_k(company, wh, today):
 	tc(49, "the pair nets to zero in the stock ledger (engine-level scope: only the mirrors)",
 		sle_total(item) == 0, sle_total(item))
 
+# ===================================================================== L
+def section_l(company, wh, today):
+	"""Per-item settlement trigger + settlement gate on the freeze (DR-47):
+	a filtered Settlement Run settles only the chosen scope; the close gate
+	names the scopes still unsettled and clears once they settle."""
+	from periodic_valuation.shared.period_close import assert_std_scopes_settled
+
+	a_item = std_item("_TCV-L-A")
+	b_item = std_item("_TCV-L-B")
+	for it in (a_item, b_item):
+		scv_release(company, it, today.year, today.month, 10)
+		make_pr(it, wh, 10, 12)                       # PPV 20 each, basis 10
+	period = frappe.get_doc("Inventory Period",
+		{"company": company, "period_year": today.year, "period_month": today.month})
+	gate = assert_std_scopes_settled(period)
+	names = {u["item_code"] for u in gate["unsettled"]}
+	tc(50, "settlement gate lists both unsettled scopes", {a_item, b_item} <= names and not gate["ok"], str(names))
+
+	run = frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": company,
+		"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE",
+		"item_code": a_item})
+	run.insert(ignore_permissions=True)
+	run.submit()
+	run.reload()
+	sa = frappe.db.exists("Inventory Period Settlement", {"item_code": a_item, "period_year": today.year,
+		"period_month": today.month, "cancelled": 0})
+	sb = frappe.db.exists("Inventory Period Settlement", {"item_code": b_item, "period_year": today.year,
+		"period_month": today.month, "cancelled": 0})
+	tc(50, "filtered run settles exactly the chosen item (A yes, B no)",
+		run.scopes_settled == 1 and sa and not sb, f"settled {run.scopes_settled} A={sa} B={sb}")
+	gate = assert_std_scopes_settled(period)
+	names = {u["item_code"] for u in gate["unsettled"]}
+	tc(50, "gate drops A and still names B", a_item not in names and b_item in names, str(names))
+
+	try:
+		bad = frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": company,
+			"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE",
+			"item_code": "_TCV-L-NOPE"})
+		if not frappe.db.exists("Item", "_TCV-L-NOPE"):
+			frappe.get_doc({"doctype": "Item", "item_code": "_TCV-L-NOPE", "item_name": "x",
+				"item_group": frappe.get_all("Item Group", filters={"is_group": 0}, limit=1, pluck="name")[0],
+				"stock_uom": frappe.db.get_value("Item", a_item, "stock_uom"), "is_stock_item": 1,
+				"valuation_method": "Periodic Moving Average"}).insert(ignore_permissions=True)
+		bad.insert(ignore_permissions=True)
+		tc(50, "run refuses a non-STD item filter", False, "accepted")
+	except frappe.ValidationError:
+		tc(50, "run refuses a non-STD item filter", True)
+
+	grp = frappe.db.get_value("Item", b_item, "item_group")
+	run2 = frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": company,
+		"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE",
+		"item_group": grp})
+	run2.insert(ignore_permissions=True)
+	run2.submit()
+	run2.reload()
+	sb = frappe.db.exists("Inventory Period Settlement", {"item_code": b_item, "period_year": today.year,
+		"period_month": today.month, "cancelled": 0})
+	tc(50, "item-group run settles the remaining scope and skips already-settled A",
+		sb and run2.scopes_settled >= 1, f"B={sb} settled {run2.scopes_settled}")
+	gate = assert_std_scopes_settled(period)
+	names = {u["item_code"] for u in gate["unsettled"]}
+	tc(50, "gate no longer names A or B", not ({a_item, b_item} & names), str(names))
+
+	# a scope with no quantity basis is not a blocker (engine: nothing to settle)
+	c_item = std_item("_TCV-L-C")
+	scv_release(company, c_item, today.year, today.month, 10)
+	tc(50, "a scope without activity this month is not counted by the gate",
+		c_item not in {u["item_code"] for u in assert_std_scopes_settled(period)["unsettled"]})
+
+
 # ================================================================== main
 def run(commit=False):
 	wh = ensure_masters()
@@ -1185,7 +1255,7 @@ def run(commit=False):
 	today = getdate(nowdate())
 
 	sections = [section_a, section_b, section_c, section_d, section_e,
-		section_f, section_g, section_h, section_i, section_j, section_k]
+		section_f, section_g, section_h, section_i, section_j, section_k, section_l]
 	for fn in sections:
 		try:
 			fn(company, wh, today)

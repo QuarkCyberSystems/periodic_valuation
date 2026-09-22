@@ -175,6 +175,10 @@ def run(commit=False):
 	close.insert(ignore_permissions=True)
 	close.submit()
 	check("Close of the previous-open month freezes it after the gates", status_of(*ym(m1)) == "SETTLED_FROZEN", status_of(*ym(m1)))
+	from periodic_valuation.shared.period_close import assert_std_scopes_settled
+	check("settlement gate is a no-op for a MAP-only company",
+		assert_std_scopes_settled(period(*ym(m1)))["ok"]
+		and frappe.db.get_value("Inventory Period Close", close.name, "docstatus") == 1)
 
 	# ---- 7. Close of the OPEN month rolls (does not freeze)
 	make_pr(item, wh, 1, 15, str(today))
