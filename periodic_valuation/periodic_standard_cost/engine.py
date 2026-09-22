@@ -877,6 +877,17 @@ class StdEngine:
 			"cancelled": 1,
 			"reversed_by_events": f"{reverse_event.name},{rev_reverse_event.name}",
 		}, update_modified=False)
+		# the balance row's Settlement link is the LIVE settlement: a reversed
+		# one is history (kept on the cancelled row), so the stamp is cleared
+		# and the scope reads as unsettled everywhere (DR-47 / D-035)
+		ipb_name = frappe.db.get_value("Inventory Period Balance", {
+			"company": self.company, "item_code": self.item_code,
+			"warehouse": self.warehouse or "", "period_year": ty, "period_month": tm,
+		})
+		if ipb_name:
+			frappe.db.set_value("Inventory Period Balance", ipb_name, {
+				"settlement": None, "settlement_inventory_total": 0, "settlement_consumption_total": 0,
+			}, update_modified=False)
 		self._absorb_settlement_value(sett, ty, tm, flt(sett.es_var), sign=-1)
 		return reverse_event, rev_reverse_event
 

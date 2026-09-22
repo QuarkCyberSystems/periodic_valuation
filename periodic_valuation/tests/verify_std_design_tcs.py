@@ -1241,8 +1241,56 @@ def section_l(company, wh, today):
 	# a scope with no quantity basis is not a blocker (engine: nothing to settle)
 	c_item = std_item("_TCV-L-C")
 	scv_release(company, c_item, today.year, today.month, 10)
-	tc(50, "a scope without activity this month is not counted by the gate",
+	tc(50, "a scope without any quantity basis is not counted by the gate",
 		c_item not in {u["item_code"] for u in assert_std_scopes_settled(period)["unsettled"]})
+
+	# QUIET scope (chief review MUST 1): entered last month, nothing this
+	# month - it still carries stock (beg 10) and its Sett-Rev pool, so the
+	# company-wide run would settle it and the gate must name it
+	from periodic_valuation.periodic_standard_cost.engine import StdEngine
+	py, pm = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+	q_item = std_item("_TCV-L-Q")
+	scv_release(company, q_item, py, pm, 10)
+	eq = StdEngine(company, q_item, wh)
+	src = ("Item", q_item)
+	eq.post(trans="Rec", posting_date=f"{py}-{pm:02d}-05", entry_date=f"{py}-{pm:02d}-05",
+		qty=10, sc=10, t_ac_override=120, source=src)      # PPV 20 last month
+	eq.close_period(year=py, month=pm, sc=10, source=src, entry_date=f"{py}-{pm:02d}-28")
+	names = {u["item_code"] for u in assert_std_scopes_settled(period)["unsettled"]}
+	tc(50, "quiet scope (no movement this month, stock + Sett-Rev pool carried) IS named by the gate",
+		q_item in names, str(sorted(names))[:200])
+
+	# filter refusals (chief review SHOULD)
+	try:
+		frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": company,
+			"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE",
+			"item_code": a_item, "warehouse": wh}).insert(ignore_permissions=True)
+		tc(50, "warehouse filter refused on a company-scope item", False, "accepted")
+	except frappe.ValidationError as e:
+		tc(50, "warehouse filter refused on a company-scope item", "company level" in str(e), str(e)[:120])
+	other_grp = frappe.get_all("Item Group", filters={"is_group": 0, "name": ("!=", grp)}, limit=1, pluck="name")
+	if other_grp:
+		try:
+			frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": company,
+				"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE",
+				"item_code": a_item, "item_group": other_grp[0]}).insert(ignore_permissions=True)
+			tc(50, "item + item group refused when the item is not in the group", False, "accepted")
+		except frappe.ValidationError as e:
+			tc(50, "item + item group refused when the item is not in the group", "is not in Item Group" in str(e), str(e)[:120])
+
+	# Settle button state after a Sett-Reverse (chief review MUST 2)
+	sett_a = frappe.get_doc("Inventory Period Settlement", sa)
+	ipb_a = frappe.get_doc("Inventory Period Balance", {"company": company, "item_code": a_item,
+		"period_year": today.year, "period_month": today.month})
+	tc(50, "settled scope: server state says settled, no Settle offer",
+		ipb_a.settlement == sett_a.name and ipb_a.settlement_state()["settled"] is True, str(ipb_a.settlement))
+	StdEngine(company, a_item, wh).sett_reverse(sett_a.name, source=("Item", a_item))
+	ipb_a.reload()
+	st = ipb_a.settlement_state()
+	tc(50, "after Sett-Reverse: stamp cleared, server state offers Settle again, gate names A",
+		not ipb_a.settlement and st["settled"] is False and st["is_std"] and st["postable"]
+		and a_item in {u["item_code"] for u in assert_std_scopes_settled(period)["unsettled"]},
+		f"stamp {ipb_a.settlement} state {st}")
 
 
 # ================================================================== main

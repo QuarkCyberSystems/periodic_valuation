@@ -214,29 +214,22 @@ def run_reconciliation_gate(period):
 
 
 def assert_std_scopes_settled(period):
-	"""Gate: every Periodic Standard Cost scope with activity in the month must
-	carry a live settlement before the month can freeze (DR-47: the STD plan's
-	close ceremony settles, then freezes; with per-item settlement runs a month
-	can be partially settled, so the freeze has to check).
+	"""Gate: every Periodic Standard Cost scope the engine would settle for the
+	month must carry a live settlement before the month can freeze (DR-47:
+	the STD plan's close ceremony settles, then freezes; with per-item
+	settlement runs a month can be partially settled, so the freeze checks).
 
-	Activity = standard-cost movement events (reason std_event) dated in the
-	period. Scopes the engine itself cannot settle - no quantity basis
-	(beg + in <= 0, the engine's "Nothing to settle") - are not counted: their
-	pool legitimately stays open and rolls into the next month.
+	Candidates are exactly the Settlement Run's (one enumerator, D-035) - a
+	scope quiet in the month still carries its pool through the Sett-Rev and
+	is settleable. The only exclusions are the engine's own: already locked by
+	a live settlement, or no quantity basis (beg + in <= 0, "Nothing to
+	settle"), whose pool legitimately stays open and rolls forward.
 	"""
 	from periodic_valuation.periodic_standard_cost.engine import StdEngine
+	from periodic_valuation.periodic_standard_cost.kernel import std_scopes
 
-	rows = frappe.db.sql(
-		"""SELECT DISTINCT ive.item_code, ive.warehouse
-		FROM `tabInventory Valuation Event` ive
-		JOIN `tabItem` i ON i.name = ive.item_code
-		WHERE ive.company = %s AND ive.period_year = %s AND ive.period_month = %s
-			AND ive.is_cancelled = 0 AND ive.reason_code = 'std_event'
-			AND i.valuation_method = 'Periodic Standard Cost'""",
-		(period.company, period.period_year, period.period_month), as_dict=True,
-	)
 	unsettled, seen = [], set()
-	for r in rows:
+	for r in std_scopes(period.company):
 		engine = StdEngine(period.company, r.item_code, r.warehouse)
 		key = (r.item_code, engine.warehouse or "")
 		if key in seen:

@@ -384,6 +384,45 @@ def _write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_na
 	write_sle(controller, sle_row, scope, ipb, value)
 
 
+def std_scopes(company, *, item_code=None, warehouse=None, item_group=None, period_year=None):
+	"""The one enumerator of standard-cost scopes (DR-47 / D-035): every
+	(item, warehouse) pair that carries a live standard-cost event row for the
+	company, optionally narrowed to one item (+ warehouse), one item group and
+	its sub-groups, or one fiscal year. The Settlement Run, the freeze gate and
+	the Year End Close all read this list, so they can never disagree about
+	which scopes the engine acts on.
+
+	`warehouse` is the physical stamp on the events; callers build a
+	`StdEngine` per row, which resolves the valuation scope (company-scope
+	items collapse onto warehouse '')."""
+	conditions, params = "", [company]
+	if item_code:
+		conditions += " AND ive.item_code = %s"
+		params.append(item_code)
+		if warehouse:
+			conditions += " AND ive.warehouse = %s"
+			params.append(warehouse)
+	if item_group:
+		from frappe.utils.nestedset import get_descendants_of
+
+		groups = [item_group] + list(get_descendants_of("Item Group", item_group))
+		conditions += " AND i.item_group IN %s"
+		params.append(tuple(groups))
+	if period_year:
+		conditions += " AND ive.period_year = %s"
+		params.append(period_year)
+	return frappe.db.sql(
+		f"""SELECT DISTINCT ive.item_code, ive.warehouse
+		FROM `tabInventory Valuation Event` ive
+		JOIN `tabItem` i ON i.name = ive.item_code
+		WHERE ive.company = %s AND ive.is_cancelled = 0
+			AND COALESCE(ive.std_trans, '') != ''
+			AND i.valuation_method = 'Periodic Standard Cost'{conditions}
+		ORDER BY ive.item_code, ive.warehouse""",
+		tuple(params), as_dict=True,
+	)
+
+
 def _cascade_backdated_ipb(scope, period, qty, value, source):
 	"""A backdated posting lands in ITS period's balance row; every later
 	period's opening (and thus closing) must shift by the same delta or the

@@ -37,15 +37,9 @@ class STDYearEndClose(Document):
 
 	def on_submit(self):
 		fy = int(self.fiscal_year)
-		scopes = frappe.db.sql(
-			"""SELECT DISTINCT ive.item_code, ive.warehouse
-			FROM `tabInventory Valuation Event` ive
-			JOIN `tabItem` i ON i.name = ive.item_code
-			WHERE ive.company = %s AND ive.is_cancelled = 0 AND ive.period_year = %s
-				AND COALESCE(ive.std_trans, '') != ''
-				AND i.valuation_method = 'Periodic Standard Cost'""",
-			(self.company, fy), as_dict=True,
-		)
+		from periodic_valuation.periodic_standard_cost.kernel import std_scopes
+
+		scopes = std_scopes(self.company, period_year=fy)
 		log, settled, verified, failures = [], 0, 0, []
 		for s in scopes:
 			key = f"{s.item_code}" + (f" @ {s.warehouse}" if s.warehouse else "")

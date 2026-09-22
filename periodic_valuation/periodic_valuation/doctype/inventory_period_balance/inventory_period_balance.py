@@ -65,3 +65,21 @@ class InventoryPeriodBalance(Document):
 	@property
 	def effective_opening_value(self):
 		return (self.opening_value or 0) + (self.carryover_value or 0)
+
+	@frappe.whitelist()
+	def settlement_state(self):
+		"""What the form needs to offer 'Settle This Item' (DR-47): rendered
+		from the server's own predicates, not re-derived on the client."""
+		from periodic_valuation.periodic_standard_cost.engine import StdEngine
+		from periodic_valuation.shared.periods import POSTING_ALLOWED_STATES
+
+		self.check_permission("read")
+		is_std = frappe.get_cached_value("Item", self.item_code, "valuation_method") == "Periodic Standard Cost"
+		status = frappe.db.get_value("Inventory Period", {"company": self.company,
+			"period_year": self.period_year, "period_month": self.period_month}, "status")
+		settled = False
+		if is_std:
+			settled = StdEngine(self.company, self.item_code, self.warehouse or None).is_period_locked(
+				self.period_year, self.period_month)
+		return {"is_std": is_std, "postable": status in POSTING_ALLOWED_STATES,
+			"period_status": status, "settled": settled}
