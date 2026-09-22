@@ -69,6 +69,7 @@ class InventoryPeriodClose(Document):
 				"discrepancy": flt(recon["discrepancy"]),
 				"reconciliation_tolerance": flt(recon["tolerance"]),
 				"reconciliation_passed": 1 if recon["passed"] else 0,
+				"std_scopes_settled": 1 if std_settled["ok"] else 0,
 			}
 		)
 
@@ -144,8 +145,8 @@ class InventoryPeriodClose(Document):
 			failures.append(
 				_(
 					"Standard-cost scopes not yet settled for {0}: {1}{2}. A month freezes only once every "
-					"Periodic Standard Cost item with activity carries a settlement - run Inventory Period "
-					"Settlement Run (for the company, an item group or a single item) first."
+					"Periodic Standard Cost scope the engine would settle carries a live settlement - run "
+					"Inventory Period Settlement Run (for the company, an item group or a single item) first."
 				).format(period.period_name, detail, _(" and {0} more").format(more) if more > 0 else "")
 			)
 

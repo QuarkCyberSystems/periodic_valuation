@@ -25,6 +25,7 @@
   "col_checks",
   "no_orphan_gl",
   "no_orphan_events",
+  "std_scopes_settled",
   "sec_remarks",
   "remarks",
   "amended_from"
@@ -132,6 +133,13 @@
    "fieldtype": "Check",
    "label": "No Orphan Valuation Events",
    "read_only": 1
+  },
+  {
+   "fieldname": "std_scopes_settled",
+   "fieldtype": "Check",
+   "label": "STD Scopes Settled",
+   "read_only": 1,
+   "description": "Every Periodic Standard Cost scope the engine would settle carries a live settlement (DR-47). Always set for a roll of the OPEN month."
   },
   {
    "fieldname": "sec_remarks",
