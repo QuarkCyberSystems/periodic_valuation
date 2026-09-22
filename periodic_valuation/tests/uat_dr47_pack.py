@@ -13,11 +13,12 @@ bench --site <site> execute periodic_valuation.tests.uat_dr47_pack.run --kwargs 
          Settlement Run filtered to the group
   D47-D  receipt at a price variance, deliberately LEFT UNSETTLED: its
          Inventory Period Balance shows "Settle This Item"
-  D47-E  receipt dated in the PREVIOUS month (August, still previous-open):
-         August now has an unsettled standard-cost scope, so Inventory
-         Period Close of August is REFUSED naming D47-E until it is settled
-         (the client does that step: Settle This Item on the August balance
-         row, then Close again)
+  D47-E  receipt dated in the PREVIOUS month (still previous-open): that
+         month now has an unsettled standard-cost scope, so its Inventory
+         Period Close is REFUSED naming D47-E until it is settled. The pack
+         proves the full path (refuse -> settle -> close passes) inside a
+         savepoint and rolls it back, so the client performs it: Settle This
+         Item on the previous-month balance row, then Close again.
 
 Runs in "STD UAT Co" (created by uat_std_pack if missing). Rolled back
 unless commit=True; the scenario -> document index prints between INDEX
@@ -26,9 +27,7 @@ markers."""
 import frappe
 from frappe.utils import flt, getdate, nowdate
 
-from periodic_valuation.tests.uat_std_pack import (
-	ABBR, COMPANY, ensure_company, make_pr, scv_release, std_item,
-)
+from periodic_valuation.tests.uat_std_pack import COMPANY, ensure_company, make_pr, scv_release, std_item
 
 CHECKS, INDEX = [], []
 GROUP = "DR-47 Demo Group"
@@ -80,6 +79,8 @@ def run(commit=False):
 	prev = frappe.get_doc("Inventory Period", {"company": COMPANY, "period_year": py, "period_month": pm})
 	if prev.status != "PREV_OPEN_UNSETTLED":
 		frappe.throw(f"{prev.name} is {prev.status}; the pack needs the previous month previous-open.")
+	if frappe.db.exists("Item Group", GROUP) or frappe.db.exists("Item", {"item_code": ("like", "D47-%")}):
+		frappe.throw("The DR-47 demo pack has already been applied on this site (D47-* items or the demo group exist).")
 	if not frappe.db.exists("Item Group", GROUP):
 		frappe.get_doc({"doctype": "Item Group", "item_group_name": GROUP,
 			"parent_item_group": frappe.db.get_value("Item Group", {"is_group": 1, "parent_item_group": ""}),
@@ -131,24 +132,44 @@ def run(commit=False):
 		f"settlement_state {st}")
 
 	# ---- D47-E: previous-month receipt makes the previous month unfreezable until settled
-	e = demo_item("D47-E Blocks August Close", "D47-E - previous-month receipt: Close refused until settled")
+	e = demo_item(f"D47-E Blocks {prev.period_name} Close",
+		f"D47-E - receipt dated {prev.period_name}: Close of {prev.period_name} refused until settled")
 	scv_release(e, py, pm, 10)
 	pr_e = make_pr(e, wh, 10, 12, posting_date=f"{py}-{pm:02d}-20")   # (BD) receipt, PPV 20 in the previous month
 	gate = assert_std_scopes_settled(prev)
 	names = {u["item_code"] for u in gate["unsettled"]}
 	check("D47-E", "settlement gate names the previous-month scope", e in names and not gate["ok"], str(sorted(names)))
-	frappe.db.savepoint("d47_close_probe")
-	refused = ""
-	try:
+	def try_close():
 		ipc = frappe.get_doc({"doctype": "Inventory Period Close", "company": COMPANY,
 			"inventory_period": prev.name, "posting_date": nowdate()})
 		ipc.insert(ignore_permissions=True)
 		ipc.submit()
+		return ipc
+
+	# probe the whole client path inside a savepoint, then roll it back so
+	# the client performs it live: refuse -> Settle This Item -> Close passes
+	frappe.db.savepoint("d47_close_probe")
+	refused, passed_after = "", None
+	try:
+		try_close()
 	except frappe.ValidationError as ex:
 		refused = frappe.utils.strip_html(str(ex))
 	frappe.db.rollback(save_point="d47_close_probe")
 	check("D47-E", "Inventory Period Close of the previous month is refused and names D47-E",
 		e in refused and "Settlement Run" in refused, refused[:200])
+	frappe.db.savepoint("d47_close_after")
+	try:
+		run_e = run_settlement(py, pm, item_code=e)          # what Settle This Item opens
+		ipc_ok = try_close()
+		passed_after = (run_e.scopes_settled, frappe.db.get_value("Inventory Period", prev.name, "status"),
+			ipc_ok.std_scopes_settled)
+	except frappe.ValidationError as ex:
+		passed_after = ("ERR", frappe.utils.strip_html(str(ex))[:160])
+	frappe.db.rollback(save_point="d47_close_after")
+	check("D47-E", "after settling D47-E the same Close passes and freezes the month (probed, rolled back for the client)",
+		passed_after == (1, "SETTLED_FROZEN", 1), str(passed_after))
+	check("D47-E", "probe left the previous month previous-open and D47-E unsettled for the client",
+		frappe.db.get_value("Inventory Period", prev.name, "status") == "PREV_OPEN_UNSETTLED" and not settled(e, py, pm))
 	bal_e = balance(e, py, pm)
 	idx("D47-E", f"previous month {prev.period_name}: Close refused until this scope is settled (client step)",
 		[("Purchase Receipt", pr_e.name), ("Inventory Period Balance", bal_e.name), ("Inventory Period", prev.name)],
