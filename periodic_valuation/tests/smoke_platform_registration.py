@@ -121,6 +121,9 @@ def _reversal_pair(fixtures, adapter, checks):
 	checks("V-05 Create Cancellation offered on a routed receipt", [a.label for a in adapter.actions(pr)] == ["Create Cancellation"])
 	canc_name = make_cancellation("Purchase Receipt", pr.name)
 	checks("V-05 a draft Cancellation stands: the offer is withdrawn", adapter.actions(pr) == ())
+	drafted = ui_state("Purchase Receipt", pr.name)
+	checks("V-05 the original says where the action went while the draft stands",
+		(drafted["banner"] or "").startswith("Cancellation " + canc_name + " is drafted") and not drafted["actions"], str(drafted["banner"]))
 	try:
 		make_cancellation("Purchase Receipt", pr.name)
 		checks("V-05 a second Cancellation is refused while one stands", False, "made")
