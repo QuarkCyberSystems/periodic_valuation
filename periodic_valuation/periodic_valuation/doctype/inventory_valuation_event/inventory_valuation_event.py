@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from periodic_valuation.shared.immutable import block_delete, block_update, kernel_only_insert
+from periodic_valuation.shared.immutable import kernel_only_insert
 
 
 class InventoryValuationEvent(Document):
@@ -22,8 +22,6 @@ class InventoryValuationEvent(Document):
 				title=_("Missing Source Reference"),
 			)
 
-	def validate(self):
-		block_update(self)
 		if self.is_new() or self.flags.in_insert:
 			self.validate_posting_intent()
 
@@ -48,5 +46,3 @@ class InventoryValuationEvent(Document):
 				title=_("Posting Intent Violation"),
 			)
 
-	def on_trash(self):
-		block_delete(self)

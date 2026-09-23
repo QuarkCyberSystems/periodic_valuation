@@ -113,6 +113,9 @@ def get_custom_fields():
 		],
 	}
 
+	# is_cancellation / cancellation_against are the platform's fields on every
+	# governed doctype (qcs_platform.core.fields, D-029); only the kernel's own
+	# stamp is installed here
 	for doctype in CANCELLATION_DOCTYPES:
 		custom_fields[doctype] = [
 			{
@@ -125,26 +128,6 @@ def get_custom_fields():
 				"in_standard_filter": 1,
 				"insert_after": "cancellation_against",
 				"description": "Stamped by the valuation kernel from the action taken; never user-selected.",
-			},
-			{
-				"fieldname": "is_cancellation",
-				"label": "Is Cancellation",
-				"fieldtype": "Check",
-				"default": "0",
-				"no_copy": 1,
-				"read_only_depends_on": "eval:!doc.__islocal",
-				"insert_after": "is_return" if doctype != "Landed Cost Voucher" else "company",
-				"description": "Dated reversal document preserving the immutable ledger.",
-			},
-			{
-				"fieldname": "cancellation_against",
-				"label": "Cancellation Against",
-				"fieldtype": "Link",
-				"options": doctype,
-				"no_copy": 1,
-				"depends_on": "is_cancellation",
-				"mandatory_depends_on": "is_cancellation",
-				"insert_after": "is_cancellation",
 			},
 		]
 

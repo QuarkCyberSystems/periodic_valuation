@@ -1,4 +1,5 @@
-"""Interim mixed-voucher refusal (D-030 term 2) -
+"""Interim mixed-voucher refusal (D-030 term 2), now raised by qcs_platform's
+dispatcher from this app's `posts_rows` answer -
 bench --site <site> execute periodic_valuation.tests.smoke_mixed_voucher.run
 
 Proves the four shapes the 2026-09-17 probes showed cannot be reversed are
@@ -83,7 +84,7 @@ def _refused(label, doc):
 	try:
 		doc.insert(ignore_permissions=True)
 	except frappe.ValidationError as e:
-		ok = "Mixed Voucher" in (getattr(e, "title", "") or "") or "mixes periodic-valuation items" in str(e)
+		ok = "Mixed Voucher" in (getattr(e, "title", "") or "") or "mixes rows" in str(e)
 		check(label, ok, str(e)[:120])
 		return
 	check(label, False, "inserted without refusal")
@@ -204,7 +205,7 @@ def run():
 		check("Create Cancellation of a pre-rule mixed PR refused", False, "cancellation created")
 	except frappe.ValidationError as e:
 		check("Create Cancellation of a pre-rule mixed PR refused with the reversal text",
-			"predates this rule" in str(e) and "separate" not in str(e), str(e)[:160])
+			"predates this rule" in str(e) and "do not reverse it by hand" in str(e), str(e)[:160])
 
 	from periodic_valuation.tests import smoke_kernel
 

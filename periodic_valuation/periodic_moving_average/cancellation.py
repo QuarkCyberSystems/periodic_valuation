@@ -122,11 +122,31 @@ def _still_standing(doctype, names):
 	return [n for n in names if n not in reversed_ones]
 
 
-def _block_if_has_dependents(doctype, name, original):
+def standing_dependents(doctype, name, original):
+	"""What must be reversed before `name` can be: standing returns against
+	it, standing invoices of it, landed cost applied to it. One answer, read
+	by the platform adapter (`dependents`) for the dialog and by
+	`make_cancellation` for its own refusal. Returns (doctype, name, why)."""
+	out = []
+	_block_if_has_dependents(doctype, name, original, _collect=out)
+	return out
+
+
+def _block_if_has_dependents(doctype, name, original, _collect=None):
 	"""Warn-and-block (client decision 2026-07): a document cannot be reversed
 	while dependent documents still stand - the user must reverse those first
 	(WA-0003-01 #11 returns, #12 invoices). Prevents the dangling-invoice /
-	dangling-return corruption seen in UAT."""
+	dangling-return corruption seen in UAT. With `_collect` the dependents
+	are appended to it as (doctype, name, why) instead of thrown."""
+
+	def refuse(dep_doctype, names, why):
+		if _collect is not None:
+			_collect.extend((dep_doctype, n, why) for n in names)
+			return
+		frappe.throw(
+			_("{0} has {1} against it ({2}). {3}").format(name, _(dep_doctype).lower() + "(s)", ", ".join(names), why),
+			title=_("Reverse Dependents First"),
+		)
 	# (a) returns raised against this document
 	# (Stock Entry has is_return but no return_against - guard on the
 	# field actually queried, or every Stock Entry reversal crashes.)
@@ -138,13 +158,7 @@ def _block_if_has_dependents(doctype, name, original):
 		)
 		returns = _still_standing(doctype, returns)
 		if returns:
-			frappe.throw(
-				_(
-					"{0} has return document(s) against it ({1}). Reverse the "
-					"return(s) first, then reverse this document."
-				).format(name, ", ".join(returns)),
-				title=_("Reverse Dependents First"),
-			)
+			refuse(doctype, returns, _("Reverse the return(s) first, then reverse this document."))
 
 	# (b) this receipt/delivery has been invoiced
 	if flt(original.get("per_billed")) > 0:
@@ -172,13 +186,7 @@ def _block_if_has_dependents(doctype, name, original):
 			) if invoices else []
 			invoices = _still_standing(parent_dt, sorted(set(invoices)))
 			if invoices:
-				frappe.throw(
-					_(
-						"{0} has been invoiced ({1}). Reverse the invoice(s) first, "
-						"then reverse this receipt."
-					).format(name, ", ".join(invoices)),
-					title=_("Reverse Dependents First"),
-				)
+				refuse(parent_dt, invoices, _("Reverse the invoice(s) first, then reverse this receipt."))
 
 	# (c) landed cost has been applied to this document. The charge lives in
 	# the variance pool (or the item value, under MAP) against THIS receipt's
@@ -197,10 +205,4 @@ def _block_if_has_dependents(doctype, name, original):
 		) if lcvs else []
 		lcvs = _still_standing("Landed Cost Voucher", sorted(set(lcvs)))
 		if lcvs:
-			frappe.throw(
-				_(
-					"{0} has landed cost voucher(s) against it ({1}). Reverse the landed "
-					"cost voucher(s) first, then reverse this document."
-				).format(name, ", ".join(lcvs)),
-				title=_("Reverse Dependents First"),
-			)
+			refuse("Landed Cost Voucher", lcvs, _("Reverse the landed cost voucher(s) first, then reverse this document."))

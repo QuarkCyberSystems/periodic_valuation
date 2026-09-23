@@ -3,15 +3,11 @@
 
 from frappe.model.document import Document
 
-from periodic_valuation.shared.immutable import block_delete, block_update, kernel_only_insert
+from periodic_valuation.shared.immutable import kernel_only_insert
 
 
 class InventoryPeriodBalanceSnapshot(Document):
 	def before_insert(self):
 		kernel_only_insert(self)
 
-	def validate(self):
-		block_update(self)
 
-	def on_trash(self):
-		block_delete(self)

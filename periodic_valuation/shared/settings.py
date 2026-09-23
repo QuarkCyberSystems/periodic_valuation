@@ -6,7 +6,9 @@
 Primary home for cross-cutting settings is core Accounts Settings via upstream
 PR; until that lands the per-company `Periodic Moving Average Settings` doctype in
 this app is authoritative. All kernel code reads through here so the storage
-location can change without touching callers.
+location can change without touching callers. The reads themselves go through
+qcs_platform's one settings accessor (registered in platform.py), which caches
+and enforces one record per company.
 """
 
 import frappe
@@ -21,32 +23,30 @@ _DEFAULTS = {
 }
 
 
+SETTINGS = "Periodic Moving Average Settings"
+
+
 def get_pma_settings_doc(company):
-	name = frappe.db.get_value("Periodic Moving Average Settings", {"company": company})
-	if not name:
-		frappe.throw(
-			_("Periodic Moving Average Settings not configured for company {0}.").format(company),
-			title=_("Missing Configuration"),
-		)
-	return frappe.get_cached_doc("Periodic Moving Average Settings", name)
+	from qcs_platform.settings import require_company_setting
+
+	return require_company_setting(SETTINGS, company)
 
 
 def get_pma_setting(company, key):
-	name = frappe.db.get_value("Periodic Moving Average Settings", {"company": company})
-	if name:
-		value = frappe.db.get_value("Periodic Moving Average Settings", name, key)
-		if value is not None:
-			return value
-	if key in _DEFAULTS:
-		return _DEFAULTS[key]
-	return None
+	from qcs_platform.settings import company_setting
+
+	value = company_setting(SETTINGS, company, key)
+	if value is not None:
+		return value
+	return _DEFAULTS.get(key)
 
 
 def get_return_valuation(company, doctype):
 	"""Per-doctype override -> company default -> 'With Reference'."""
-	name = frappe.db.get_value("Periodic Moving Average Settings", {"company": company})
-	if name:
-		doc = frappe.get_cached_doc("Periodic Moving Average Settings", name)
+	from qcs_platform.settings import settings_doc
+
+	doc = settings_doc(SETTINGS, company)
+	if doc is not None:
 		for row in doc.return_valuation_overrides or []:
 			if row.document_type == doctype:
 				return row.default_return_valuation

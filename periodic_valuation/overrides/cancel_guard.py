@@ -1,13 +1,12 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""Universal cancellation rule for periodic-valuation items (May 6 decision).
+"""Which documents this app owns rows on (May 6 decision).
 
-Direct cancellation (docstatus 1 -> 2) is NEVER allowed for a document that
-contains routed items - even same-period with no downstream consumption,
-because an intervening revaluation could have landed. The user is redirected
-to Create Cancellation, which posts a dated reversal document of the same
-doctype and preserves the immutable ledger.
+`has_routed_items` is the one answer: a document carrying at least one item
+on a periodic valuation method. The refusal of direct cancellation that used
+to live here is now the answer of this app's LedgerAdapter (platform.py),
+raised by qcs_platform's dispatcher in one dialog with every other owner's.
 """
 
 import frappe
@@ -42,18 +41,6 @@ def is_routed_document(doctype: str, name: str) -> bool:
 	doc = frappe.get_doc(doctype, name)
 	doc.check_permission("read")
 	return has_routed_items(doc)
-
-
-def block_direct_cancel(doc, method=None):
-	if not has_routed_items(doc):
-		return
-	frappe.throw(
-		_(
-			"This document contains periodic-valuation items. Direct cancellation would mutate the "
-			"immutable ledger. Use <b>Create Cancellation</b> to post a dated reversal instead."
-		),
-		title=_("Cancellation Blocked"),
-	)
 
 
 def stamp_settlement_view(doc, method=None):

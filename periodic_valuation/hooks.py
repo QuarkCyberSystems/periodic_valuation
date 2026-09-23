@@ -5,7 +5,12 @@ app_description = "Periodic Moving Average and Standard Cost valuation kernels f
 app_email = "vivek@quarkcs.com"
 app_license = "gpl-3.0"
 
-required_apps = ["erpnext"]
+required_apps = ["erpnext", "qcs_platform"]
+
+# What this app governs, answered through the platform's contracts
+# (Build 0.1 §8): its ledger adapter, its event-log rows, its per-company
+# settings and the Inventory Period as a posting calendar.
+qcs_platform_registration = "periodic_valuation.platform.get_registration"
 
 # Valuation-method -> posting-kernel registry, consulted by the erpnext fork's
 # routing dispatch before SLE creation. "Periodic Standard Cost" registers here in
@@ -30,7 +35,9 @@ valuation_current_state = "periodic_valuation.periodic_moving_average.api.get_cu
 after_migrate = ["periodic_valuation.setup.custom_fields.after_migrate"]
 after_install = ["periodic_valuation.setup.custom_fields.after_install"]
 
-app_include_js = "/assets/periodic_valuation/js/cancellation_button.js"
+# The form behaviour for routed documents (hide core Cancel, offer Create
+# Cancellation, lock a reversal, view buttons) is rendered by qcs_platform's
+# form_kit from this app's registered adapter (platform.py); no JS here.
 
 # boundary revaluations for advance-released cost versions (M11/DR-12)
 scheduler_events = {
@@ -42,36 +49,19 @@ scheduler_events = {
 	],
 }
 
-# Universal cancellation rule: docstatus 1 -> 2 is never allowed for documents
-# containing periodic-valuation items; a dated Cancellation document is used instead.
-_cancel_guard = {"before_cancel": "periodic_valuation.overrides.cancel_guard.block_direct_cancel"}
-# Interim (D-030 term 2): a document on which another owner - core, project
-# accounting - posts its own rows beside routed items is refused, because the
-# Cancellation copy re-posts those rows. Replaced by the platform dispatcher's
-# posts_rows answers at qcs_platform 0.1, deleted when the 0.3 coordinator
-# reverses every owner together (see overrides/mixed_voucher.py).
-_mixed_guard = "periodic_valuation.overrides.mixed_voucher.refuse_mixed_voucher"
+# Refusals (direct cancel of a routed document, delete of a posted event
+# row, the interim mixed-voucher rule) are answered by this app's
+# LedgerAdapter through qcs_platform's dispatcher - see platform.py. Only
+# effect hooks stay here.
 doc_events = {
-	"Purchase Receipt": {**_cancel_guard, "validate": _mixed_guard},
-	"Delivery Note": {**_cancel_guard, "validate": _mixed_guard},
 	"Stock Entry": {
-		**_cancel_guard,
-		"validate": [
-			_mixed_guard,
-			# a reversal shows the ORIGINAL rate, not the valuation at reversal time
-			# (WA-0003-01 item 5)
-			"periodic_valuation.overrides.reversal_rate.restore_original_rates",
-		],
+		# a reversal shows the ORIGINAL rate, not the valuation at reversal time
+		# (WA-0003-01 item 5)
+		"validate": "periodic_valuation.overrides.reversal_rate.restore_original_rates",
 	},
 	"Purchase Invoice": {
-		**_cancel_guard,
-		"validate": _mixed_guard,
 		"on_submit": "periodic_valuation.periodic_moving_average.invoice_diff.on_purchase_invoice_submit",
 	},
-	"Sales Invoice": {**_cancel_guard, "validate": _mixed_guard},
-	"Subcontracting Receipt": {**_cancel_guard, "validate": _mixed_guard},
-	"Landed Cost Voucher": {**_cancel_guard, "validate": _mixed_guard},
-	"Stock Reconciliation": _cancel_guard,
 	# defaults-as-templates: blank STD items get the group default stamped on save
 	"Item": {"validate": "periodic_valuation.overrides.cancel_guard.stamp_settlement_view"},
 	# No-manual-drift rule: JEs cannot hit kernel-maintained inventory accounts

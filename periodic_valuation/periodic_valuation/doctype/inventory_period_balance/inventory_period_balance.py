@@ -5,27 +5,20 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from periodic_valuation.shared.immutable import KERNEL_FLAG, block_delete, kernel_only_insert
+from periodic_valuation.shared.immutable import KERNEL_FLAG, kernel_only_insert
 
 
 class InventoryPeriodBalance(Document):
+	"""Maintained by the posting kernel. Who may insert is this app's rule
+	(below); that a row never changes by hand and never deletes is the
+	platform's - registered in platform.py as a ledger doctype whose
+	`rows_may_change` is the kernel flag."""
+
 	def before_insert(self):
 		kernel_only_insert(self)
 
 	def validate(self):
-		self.validate_kernel_only_mutation()
 		self.validate_unique_scope()
-
-	def validate_kernel_only_mutation(self):
-		# Runs BEFORE the database write - the block holds even when a caller
-		# catches the exception inside a larger transaction.
-		if self.is_new() or self.flags.in_insert:
-			return
-		if not frappe.flags.get(KERNEL_FLAG):
-			frappe.throw(
-				_("Inventory Period Balance is maintained by the posting kernel and cannot be edited manually."),
-				title=_("Immutable Ledger"),
-			)
 
 	def validate_unique_scope(self):
 		filters = {
@@ -55,10 +48,6 @@ class InventoryPeriodBalance(Document):
 				title=_("Immutable Ledger"),
 			)
 
-	def on_trash(self):
-		block_delete(self)
-
-	@property
 	def effective_opening_qty(self):
 		return (self.opening_qty or 0) + (self.carryover_qty or 0)
 

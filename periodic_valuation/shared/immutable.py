@@ -6,6 +6,12 @@
 Legal rows (Stock Movement Event, Inventory Valuation Event, snapshots) are
 append-only: they may be inserted by the posting kernel and never modified or
 deleted afterwards. Corrections post new rows linked via ``reversal_of``.
+
+Who may INSERT a row is this app's rule and stays here. That a persisted row
+never changes or disappears is the platform's: the three doctypes are
+registered as this app's ``ledger_doctypes`` (platform.py) and the dispatcher
+refuses updates and deletes, asking ``rows_may_change`` for the one exception
+(the kernel flipping ``is_cancelled`` during reversal pairing).
 """
 
 import frappe
@@ -21,30 +27,3 @@ def kernel_only_insert(doc, method=None):
 			_("{0} rows are created by the periodic valuation posting kernel and cannot be entered manually.").format(_(doc.doctype)),
 			title=_("Immutable Ledger"),
 		)
-
-
-def block_update(doc, method=None):
-	"""Immutability guard: no field of a persisted legal row may change.
-
-	MUST be called from validate() - it runs BEFORE the database write, so the
-	block holds even when the caller catches the exception inside a larger
-	transaction. (on_update fires after the write and is advisory only.)
-	"""
-	if doc.is_new() or doc.flags.in_insert:
-		return
-	if frappe.flags.get(KERNEL_FLAG) and getattr(doc, "_kernel_allowed_update", False):
-		# The kernel may flip is_cancelled as part of a reversal pairing; nothing else.
-		return
-	frappe.throw(
-		_("{0} is part of the immutable valuation ledger and cannot be modified. Post a reversal instead.").format(doc.name),
-		title=_("Immutable Ledger"),
-	)
-
-
-def block_delete(doc, method=None):
-	if frappe.flags.in_install or frappe.flags.in_uninstall or frappe.flags.in_patch:
-		return
-	frappe.throw(
-		_("{0} is part of the immutable valuation ledger and cannot be deleted.").format(doc.name),
-		title=_("Immutable Ledger"),
-	)
