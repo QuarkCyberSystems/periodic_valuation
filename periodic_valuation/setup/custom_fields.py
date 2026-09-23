@@ -187,7 +187,24 @@ def after_install():
 	ensure_reversal_stock_entry_types()
 
 
+APP = "periodic_valuation"
+
+
+def require_qcs_platform():
+	"""`bench migrate` never reads `required_apps` (frappe/installer.py:
+	install_app only), so a site that pulls a registering head before
+	`install-app qcs_platform` would migrate and run with the refusals
+	this app now answers through the platform silently absent. Fail the
+	migrate instead (Build 0.1 §9 deploy order)."""
+	if "qcs_platform" not in frappe.get_installed_apps():
+		raise frappe.ValidationError(
+			"{0} requires qcs_platform on this site: bench --site <site> install-app qcs_platform, "
+			"then bench migrate (Build 0.1 §9).".format(APP)
+		)
+
+
 def after_migrate():
+	require_qcs_platform()
 	ensure_module_defs()
 	apply_custom_fields()
 	ensure_reversal_stock_entry_types()
