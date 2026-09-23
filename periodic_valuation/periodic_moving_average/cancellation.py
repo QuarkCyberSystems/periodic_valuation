@@ -14,6 +14,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
+from qcs_platform.core.reversal import reversed_by, reversed_ones
+
 CANCELLABLE = (
 	"Purchase Receipt",
 	"Delivery Note",
@@ -37,9 +39,7 @@ def make_cancellation(doctype, name):
 		frappe.throw(_("Only submitted documents can be cancelled."))
 	if original.get("is_cancellation"):
 		frappe.throw(_("{0} is itself a Cancellation document.").format(name))
-	if frappe.db.exists(
-		doctype, {"cancellation_against": name, "is_cancellation": 1, "docstatus": ("<", 2)}
-	):
+	if reversed_by(doctype, name, include_drafts=True):
 		frappe.throw(
 			_("A Cancellation document already exists for {0}.").format(name),
 			title=_("Double Reversal Blocked"),
@@ -111,15 +111,8 @@ def _still_standing(doctype, names):
 	"""
 	if not names:
 		return []
-	reversed_ones = set(
-		frappe.get_all(
-			doctype,
-			filters={"cancellation_against": ("in", list(names)), "is_cancellation": 1,
-				"docstatus": 1},
-			pluck="cancellation_against",
-		)
-	)
-	return [n for n in names if n not in reversed_ones]
+	standing = reversed_ones(doctype, names)
+	return [n for n in names if n not in standing]
 
 
 def standing_dependents(doctype, name, original):

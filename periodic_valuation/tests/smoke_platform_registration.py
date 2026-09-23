@@ -110,6 +110,46 @@ class Fixtures:
 		return pr, Dependent(doctype="Purchase Invoice", name=pi.name, how_to_undo="")
 
 
+def _reversal_pair(fixtures, adapter, checks):
+	"""V-05 / V-06: Create Cancellation end to end through the platform's
+	ui_state, and the reversal half is itself immutable."""
+	from qcs_platform.ledger.dispatcher import LedgerRefusal, ui_state
+
+	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+
+	pr = fixtures.posted("Purchase Receipt")
+	checks("V-05 Create Cancellation offered on a routed receipt", [a.label for a in adapter.actions(pr)] == ["Create Cancellation"])
+	canc_name = make_cancellation("Purchase Receipt", pr.name)
+	checks("V-05 a draft Cancellation stands: the offer is withdrawn", adapter.actions(pr) == ())
+	try:
+		make_cancellation("Purchase Receipt", pr.name)
+		checks("V-05 a second Cancellation is refused while one stands", False, "made")
+	except frappe.ValidationError as exc:
+		checks("V-05 a second Cancellation is refused while one stands", "already exists" in str(exc), str(exc)[:120])
+	canc = frappe.get_doc("Purchase Receipt", canc_name)
+	canc.flags.ignore_permissions = True
+	canc.submit()
+	original = ui_state("Purchase Receipt", pr.name)
+	checks("V-05 the original says it is reversed and offers nothing",
+		(original["banner"] or "").startswith("Reversed by " + canc_name) and not original["actions"] and original["hide_cancel"],
+		str(original))
+	half = ui_state("Purchase Receipt", canc_name)
+	checks("V-05 the Cancellation is display-only with Cancel hidden",
+		(half["banner"] or "").startswith("Reversal of " + pr.name) and half["hide_cancel"] and "items" in half["locked_fields"] and not half["actions"],
+		str({k: half[k] for k in ("banner", "hide_cancel", "actions")}))
+	canc.reload()
+	try:
+		canc.cancel()
+		checks("V-06 native cancel of the Cancellation is refused", False, "cancelled")
+	except LedgerRefusal as exc:
+		checks("V-06 native cancel of the Cancellation is refused", "periodic_valuation" in exc.owners, str(exc.owners))
+	try:
+		make_cancellation("Purchase Receipt", canc_name)
+		checks("V-06 a Cancellation of a Cancellation is refused", False, "made")
+	except frappe.ValidationError as exc:
+		checks("V-06 a Cancellation of a Cancellation is refused", "itself a Cancellation" in str(exc), str(exc)[:120])
+
+
 def run():
 	from qcs_platform.testkit import Checks, throwaway_site_only
 	from qcs_platform.testkit import contract
@@ -137,6 +177,8 @@ def run():
 		checks("SCR and the snapshot are declared", "Subcontracting Receipt" in adapter.doctypes
 			and "Inventory Period Balance Snapshot" in adapter.ledger_doctypes)
 		checks("SR is refused without a route", adapter.actions(frappe._dict(doctype="Stock Reconciliation", is_cancellation=0)) == ())
+
+		_reversal_pair(Fixtures(), adapter, checks)
 
 		company = get_company()
 		contract.settings("Periodic Moving Average Settings", company, checks)

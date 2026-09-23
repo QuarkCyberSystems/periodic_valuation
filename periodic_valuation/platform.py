@@ -16,6 +16,7 @@ import frappe
 from frappe import _
 
 from qcs_platform.contracts import API_VERSION, Action, Dependent, Refusal, Registration, View
+from qcs_platform.core.reversal import reversed_by
 from qcs_platform.ledger.policies import PostedNeverDeleted
 
 from periodic_valuation.overrides.cancel_guard import has_routed_items
@@ -44,16 +45,6 @@ NOT_REVERSIBLE = {
 REVERSAL_EDITABLE = ("posting_date", "set_posting_time", "posting_time")
 
 
-def reversed_by(doc):
-	"""The standing Cancellation document against `doc`, if any (the
-	platform-owned reversal pair)."""
-	if not doc.meta.has_field("cancellation_against"):
-		return None
-	return frappe.db.get_value(
-		doc.doctype, {"cancellation_against": doc.name, "is_cancellation": 1, "docstatus": 1}, "name"
-	)
-
-
 class ValuationLedgerAdapter(PostedNeverDeleted):
 	app = "periodic_valuation"
 	id = "valuation.ledger"
@@ -67,8 +58,13 @@ class ValuationLedgerAdapter(PostedNeverDeleted):
 		return has_routed_items(doc)
 
 	def _offers_cancellation(self, doc):
-		# never on a Cancellation document, never on an original already reversed
-		return doc.doctype not in NOT_REVERSIBLE and not doc.get("is_cancellation") and not reversed_by(doc)
+		# never on a Cancellation document, never while one stands against the
+		# original - a draft included, since make_cancellation refuses a second
+		return (
+			doc.doctype not in NOT_REVERSIBLE
+			and not doc.get("is_cancellation")
+			and not reversed_by(doc.doctype, doc.name, include_drafts=True)
+		)
 
 	def can_cancel(self, doc):
 		"""Direct cancellation (docstatus 1 -> 2) is never allowed for a
