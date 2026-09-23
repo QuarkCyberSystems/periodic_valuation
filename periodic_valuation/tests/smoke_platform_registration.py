@@ -110,6 +110,19 @@ class Fixtures:
 		return pr, Dependent(doctype="Purchase Invoice", name=pi.name, how_to_undo="")
 
 
+def _guard_fires(checks, label, fn):
+	"""`require_qcs_platform` fails a migrate on a site without the platform."""
+	original = frappe.get_installed_apps
+	frappe.get_installed_apps = lambda *a, **k: [x for x in original(*a, **k) if x != "qcs_platform"]
+	try:
+		fn()
+		checks(label, False, "did not raise")
+	except frappe.ValidationError as exc:
+		checks(label, "install-app qcs_platform" in str(exc), str(exc)[:100])
+	finally:
+		frappe.get_installed_apps = original
+
+
 def _reversal_pair(fixtures, adapter, checks):
 	"""V-05 / V-06: Create Cancellation end to end through the platform's
 	ui_state, and the reversal half is itself immutable."""
@@ -182,6 +195,9 @@ def run():
 		checks("SR is refused without a route", adapter.actions(frappe._dict(doctype="Stock Reconciliation", is_cancellation=0)) == ())
 
 		_reversal_pair(Fixtures(), adapter, checks)
+		from periodic_valuation.setup.custom_fields import require_qcs_platform
+
+		_guard_fires(checks, "after_migrate refuses a site without the platform", require_qcs_platform)
 
 		company = get_company()
 		contract.settings("Periodic Moving Average Settings", company, checks)
