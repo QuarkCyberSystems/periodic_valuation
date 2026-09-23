@@ -54,6 +54,22 @@ def _open_on_demand(company, posting_date):
 	return open_next_period(open_period)
 
 
+def period_refusal(period):
+	"""Why `period` does not accept a posting, as (title, message) - or
+	None. The one statement of the rule: the kernel's assert and the
+	platform authority (platform.py) both read it."""
+	if period.status in POSTING_ALLOWED_STATES:
+		return None
+	return (
+		_("Period Locked"),
+		_(
+			"Inventory Period {0} is {1} and no longer accepts postings - a closed period "
+			"is not reopened. Post the correction in the current open period; only the "
+			"immediately-previous period stays open for backdated entries."
+		).format(period.period_name, period.status),
+	)
+
+
 def assert_posting_allowed(company, posting_date):
 	"""Throw unless posting_date falls in an OPEN or PREV_OPEN_UNSETTLED period.
 
@@ -67,15 +83,9 @@ def assert_posting_allowed(company, posting_date):
 			),
 			title=_("No Inventory Period"),
 		)
-	if period.status not in POSTING_ALLOWED_STATES:
-		frappe.throw(
-			_(
-				"Inventory Period {0} is {1} and no longer accepts postings - a closed period "
-				"is not reopened. Post the correction in the current open period; only the "
-				"immediately-previous period stays open for backdated entries."
-			).format(period.period_name, period.status),
-			title=_("Period Locked"),
-		)
+	refusal = period_refusal(period)
+	if refusal:
+		frappe.throw(refusal[1], title=refusal[0])
 	return period
 
 

@@ -48,6 +48,7 @@ class InventoryPeriodBalance(Document):
 				title=_("Immutable Ledger"),
 			)
 
+	@property
 	def effective_opening_qty(self):
 		return (self.opening_qty or 0) + (self.carryover_qty or 0)
 

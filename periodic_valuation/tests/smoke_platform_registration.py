@@ -49,9 +49,25 @@ class Fixtures:
 			self._stock(item)
 			doc = frappe.get_doc({"doctype": doctype, "company": self.company, "customer": "_SMK Customer",
 				"posting_date": nowdate(), "set_posting_time": 1, "update_stock": 1, "items": rows})
+		elif doctype == "Landed Cost Voucher":
+			pr = self._doc("Purchase Receipt", item, submit=True)
+			expense = frappe.db.get_value("Account", {"company": self.company, "root_type": "Expense", "is_group": 0,
+				"account_type": ("in", ("", None))}, "name")
+			doc = frappe.get_doc({"doctype": doctype, "company": self.company, "posting_date": nowdate(),
+				"distribute_charges_based_on": "Amount",
+				"purchase_receipts": [{"receipt_document_type": "Purchase Receipt", "receipt_document": pr.name,
+					"supplier": pr.supplier, "grand_total": pr.grand_total}],
+				"taxes": [{"description": "freight", "amount": 5, "expense_account": expense}]})
+			doc.get_items_from_purchase_receipts()
+		elif doctype == "Stock Reconciliation":
+			self._stock(item)
+			doc = frappe.get_doc({"doctype": doctype, "company": self.company, "purpose": "Stock Reconciliation",
+				"posting_date": nowdate(), "set_posting_time": 1,
+				"items": [{"item_code": item, "warehouse": self.wh, "qty": 3, "valuation_rate": 10}]})
 		else:
 			return None
-		doc.set_missing_values()
+		if hasattr(doc, "set_missing_values"):
+			doc.set_missing_values()
 		doc.flags.ignore_permissions = True
 		doc.insert()
 		if submit:
@@ -63,10 +79,10 @@ class Fixtures:
 		return pr
 
 	def posted(self, doctype):
-		if doctype in ("Stock Movement Event", "Inventory Valuation Event", "Inventory Period Balance Snapshot"):
-			# a kernel-written row: post a routed receipt and take its event
+		if doctype in ("Stock Movement Event", "Inventory Valuation Event", "Inventory Period Balance"):
+			# a kernel-written row: post a routed receipt and take what it left
 			self._doc("Purchase Receipt", MAP_ITEM, submit=True)
-			name = frappe.db.get_value(doctype, {}, "name", order_by="creation desc")
+			name = frappe.db.get_value(doctype, {}, "name", order_by="modified desc")
 			return frappe.get_doc(doctype, name)
 		return self._doc(doctype, MAP_ITEM, submit=True)
 
@@ -74,7 +90,7 @@ class Fixtures:
 		return self._doc(doctype, MAP_ITEM, submit=False)
 
 	def ungoverned(self, doctype):
-		if doctype in ("Subcontracting Receipt", "Landed Cost Voucher", "Stock Reconciliation"):
+		if doctype in ("Subcontracting Receipt",):
 			return None
 		return self._doc(doctype, self.fifo, submit=True)
 
@@ -111,13 +127,16 @@ def run():
 		# the runner walks every governed doctype; SCR / LCV / SR fixtures
 		# are not built here, so those three are asserted by shape only
 		adapter_for_run = ValuationLedgerAdapter()
-		adapter_for_run.doctypes = ("Purchase Receipt", "Delivery Note", "Stock Entry", "Purchase Invoice", "Sales Invoice")
-		# a snapshot row is written at period close, not by a receipt, and the
-		# period balance only under the kernel flag: the two event rows carry
-		# the same rule and are what a receipt leaves behind
-		adapter_for_run.ledger_doctypes = ("Stock Movement Event", "Inventory Valuation Event")
+		# Subcontracting Receipt needs a subcontracting BOM and order the smoke
+		# masters do not carry; a Period Balance Snapshot is written only at
+		# period close. Both are asserted by shape below; the other seven
+		# doctypes and three rows run through the contract with real documents
+		adapter_for_run.doctypes = tuple(d for d in ValuationLedgerAdapter.doctypes if d != "Subcontracting Receipt")
+		adapter_for_run.ledger_doctypes = ("Stock Movement Event", "Inventory Valuation Event", "Inventory Period Balance")
 		contract.ledger_adapter(adapter_for_run, Fixtures(), checks)
-		checks("SR is refused without a route", adapter.actions(frappe._dict(doctype="Stock Reconciliation")) == ())
+		checks("SCR and the snapshot are declared", "Subcontracting Receipt" in adapter.doctypes
+			and "Inventory Period Balance Snapshot" in adapter.ledger_doctypes)
+		checks("SR is refused without a route", adapter.actions(frappe._dict(doctype="Stock Reconciliation", is_cancellation=0)) == ())
 
 		company = get_company()
 		contract.settings("Periodic Moving Average Settings", company, checks)

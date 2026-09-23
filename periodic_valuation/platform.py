@@ -44,14 +44,31 @@ NOT_REVERSIBLE = {
 REVERSAL_EDITABLE = ("posting_date", "set_posting_time", "posting_time")
 
 
+def reversed_by(doc):
+	"""The standing Cancellation document against `doc`, if any (the
+	platform-owned reversal pair)."""
+	if not doc.meta.has_field("cancellation_against"):
+		return None
+	return frappe.db.get_value(
+		doc.doctype, {"cancellation_against": doc.name, "is_cancellation": 1, "docstatus": 1}, "name"
+	)
+
+
 class ValuationLedgerAdapter(PostedNeverDeleted):
 	app = "periodic_valuation"
 	id = "valuation.ledger"
 	doctypes = GOVERNED
 	ledger_doctypes = LEDGER_ROWS
+	# where this app writes is_cancellation / cancellation_against: the
+	# doctypes make_cancellation reverses; the platform installs the pair there
+	reversal_doctypes = tuple(dt for dt in GOVERNED if dt not in NOT_REVERSIBLE)
 
 	def governs(self, doc):
 		return has_routed_items(doc)
+
+	def _offers_cancellation(self, doc):
+		# never on a Cancellation document, never on an original already reversed
+		return doc.doctype not in NOT_REVERSIBLE and not doc.get("is_cancellation") and not reversed_by(doc)
 
 	def can_cancel(self, doc):
 		"""Direct cancellation (docstatus 1 -> 2) is never allowed for a
@@ -64,13 +81,14 @@ class ValuationLedgerAdapter(PostedNeverDeleted):
 				message=_("{0} contains periodic-valuation items. {1}").format(doc.name, NOT_REVERSIBLE[doc.doctype]),
 				owner=self.app,
 			)
+		actions = self.actions(doc)
 		return Refusal(
 			title=_("Cancellation Blocked"),
 			message=_(
 				"{0} contains periodic-valuation items. Direct cancellation would mutate the immutable ledger."
 			).format(doc.name),
 			owner=self.app,
-			route=self.actions(doc)[0],
+			route=actions[0] if actions else None,
 		)
 
 	def dependents(self, doc):
@@ -82,7 +100,7 @@ class ValuationLedgerAdapter(PostedNeverDeleted):
 		)
 
 	def actions(self, doc):
-		if doc.doctype in NOT_REVERSIBLE:
+		if not self._offers_cancellation(doc):
 			return ()
 		return (
 			Action(
@@ -149,19 +167,13 @@ class InventoryPeriodAuthority:
 		return doctype in GOVERNED and bool(frappe.db.exists("Inventory Period", {"company": company}))
 
 	def can_post(self, company, doctype, posting_date):
-		from periodic_valuation.shared.periods import POSTING_ALLOWED_STATES, get_period
+		from periodic_valuation.shared.periods import get_period, period_refusal
 
 		period = get_period(company, posting_date)
-		if period is None or period.status in POSTING_ALLOWED_STATES:
+		refusal = period_refusal(period) if period is not None else None
+		if not refusal:
 			return None
-		return Refusal(
-			title=_("Period Locked"),
-			message=_(
-				"Inventory Period {0} is {1} and no longer accepts postings - a closed period is not "
-				"reopened. Post the correction in the current open period."
-			).format(period.period_name, period.status),
-			owner=self.app,
-		)
+		return Refusal(title=refusal[0], message=refusal[1], owner=self.app)
 
 	def status(self, company, posting_date):
 		from periodic_valuation.shared.periods import get_period
