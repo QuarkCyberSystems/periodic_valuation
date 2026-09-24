@@ -183,20 +183,16 @@ def apply_item_valuation_options():
 	"""The core Select gains the two periodic methods; `_validate_selects`
 	rejects an item's value that the options do not list, so this is in
 	place before any item saves after the fork's item.json reverts."""
-	from frappe.custom.doctype.property_setter.property_setter import make_property_setter
-
 	from periodic_valuation.shared.routing import KERNEL_VALUATION_METHODS
 
 	# upstream's own options plus this app's methods - one source for the method set
 	core = frappe.get_meta("Item", cached=False).get_field("valuation_method").options or ""
 	core_options = [o for o in core.split("\n") if o not in KERNEL_VALUATION_METHODS]
 	options = "\n".join(core_options + list(KERNEL_VALUATION_METHODS))
-	make_property_setter("Item", "valuation_method", "options", options, "Text",
-		for_doctype=False, validate_fields_for_doctype=False)
-	name = frappe.db.get_value("Property Setter", {"doc_type": "Item", "field_name": "valuation_method", "property": "options"}, "name")
-	if name:
-		frappe.db.set_value("Property Setter", name, "module", "Periodic Valuation", update_modified=False)
-	frappe.clear_cache(doctype="Item")
+	from qcs_platform.core.fields import ensure_property_setter
+
+	if ensure_property_setter("Item", "valuation_method", "options", options, "Text", "Periodic Valuation"):
+		frappe.clear_cache(doctype="Item")
 
 
 def ensure_module_defs():
