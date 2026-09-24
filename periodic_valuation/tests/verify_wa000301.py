@@ -131,10 +131,14 @@ def run(commit=False):
 	frappe.db.set_single_value("Accounts Settings", "over_billing_allowance", 0)
 	i15c = make_item("_WA-15C"); pr15c = make_pr(i15c, wh, 5000, 400)
 	_pi(co, i15c, wh, pr15c, 3000, 800)   # amount 2.4M > 2.0M receipt - used to block
-	check("item 15 (Opt C) - partial qty at higher rate now posts",
-		flt(frappe.db.get_value("Purchase Receipt", pr15c.name, "per_billed")) >= 100)
+	# billing progress on a routed receipt is quantity coverage (aef274acf38,
+	# 13 Aug): 3000 of 5000 received is 60 %, whatever the invoice rate
+	check("item 15 (Opt C) - partial qty at higher rate now posts, billed by quantity",
+		flt(frappe.db.get_value("Purchase Receipt", pr15c.name, "per_billed")) == 60)
 	rem15 = _pi(co, i15c, wh, pr15c, 2000, 900)
 	check("item 15 (Opt C) - remaining qty invoices at any rate", rem15.docstatus == 1)
+	check("item 15 (Opt C) - the receipt is fully billed once all received quantity is invoiced",
+		flt(frappe.db.get_value("Purchase Receipt", pr15c.name, "per_billed")) == 100)
 	try:
 		_pi(co, i15c, wh, pr15c, 100, 500)   # 5100 > 5000 received
 		check("item 15 (Opt C) - over received-qty is still blocked", False, "posted")
