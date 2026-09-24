@@ -9,6 +9,8 @@ Custom Field here is the interim carrier with the same fieldname, so a later
 core adoption is a data no-op.
 """
 
+import json
+
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
@@ -134,8 +136,52 @@ def get_custom_fields():
 	return custom_fields
 
 
+# The fork's Item delta, re-homed here (D-029 §7 step 4 - it names this app's
+# valuation concepts): the two periodic methods on the core Select, and the
+# two fields the kernel reads. Generated from the fork's item.json.
+ITEM_FIELDS = json.loads(r"""[
+ {
+  "default": "0",
+  "depends_on": "eval:['Periodic Moving Average','Periodic Standard Cost'].includes(doc.valuation_method)",
+  "description": "OFF: one valuation per (company, item); transfers between warehouses are physical-only. ON: valuation per (company, item, warehouse). Locked after the first periodic-valuation transaction.",
+  "fieldname": "valuation_includes_warehouse",
+  "fieldtype": "Check",
+  "label": "Valuation Includes Warehouse",
+  "insert_after": "valuation_method"
+ },
+ {
+  "depends_on": "eval:doc.valuation_method == 'Periodic Standard Cost'",
+  "description": "Variance settlement scope for Periodic Standard Cost. Blank inherits Item Group -> Periodic Standard Cost Settings. Locked after the first transaction.",
+  "fieldname": "settlement_view",
+  "fieldtype": "Select",
+  "label": "Settlement View",
+  "options": "\nMTD\nYTD",
+  "insert_after": "valuation_includes_warehouse"
+ }
+]""")
+VALUATION_METHOD_OPTIONS = "\nFIFO\nMoving Average\nLIFO\nPeriodic Moving Average\nPeriodic Standard Cost"
+
+
 def apply_custom_fields():
 	create_custom_fields(get_custom_fields(), ignore_validate=True)
+	# update=True: this app's definition is the definition (the fork's JSON
+	# carried these as DocFields; the migrate that reverts it syncs them out first)
+	create_custom_fields({"Item": ITEM_FIELDS}, ignore_validate=True, update=True)
+	apply_item_valuation_options()
+
+
+def apply_item_valuation_options():
+	"""The core Select gains the two periodic methods; `_validate_selects`
+	rejects an item's value that the options do not list, so this is in
+	place before any item saves after the fork's item.json reverts."""
+	from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+	make_property_setter("Item", "valuation_method", "options", VALUATION_METHOD_OPTIONS, "Text",
+		for_doctype=False, validate_fields_for_doctype=False)
+	name = frappe.db.get_value("Property Setter", {"doc_type": "Item", "field_name": "valuation_method", "property": "options"}, "name")
+	if name:
+		frappe.db.set_value("Property Setter", name, "module", "Periodic Moving Average", update_modified=False)
+	frappe.clear_cache(doctype="Item")
 
 
 def ensure_module_defs():

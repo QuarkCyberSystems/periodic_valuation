@@ -63,7 +63,13 @@ doc_events = {
 		"on_submit": "periodic_valuation.periodic_moving_average.invoice_diff.on_purchase_invoice_submit",
 	},
 	# defaults-as-templates: blank STD items get the group default stamped on save
-	"Item": {"validate": "periodic_valuation.overrides.cancel_guard.stamp_settlement_view"},
+	"Item": {
+		"validate": [
+			"periodic_valuation.overrides.cancel_guard.stamp_settlement_view",
+			# the fork's Item delta (D-029 §7 step 4)
+			"periodic_valuation.overrides.cancel_guard.validate_periodic_item",
+		]
+	},
 	# No-manual-drift rule: JEs cannot hit kernel-maintained inventory accounts
 	"Journal Entry": {
 		"validate": "periodic_valuation.overrides.journal_guard.block_manual_stock_journal",

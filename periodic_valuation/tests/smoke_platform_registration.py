@@ -155,6 +155,41 @@ def _reversal_pair(fixtures, adapter, checks):
 		checks("V-06 a Cancellation of a Cancellation is refused", "itself a Cancellation" in str(exc), str(exc)[:120])
 
 
+def _item_delta(fixtures, checks):
+	"""PV-00 (Build 0.1 §12.2, D-029 §7 step 4): the fork's Item delta, now
+	this app's - on a transacted periodic item the method never leaves the
+	periodic set (upstream would allow Moving Average) and the two valuation
+	fields are locked; an untransacted item may change them."""
+	from qcs_platform.testkit import isolated
+
+	with isolated():
+		fixtures.posted("Purchase Receipt")  # a routed receipt of MAP_ITEM
+		item = frappe.get_doc("Item", MAP_ITEM)
+		checks("PV-00 the periodic methods are valid options of the core Select",
+			"Periodic Standard Cost" in frappe.get_meta("Item").get_field("valuation_method").options)
+		for field, value in (("valuation_method", "Moving Average"),
+				("valuation_includes_warehouse", 0 if item.valuation_includes_warehouse else 1)):
+			item.reload()
+			item.set(field, value)
+			try:
+				item.save()
+				checks(f"PV-00 {field} is locked on a transacted periodic item", False, "saved")
+			except frappe.ValidationError as exc:
+				checks(f"PV-00 {field} is locked on a transacted periodic item", "existing submitted transactions" in str(exc), str(exc)[:100])
+		fresh = frappe.get_doc({"doctype": "Item", "item_code": f"_PV00-{frappe.generate_hash(length=5)}",
+			"item_group": frappe.get_all("Item Group", filters={"is_group": 0}, limit=1, pluck="name")[0],
+			"stock_uom": "Nos", "is_stock_item": 1, "valuation_method": "Periodic Moving Average"}).insert(ignore_permissions=True)
+		fresh.valuation_includes_warehouse = 1
+		fresh.save()
+		checks("PV-00 an untransacted periodic item may change its valuation fields", True)
+		fresh.has_batch_no = 1
+		try:
+			fresh.save()
+			checks("PV-00 a periodic item refuses batch valuation", False, "saved")
+		except frappe.ValidationError as exc:
+			checks("PV-00 a periodic item refuses batch valuation", "batch or serial" in str(exc), str(exc)[:100])
+
+
 def run():
 	from qcs_platform.testkit import Checks, throwaway_site_only
 	from qcs_platform.testkit import contract
@@ -184,6 +219,7 @@ def run():
 		checks("SR is refused without a route", adapter.actions(frappe._dict(doctype="Stock Reconciliation", is_cancellation=0)) == ())
 
 		_reversal_pair(Fixtures(), adapter, checks)
+		_item_delta(Fixtures(), checks)
 		from qcs_platform.testkit import migrate_guard_fires
 
 		from periodic_valuation.setup.custom_fields import after_migrate
