@@ -24,7 +24,7 @@ frappe.ui.form.on("Stock Revaluation", {
 			__("Stock Ledger"),
 			() => {
 				frappe.route_options = route_args({});
-				frappe.set_route("query-report", "Stock Ledger");
+				frappe.set_route("query-report", "Stock Ledger Enterprise");
 			},
 			__("View")
 		);
@@ -35,7 +35,7 @@ frappe.ui.form.on("Stock Revaluation", {
 					frappe.route_options = route_args({
 						categorize_by: "Categorize by Voucher (Consolidated)",
 					});
-					frappe.set_route("query-report", "General Ledger");
+					frappe.set_route("query-report", "General Ledger Enterprise");
 				},
 				__("View")
 			);

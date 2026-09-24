@@ -124,7 +124,7 @@ class ValuationLedgerAdapter(PostedNeverDeleted):
 				0,
 				View(
 					label=_("Stock Ledger"),
-					report="Stock Ledger",
+					report="Stock Ledger Enterprise",
 					filters={"voucher_no": doc.name, "from_date": str(doc.posting_date), "company": doc.company},
 				),
 			)
@@ -132,7 +132,7 @@ class ValuationLedgerAdapter(PostedNeverDeleted):
 				1,
 				View(
 					label=_("Accounting Ledger"),
-					report="General Ledger",
+					report="General Ledger Enterprise",
 					filters={"voucher_no": doc.name, "from_date": str(doc.posting_date), "company": doc.company},
 				),
 			)
