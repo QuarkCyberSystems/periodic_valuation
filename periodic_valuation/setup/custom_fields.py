@@ -159,14 +159,23 @@ ITEM_FIELDS = json.loads(r"""[
   "insert_after": "valuation_includes_warehouse"
  }
 ]""")
-VALUATION_METHOD_OPTIONS = "\nFIFO\nMoving Average\nLIFO\nPeriodic Moving Average\nPeriodic Standard Cost"
 
 
 def apply_custom_fields():
 	create_custom_fields(get_custom_fields(), ignore_validate=True)
 	# update=True: this app's definition is the definition (the fork's JSON
-	# carried these as DocFields; the migrate that reverts it syncs them out first)
-	create_custom_fields({"Item": ITEM_FIELDS}, ignore_validate=True, update=True)
+	# carried these as DocFields; the migrate that reverts it syncs them out first).
+	# A DocField still on disk is refused rather than shadowed (the sync-first rule)
+	from qcs_platform.core.fields import docfield_collisions
+
+	collisions = docfield_collisions({"Item": [f["fieldname"] for f in ITEM_FIELDS]})
+	if collisions:
+		frappe.throw(
+			"periodic_valuation cannot install its Item fields beside a DocField of the same name: "
+			+ ", ".join(collisions["Item"]) + ". Revert the schema first, then migrate (the sync-first rule).",
+			title="Custom Field Collision",
+		)
+	create_custom_fields({"Item": [{**f, "module": "Periodic Valuation"} for f in ITEM_FIELDS]}, ignore_validate=True, update=True)
 	apply_item_valuation_options()
 
 
@@ -176,11 +185,17 @@ def apply_item_valuation_options():
 	place before any item saves after the fork's item.json reverts."""
 	from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 
-	make_property_setter("Item", "valuation_method", "options", VALUATION_METHOD_OPTIONS, "Text",
+	from periodic_valuation.shared.routing import KERNEL_VALUATION_METHODS
+
+	# upstream's own options plus this app's methods - one source for the method set
+	core = frappe.get_meta("Item", cached=False).get_field("valuation_method").options or ""
+	core_options = [o for o in core.split("\n") if o not in KERNEL_VALUATION_METHODS]
+	options = "\n".join(core_options + list(KERNEL_VALUATION_METHODS))
+	make_property_setter("Item", "valuation_method", "options", options, "Text",
 		for_doctype=False, validate_fields_for_doctype=False)
 	name = frappe.db.get_value("Property Setter", {"doc_type": "Item", "field_name": "valuation_method", "property": "options"}, "name")
 	if name:
-		frappe.db.set_value("Property Setter", name, "module", "Periodic Moving Average", update_modified=False)
+		frappe.db.set_value("Property Setter", name, "module", "Periodic Valuation", update_modified=False)
 	frappe.clear_cache(doctype="Item")
 
 

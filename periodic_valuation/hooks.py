@@ -65,9 +65,10 @@ doc_events = {
 	# defaults-as-templates: blank STD items get the group default stamped on save
 	"Item": {
 		"validate": [
-			"periodic_valuation.overrides.cancel_guard.stamp_settlement_view",
-			# the fork's Item delta (D-029 §7 step 4)
+			# the fork's Item delta (D-029 §7 step 4) - the lock judges what the user
+			# changed, before the stamp fills a blank view from the group default
 			"periodic_valuation.overrides.cancel_guard.validate_periodic_item",
+			"periodic_valuation.overrides.cancel_guard.stamp_settlement_view",
 		]
 	},
 	# No-manual-drift rule: JEs cannot hit kernel-maintained inventory accounts

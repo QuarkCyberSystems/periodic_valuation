@@ -55,7 +55,6 @@ def stamp_settlement_view(doc, method=None):
 		doc.settlement_view = group_view
 
 
-PERIODIC_METHODS = ("Periodic Moving Average", "Periodic Standard Cost")
 LOCKED_AFTER_TRANSACTION = ("valuation_includes_warehouse", "settlement_view")
 
 
@@ -72,7 +71,7 @@ def validate_periodic_item(doc, method=None):
 
 
 def _validate_periodic_valuation_method(doc):
-	if doc.valuation_method not in PERIODIC_METHODS:
+	if doc.valuation_method not in get_kernel_methods():
 		return
 	if doc.has_batch_no or doc.has_serial_no:
 		frappe.throw(
@@ -98,7 +97,7 @@ def _lock_after_transaction(doc):
 	if not before:
 		return
 	changed = [f for f in LOCKED_AFTER_TRANSACTION if cstr(doc.get(f)) != cstr(before.get(f))]
-	if before.valuation_method in PERIODIC_METHODS and cstr(doc.valuation_method) != cstr(before.valuation_method):
+	if before.valuation_method in get_kernel_methods() and cstr(doc.valuation_method) != cstr(before.valuation_method):
 		changed.append("valuation_method")
 	if not changed:
 		return
