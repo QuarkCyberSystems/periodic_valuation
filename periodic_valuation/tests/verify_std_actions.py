@@ -92,7 +92,7 @@ def run(commit=False):
 	sr.insert(ignore_permissions=True)
 	sr.submit()
 	refused("core Cancel refused on a routed Stock Reconciliation",
-		lambda: frappe.get_doc("Stock Reconciliation", sr.name).cancel(), "Create Cancellation")
+		lambda: frappe.get_doc("Stock Reconciliation", sr.name).cancel(), "not reversible")  # an opening balance has no reversal route (platform.NOT_REVERSIBLE)
 
 	# ------------------------------------- Create Cancellation per doctype
 	cx_dn = frappe.get_doc("Delivery Note", make_cancellation("Delivery Note", dn.name))

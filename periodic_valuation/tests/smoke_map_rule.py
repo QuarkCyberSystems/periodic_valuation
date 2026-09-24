@@ -42,6 +42,9 @@ def gl_net(voucher, account, posting_date=None):
 
 def run(commit=False):
 	wh = ensure_masters()
+	# invoices below price at a rate other than the receipt's (DR-44e), as the
+	# other valuation suites do; a fresh site keeps the rates equal by default
+	frappe.db.set_single_value("Buying Settings", "maintain_same_rate", 0)
 	prior = get_first_day(add_months(nowdate(), -1))
 	cur = get_first_day(nowdate())
 	if not frappe.db.exists("Inventory Period", {"company": COMPANY, "period_name": prior.strftime("%Y-%m")}):
@@ -402,12 +405,17 @@ def run(commit=False):
 	it = make_item("_MR-DR44D")
 	stock44d = get_inventory_account(COMPANY, it, wh)
 	prd44d = get_offset_account(COMPANY, it, wh, "prd")
+	# the freight account must not be the price-difference account: the smoke
+	# masters configure PRD as Cost of Goods Sold, which is also the first expense
+	# leaf, and the two legs would net on one account
+	freight44d = frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0, "root_type": "Expense",
+		"name": ("not in", (prd44d, stock44d))}, limit=1, pluck="name")[0]
 	pr = make_pr(it, wh, 10, 10)
 	lcv = frappe.get_doc({"doctype": "Landed Cost Voucher", "company": COMPANY,
 		"posting_date": nowdate(), "distribute_charges_based_on": "Amount",
 		"purchase_receipts": [{"receipt_document_type": "Purchase Receipt", "receipt_document": pr.name,
 			"supplier": "_SMK Supplier", "grand_total": pr.grand_total}],
-		"taxes": [{"expense_account": exp_acct, "description": "freight", "amount": 50}]})
+		"taxes": [{"expense_account": freight44d, "description": "freight", "amount": 50}]})
 	lcv.get_items_from_purchase_receipts()
 	lcv.insert(ignore_permissions=True)
 	lcv.submit()                                   # 10 qty / 150, MAP 15
