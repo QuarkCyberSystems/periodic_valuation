@@ -186,7 +186,8 @@ def apply_item_valuation_options():
 	from periodic_valuation.shared.routing import KERNEL_VALUATION_METHODS
 
 	# upstream's own options plus this app's methods - one source for the method set
-	core = frappe.get_meta("Item", cached=False).get_field("valuation_method").options or ""
+	# the DocField row itself: meta already carries this setter's own value
+	core = frappe.db.get_value("DocField", {"parent": "Item", "fieldname": "valuation_method"}, "options") or ""
 	core_options = [o for o in core.split("\n") if o not in KERNEL_VALUATION_METHODS]
 	options = "\n".join(core_options + list(KERNEL_VALUATION_METHODS))
 	from qcs_platform.core.fields import ensure_property_setter
