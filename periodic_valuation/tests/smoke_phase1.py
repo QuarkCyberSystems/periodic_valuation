@@ -101,23 +101,38 @@ def run():
 		frappe.clear_cache(doctype="Item")
 		frappe.local.request_cache = None  # bust @request_cache on get_valuation_method
 
-		fake = frappe._dict({"doctype": "Stock Entry", "name": "SMOKE-TEST", "company": company})
-		fake.get = fake.__getitem__ if False else lambda k, d=None: frappe._dict.get(fake, k, d)
-
 		class FakeController:
 			doctype = "Stock Entry"
 			name = "SMOKE-TEST"
+			docstatus = 1
 
 			def get(self, key, default=None):
 				return {"company": company}.get(key, default)
 
+		# The real kernel is registered (the Phase-1 stub is gone): capture
+		# the dispatch instead of posting through it.
+		from unittest.mock import patch
+
+		calls = []
+		kernel_path = frappe.get_hooks("valuation_kernels")["Periodic Moving Average"]
+		kernel_path = kernel_path[-1] if isinstance(kernel_path, list | tuple) else kernel_path
+		real_get_attr = frappe.get_attr
+
+		def capture(path):
+			if path == kernel_path:
+				return lambda controller, entries: calls.append((controller, entries))
+			return real_get_attr(path)
+
 		try:
-			StockController.route_periodic_valuation_entries(
-				FakeController(), [frappe._dict({"item_code": item_code})]
+			with patch.object(frappe, "get_attr", side_effect=capture):
+				core = StockController.route_periodic_valuation_entries(
+					FakeController(), [frappe._dict({"item_code": item_code})]
+				)
+			check(
+				"routing dispatch reaches the registered kernel",
+				core == [] and len(calls) == 1 and calls[0][1][0].item_code == item_code,
+				f"core={core} calls={len(calls)}",
 			)
-			check("routing dispatch reaches stub kernel", False, "no throw")
-		except frappe.ValidationError as e:
-			check("routing dispatch reaches stub kernel", "Kernel Not Enabled" in str(e) or "not yet enabled" in str(e), str(e)[:120])
 		finally:
 			frappe.db.set_value("Item", item_code, "valuation_method", original or "")
 			frappe.db.rollback()
