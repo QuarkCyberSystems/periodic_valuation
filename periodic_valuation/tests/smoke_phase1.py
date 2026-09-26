@@ -6,7 +6,7 @@ Verifies (read-only where possible, all writes rolled back):
 3. Item accepts 'Periodic Moving Average'; enum extended; core defaults NOT extended.
 4. Routing dispatch reaches the stub kernel (expected throw).
 5. Immutability guards block manual event inserts.
-6. Unknown-method guard exists on update_entries_after.
+6. Unknown-method guard exists on update_entries_after (the platform's P6 walk).
 """
 
 import frappe
@@ -88,8 +88,10 @@ def run():
 		frappe.db.rollback()
 
 	# 5. routing dispatch: build a fake controller-ish object and call the
-	# StockController method unbound with crafted entries.
-	from erpnext.controllers.stock_controller import StockController
+	# platform's router (qcs_platform core patch P1, Build 0.2 step 2 - the
+	# fork's StockController.route_periodic_valuation_entries re-homed) with
+	# crafted entries.
+	from qcs_platform.core.valuation_sockets import route_sl_entries
 
 	company = frappe.get_all("Company", limit=1, pluck="name")[0]
 
@@ -125,9 +127,7 @@ def run():
 
 		try:
 			with patch.object(frappe, "get_attr", side_effect=capture):
-				core = StockController.route_periodic_valuation_entries(
-					FakeController(), [frappe._dict({"item_code": item_code})]
-				)
+				core = route_sl_entries(FakeController(), [frappe._dict({"item_code": item_code})])
 			check(
 				"routing dispatch reaches the registered kernel",
 				core == [] and len(calls) == 1 and calls[0][1][0].item_code == item_code,
@@ -137,12 +137,17 @@ def run():
 			frappe.db.set_value("Item", item_code, "valuation_method", original or "")
 			frappe.db.rollback()
 
-	# 6. unknown-method guard present
+	# 6. unknown-method guard present - on the walk class the platform's core
+	# patch P6 installs (the fork's check moved there at Build 0.2 step 2)
+	from qcs_platform import core_patches
+
+	core_patches.ensure()
 	from erpnext.stock.stock_ledger import update_entries_after
 
 	check(
 		"unknown-method throw guard on update_entries_after",
-		hasattr(update_entries_after, "validate_known_valuation_method"),
+		getattr(update_entries_after, "__qcs_patch__", None) == "P6"
+		and hasattr(update_entries_after, "validate_known_valuation_method"),
 	)
 
 	failed = [r for r in RESULTS if not r[1]]

@@ -3,10 +3,9 @@
 
 """Custom fields the periodic_valuation app adds to core doctypes.
 
-Applied idempotently on after_migrate. Where the consolidated design earmarks
-a field for a future upstream core PR (e.g. GL Entry.valuation_event_id), the
-Custom Field here is the interim carrier with the same fieldname, so a later
-core adoption is a data no-op.
+Applied idempotently on after_migrate. A ledger-row field core code reads
+(GL Entry.valuation_event_id, SLE posted_via_valuation_kernel) is the
+platform's schema, installed by qcs_platform (D-042); this app writes it.
 """
 
 import json
@@ -28,19 +27,10 @@ CANCELLATION_DOCTYPES = [
 
 
 def get_custom_fields():
+	# GL Entry `valuation_event_id` is platform schema from Build 0.2 step 2
+	# (D-042 (1)/(3): the platform's immutable repost reads it); this app
+	# writes it and never re-declares it (D-042 (4)).
 	custom_fields = {
-		"GL Entry": [
-			{
-				"fieldname": "valuation_event_id",
-				"label": "Valuation Event",
-				"fieldtype": "Link",
-				"options": "Inventory Valuation Event",
-				"read_only": 1,
-				"no_copy": 1,
-				"search_index": 1,
-				"insert_after": "voucher_detail_no",
-			}
-		],
 		"Item": [
 			{
 				"fieldname": "item_default_warehouse_accounts",
@@ -246,10 +236,26 @@ def after_install():
 
 
 
+def require_platform_capabilities():
+	"""Fail the migrate unless the platform provides, healthy on this site,
+	every capability this app's registration requires (Build 0.2 §4.0 (8),
+	the new-app / old-platform direction). A platform without
+	`require_capability` predates Build 0.2 step 0; one that does not know a
+	name predates step 2 - both are too old."""
+	from periodic_valuation.platform import PLATFORM_CONTRACT, PLATFORM_TOO_OLD, REQUIRES
+
+	try:
+		from qcs_platform.compat import require_capability
+	except ImportError:
+		frappe.throw(PLATFORM_TOO_OLD.format(PLATFORM_CONTRACT), title="Platform Too Old")
+	require_capability("periodic_valuation", *REQUIRES)
+
+
 def after_migrate():
 	from qcs_platform.compat import require_registrant
 
 	require_registrant("periodic_valuation")  # bench migrate never reads required_apps
+	require_platform_capabilities()
 	ensure_module_defs()
 	apply_custom_fields()
 	ensure_reversal_stock_entry_types()

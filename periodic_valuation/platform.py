@@ -178,11 +178,38 @@ class InventoryPeriodAuthority:
 		return period.status if period else "NO PERIOD"
 
 
+# The platform contract this app is written against (Build 0.2 §4.0 (8)):
+# from 0.2 the kernel sockets - routing, incoming rate, current state,
+# quantity billing, the stock-GL suppression - are the platform's
+# (core_patches P1, P2, P2b, P4; the Purchase Receipt / Purchase Invoice /
+# Delivery Note / Stock Reconciliation overrides), no longer the erpnext
+# fork's, and the kernel-row skip on the stock walk is P6's.
+PLATFORM_CONTRACT = "0.2"
+# every capability those sockets need, in the platform's one vocabulary
+# (§4.0 (9)): a patch id, or `bases:<capability>` for the overrides' bases.
+# P6 in its own right: without its walk class a repost re-values kernel rows.
+REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "bases:valuation_sockets")
+
+
+PLATFORM_TOO_OLD = (
+	"periodic_valuation is written against qcs_platform contract {0} (Build 0.2 step 2 or later: core patches "
+	"P1, P2, P2b, P4, P6 and the kernel-socket overrides); this qcs_platform predates it. Upgrade qcs_platform "
+	"together with this app and the erpnext checkout of the same step, then migrate (Build 0.2 §6.3)."
+)
+
+
 def get_registration():
-	return Registration(
-		app="periodic_valuation",
-		api_version=API_VERSION,
-		ledger_adapters=(ValuationLedgerAdapter(),),
-		settings_doctypes=("Periodic Moving Average Settings",),
-		period_authorities=(InventoryPeriodAuthority(),),
-	)
+	try:
+		return Registration(
+			app="periodic_valuation",
+			api_version=API_VERSION,
+			ledger_adapters=(ValuationLedgerAdapter(),),
+			settings_doctypes=("Periodic Moving Average Settings",),
+			period_authorities=(InventoryPeriodAuthority(),),
+			requires=REQUIRES,
+			platform_contract=PLATFORM_CONTRACT,
+		)
+	except TypeError as exc:
+		# a platform before Build 0.2 step 0 has no requires / platform_contract:
+		# the registration fails - the site fails closed (D-036) - naming why
+		raise frappe.ValidationError(PLATFORM_TOO_OLD.format(PLATFORM_CONTRACT)) from exc

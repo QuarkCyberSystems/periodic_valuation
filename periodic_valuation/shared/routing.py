@@ -3,9 +3,9 @@
 
 """Valuation-method routing registry.
 
-The erpnext fork consults this before creating SLEs: items whose
-valuation_method has a registered kernel are posted through it; everything
-else follows the unmodified core path. Registration happens via the
+qcs_platform's routing (core patch P1) consults this before creating SLEs:
+items whose valuation_method has a registered kernel are posted through it;
+everything else follows the unmodified core path. Registration happens via the
 ``valuation_kernels`` hook so additional kernels (Periodic Standard Cost,
 Phase 3) plug in without further core edits.
 """

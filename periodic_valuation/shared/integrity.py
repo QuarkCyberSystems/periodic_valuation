@@ -389,6 +389,10 @@ def check_billing_consistency(company):
 	"Completed" and disappear from every billing flow (client meeting
 	2026-08-12, MAT-PRE-2026-00281). Returns drift rows; empty means clean.
 	"""
+	# the platform's kernel-routed row predicate (Build 0.2 §4.1): the fork's
+	# hasattr-guarded method is gone at step 2, and a guard here would skip silently
+	from qcs_platform.core.valuation_sockets import routed_items
+
 	drifts = []
 	for pr in frappe.get_all(
 		"Purchase Receipt",
@@ -396,7 +400,7 @@ def check_billing_consistency(company):
 		fields=["name", "per_billed"],
 	):
 		doc = frappe.get_doc("Purchase Receipt", pr.name)
-		routed = doc.get_kernel_routed_items() if hasattr(doc, "get_kernel_routed_items") else set()
+		routed = routed_items(doc)
 		if not routed:
 			continue
 		billed = dict(

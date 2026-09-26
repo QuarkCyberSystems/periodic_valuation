@@ -12,24 +12,24 @@ required_apps = ["erpnext", "qcs_platform"]
 # settings and the Inventory Period as a posting calendar.
 qcs_platform_registration = "periodic_valuation.platform.get_registration"
 
-# Valuation-method -> posting-kernel registry, consulted by the erpnext fork's
-# routing dispatch before SLE creation. "Periodic Standard Cost" registers here in
-# Phase 3 without further core edits.
+# Valuation-method -> posting-kernel registry, consulted by qcs_platform's
+# routing (core patch P1, core.valuation_sockets) before SLE creation.
 valuation_kernels = {
 	"Periodic Moving Average": "periodic_valuation.periodic_moving_average.kernel.post_via_pma_kernel",
 	"Periodic Standard Cost": "periodic_valuation.periodic_standard_cost.kernel.post_via_std_kernel",
 }
 
-# Incoming-rate resolver for kernel-valued items (consulted by the fork's
-# erpnext.stock.utils.get_incoming_rate instead of SLE-based resolution).
+# Incoming-rate resolver for kernel-valued items (consulted by qcs_platform's
+# get_incoming_rate socket, core patch P2, instead of SLE-based resolution).
 valuation_incoming_rate = "periodic_valuation.shared.routing.get_incoming_rate"
 
 # Landed Cost Voucher handler: stock-ratio split events instead of in-place
-# SLE revaluation (consulted by the fork's update_landed_cost).
+# SLE revaluation (consulted by qcs_platform's Landed Cost Voucher override).
 valuation_landed_cost = "periodic_valuation.periodic_moving_average.landed_cost.handle_landed_cost"
 
 # Period-aware balance resolver (qty + period MAP) for forms that show the
-# current state of a routed item - Stock Reconciliation, Stock Count.
+# current state of a routed item - Stock Reconciliation (qcs_platform's
+# override and get_stock_balance_for socket, P2b), Stock Count.
 valuation_current_state = "periodic_valuation.periodic_moving_average.api.get_current_state"
 
 after_migrate = ["periodic_valuation.setup.custom_fields.after_migrate"]

@@ -21,16 +21,12 @@ def get_kernel_methods():
 
 
 def has_routed_items(doc):
-	from erpnext.stock.utils import get_valuation_method
+	"""The platform's kernel-routed row predicate (Build 0.2 §4.1 S-6, RULES
+	§7): one answer for the router, the sockets and this app. The method
+	set is still this app's - it is what `valuation_kernels` registers."""
+	from qcs_platform.core.valuation_sockets import routed_items
 
-	kernel_methods = get_kernel_methods()
-	for row in doc.get("items") or []:
-		item_code = row.get("item_code")
-		if not item_code:
-			continue
-		if get_valuation_method(item_code, doc.get("company")) in kernel_methods:
-			return True
-	return False
+	return bool(routed_items(doc))
 
 
 @frappe.whitelist()

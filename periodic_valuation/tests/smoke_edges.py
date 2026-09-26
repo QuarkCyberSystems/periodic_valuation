@@ -613,7 +613,10 @@ def run(commit=False):
 		f"{sle.stock_value_difference} @ {sle.valuation_rate}")
 
 	# Stock Reconciliation prefill reads the same period balance
-	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_stock_balance_for
+	# the platform's socket (Build 0.2 step 2, P2b): the module attribute of
+	# stock_reconciliation resolves to it once the core patches are installed;
+	# importing it directly keeps this suite independent of the install
+	from qcs_platform.core.valuation_sockets import get_stock_balance_for
 
 	bal = get_stock_balance_for(it, wh, str(prior), "12:00:00")
 	check("period rate: reconciliation prefill uses the period MAP",
