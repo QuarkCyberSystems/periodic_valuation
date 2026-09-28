@@ -529,18 +529,20 @@ def run(commit=False):
 	ng_pr = make_pr(ng, wh, 100, 10); make_dn(ng, wh, 90)  # hold 10 @ value 100
 	srbnb = frappe.get_cached_value("Company", COMPANY, "stock_received_but_not_billed")
 	# Cost Adjustment tree (client, 23 Aug 2026; confirmed 1 Sep): the adjustment
-	# takes inventory down to exactly zero (-100) and the excess (-200) goes to
-	# price difference - the posting succeeds instead of being refused
+	# takes inventory down to exactly zero (-100) and the excess (-200) is the
+	# PRD the tree names for this branch - the posting succeeds instead of
+	# being refused
 	post_value_event(COMPANY, ng, wh, source=("Purchase Receipt", ng_pr.name, ng_pr.items[0].name),
 		posting_date=nowdate(), reason="invoice_diff", value_delta=-300, offset_account=srbnb)
 	ng_ive = frappe.get_all("Inventory Valuation Event",
 		filters={"source_docname": ng_pr.name, "reason_code": "invoice_diff"},
-		fields=["value_delta", "expense_portion"])[0]
+		fields=["value_delta", "expense_portion", "prd_amount"])[0]
 	ng_b = ipb(ng)
-	check("negative-MAP value event floors at zero: -100 inventory / -200 price difference",
-		flt(ng_ive.value_delta, 2) == -100 and flt(ng_ive.expense_portion, 2) == -200
+	check("negative-MAP value event floors at zero: -100 inventory / -200 PRD",
+		flt(ng_ive.value_delta, 2) == -100 and flt(ng_ive.prd_amount, 2) == -200
+		and flt(ng_ive.expense_portion, 2) == 0
 		and flt(ng_b.closing_value, 2) == 0 and flt(ng_b.closing_qty) == 10,
-		f"{ng_ive.value_delta}/{ng_ive.expense_portion} closing {ng_b.closing_value}")
+		f"{ng_ive.value_delta}/prd {ng_ive.prd_amount}/exp {ng_ive.expense_portion} closing {ng_b.closing_value}")
 
 	# ============ Stock Ageing works for routed items (OI-8 / DR-27):
 	# the report replays SLE-compatible rows FIFO by date - valuation-agnostic
