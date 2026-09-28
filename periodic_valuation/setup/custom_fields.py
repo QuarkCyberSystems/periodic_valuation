@@ -79,6 +79,27 @@ def get_custom_fields():
 				"options": "Account",
 				"insert_after": "variance_account",
 			},
+			{
+				"fieldname": "prd_account",
+				"label": "PRD (Price Revaluation Difference) Account",
+				"fieldtype": "Link",
+				"options": "Account",
+				"insert_after": "price_difference_account",
+			},
+			{
+				"fieldname": "fx_gain_loss_account",
+				"label": "Exchange Gain/Loss Account",
+				"fieldtype": "Link",
+				"options": "Account",
+				"insert_after": "prd_account",
+			},
+			{
+				"fieldname": "stock_rounding_adjustment_account",
+				"label": "Stock Rounding Adjustment Account",
+				"fieldtype": "Link",
+				"options": "Account",
+				"insert_after": "fx_gain_loss_account",
+			},
 		],
 		"Stock Entry Type": [
 			{

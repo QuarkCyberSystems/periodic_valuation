@@ -97,10 +97,20 @@ def get_offset_account(company, item_code, warehouse, transaction_type, row_over
 	if row_override:
 		return row_override
 
+	# Every intent with a company-level setting also has its own per-item,
+	# per-item-group and per-warehouse field. Without one an intent falls back
+	# to `expense_account` at those levels, and an item that merely carries a
+	# default expense account then silently captures it: four PRD legs on the
+	# client's bench posted to Direct Maintenance instead of the configured
+	# PRD account that way.
 	fieldmap = {
 		"revaluation": "revaluation_account",
 		"count_diff": "variance_account",
 		"price_difference": "price_difference_account",
+		"prd": "prd_account",
+		"fx_gain_loss": "fx_gain_loss_account",
+		"rounding_cleanup": "stock_rounding_adjustment_account",
+		"negative_stock_adjustment": "variance_account",
 		"expense": "expense_account",
 	}
 	fieldname = fieldmap.get(transaction_type, "expense_account")

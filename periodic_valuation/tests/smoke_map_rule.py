@@ -296,6 +296,43 @@ def run(commit=False):
 			filters={"source_docname": cx.name, "is_cancelled": 0})) == 2,
 		f"prd {gl_net(cx.name, prd)}")
 
+	# ---------------- account resolution: every intent has its own per-item field,
+	# so an Item Default expense account no longer captures PRD / FX / rounding
+	# (four PRD legs reached Direct Maintenance on the client's bench that way)
+	it = make_item("_MR-ACCTS")
+	other = frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+		"root_type": "Expense", "name": ("!=", prd)}, limit=1, pluck="name")[0]
+	item = frappe.get_doc("Item", it)
+	row = next((r for r in item.item_defaults if r.company == COMPANY), None)
+	if row:
+		row.expense_account = other
+	else:
+		item.append("item_defaults", {"company": COMPANY, "expense_account": other})
+	item.save(ignore_permissions=True)
+	resolved = {k: get_offset_account(COMPANY, it, wh, k)
+		for k in ("prd", "fx_gain_loss", "rounding_cleanup", "expense")}
+	settings_prd = frappe.db.get_value("Periodic Moving Average Settings",
+		{"company": COMPANY}, "prd_account")
+	check("accounts: an Item Default expense account no longer captures the PRD intent",
+		resolved["prd"] == settings_prd and resolved["prd"] != other,
+		f"prd resolved to {resolved['prd']}, item expense account is {other}")
+	check("accounts: FX and rounding resolve to their own settings, not the item expense account",
+		resolved["fx_gain_loss"] != other and resolved["rounding_cleanup"] != other,
+		str(resolved))
+	check("accounts: the expense intent still honours the Item Default",
+		resolved["expense"] == other, str(resolved["expense"]))
+
+	# a per-warehouse row still wins over the company setting
+	wh_prd = frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+		"root_type": "Expense", "name": ("not in", (prd, other))}, limit=1, pluck="name")[0]
+	item = frappe.get_doc("Item", it)
+	item.append("item_default_warehouse_accounts",
+		{"company": COMPANY, "warehouse": wh, "prd_account": wh_prd})
+	item.save(ignore_permissions=True)
+	check("accounts: a per-warehouse PRD account overrides the company setting",
+		get_offset_account(COMPANY, it, wh, "prd") == wh_prd,
+		str(get_offset_account(COMPANY, it, wh, "prd")))
+
 	# ---------------- Cost Adjustment floor: inventory to zero, excess to PRD
 	from periodic_valuation.periodic_moving_average.kernel import post_value_event
 	it = make_item("_MR-FLOOR")
