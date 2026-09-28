@@ -341,11 +341,17 @@ def run(commit=False):
 	post_value_event(COMPANY, it, wh, source=("Purchase Receipt", pr.name, pr.items[0].name),
 		posting_date=nowdate(), reason="invoice_diff", value_delta=-300, offset_account=srbnb)
 	ev = frappe.get_all("Inventory Valuation Event", filters={"source_docname": pr.name, "reason_code": "invoice_diff"},
-		fields=["value_delta", "expense_portion"])[0]
+		fields=["value_delta", "expense_portion", "prd_amount"])[0]
 	c = ipb(it)
-	check("floor: -300 adjustment -> inventory -100 (lands on zero), price difference -200",
-		flt(ev.value_delta, 2) == -100 and flt(ev.expense_portion, 2) == -200 and flt(c.closing_value, 2) == 0,
-		f"{ev.value_delta}/{ev.expense_portion} closing {c.closing_value}")
+	check("floor: -300 adjustment -> inventory -100 (lands on zero), excess -200 stamped as PRD",
+		flt(ev.value_delta, 2) == -100 and flt(ev.prd_amount, 2) == -200
+		and flt(ev.expense_portion, 2) == 0 and flt(c.closing_value, 2) == 0,
+		f"{ev.value_delta}/prd {ev.prd_amount}/exp {ev.expense_portion} closing {c.closing_value}")
+	check("floor: the excess credits the PRD account, not price difference",
+		gl_net(pr.name, prd, nowdate()) == -200
+		and gl_net(pr.name, get_offset_account(COMPANY, it, wh, "price_difference"), nowdate()) == 0,
+		f"prd {gl_net(pr.name, prd, nowdate())} "
+		f"price_diff {gl_net(pr.name, get_offset_account(COMPANY, it, wh, 'price_difference'), nowdate())}")
 
 	# ---------------- reversing a backdated landed cost undoes the carry too (MH #14)
 	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation

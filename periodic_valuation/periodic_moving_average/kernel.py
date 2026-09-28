@@ -1626,11 +1626,19 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	# inventory value down to exactly zero and no further - anything beyond that
 	# is a price difference, not negative inventory. Split here so the posting
 	# succeeds with the right accounts instead of being refused.
+	#
+	# The excess carries its OWN account, the PRD one the tree names for this
+	# branch - not the price-difference account the coverage remainder uses.
+	# Folding the two together sent both to whatever price_difference resolved
+	# to, which no configuration could separate, and split one economic idea
+	# across two accounts: every other "value the stock cannot carry" leg
+	# (negative-stock receipts, the day-1 cross-period absorb, the DR-44
+	# reversal floor) already posts to PRD.
+	prd_excess = 0.0
 	if reason in ("landed_cost", "invoice_diff", "fx_adjust", "revaluation") and flt(value_delta) < 0 \
 			and flt(ipb.closing_qty) > 0 and flt(ipb.closing_value) + flt(value_delta) < 0:
-		excess = r2(flt(ipb.closing_value) + flt(value_delta))   # negative: the part below zero
+		prd_excess = r2(flt(ipb.closing_value) + flt(value_delta))   # negative: the part below zero
 		value_delta = r2(-flt(ipb.closing_value))
-		expense_portion = r2(flt(expense_portion or 0) + excess)
 	if reason == "revaluation":
 		if flt(ipb.closing_qty) <= 0:
 			frappe.throw(_("Revaluation requires positive on-hand quantity for {0}.").format(item_code))
@@ -1657,6 +1665,7 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		movement_type=movement_type, reason=reason, qty_delta=qty_delta,
 		value_delta=value_delta, map_before=map_before,
 		expense_portion=expense_portion, fx_variance=fx_variance,
+		prd_amount=prd_excess,
 		affects_map=0 if reason == "count_diff" else 1,
 	)
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
@@ -1690,10 +1699,13 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	)
 
 	legs = [(inventory_account, value_delta, offset_account)]
-	total_offset = value_delta + (expense_portion or 0) + (fx_variance or 0)
+	total_offset = value_delta + (expense_portion or 0) + (fx_variance or 0) + prd_excess
 	if expense_portion:
 		price_diff = get_offset_account(company, item_code, warehouse, "price_difference")
 		legs.append((price_diff, expense_portion, offset_account))
+	if prd_excess:
+		prd_account = get_offset_account(company, item_code, warehouse, "prd")
+		legs.append((prd_account, prd_excess, offset_account))
 	if fx_variance:
 		fx_account = get_offset_account(company, item_code, warehouse, "fx_gain_loss")
 		legs.append((fx_account, fx_variance, offset_account))

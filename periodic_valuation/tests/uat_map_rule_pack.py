@@ -244,7 +244,7 @@ def run(commit=False):
 	lcv = make_lcv(pr, -500)                # tree example: 300 + (-500) < 0
 	ev, c = ive(lcv.name, "landed_cost"), ipb(it)
 	check("CA3", "300 + (-500): -300 inventory (lands on zero), -200 PRD",
-		ev and flt(ev.value_delta, 2) == -300 and flt(ev.expense_portion, 2) == -200
+		ev and flt(ev.value_delta, 2) == -300 and flt(ev.prd_amount, 2) == -200
 		and c and flt(c.closing_value, 2) == 0 and flt(c.closing_qty) == 30
 		and gl_net(lcv.name, stock) == -300 and gl_net(lcv.name, prd) == -200,
 		f"ev {ev} closing {c and c.closing_value} gl stock {gl_net(lcv.name, stock)} prd {gl_net(lcv.name, prd)}")
