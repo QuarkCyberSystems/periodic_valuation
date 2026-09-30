@@ -12,6 +12,7 @@
   "company",
   "item_code",
   "warehouse",
+  "valuation_method",
   "col_scope",
   "period_year",
   "period_month",
@@ -90,6 +91,15 @@
    "options": "Warehouse",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "valuation_method",
+   "fieldtype": "Data",
+   "label": "Valuation Method",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "The item's valuation method, stamped when the kernel creates the row (fixed for the item's lifetime)."
   },
   {
    "fieldname": "col_scope",
@@ -241,14 +251,16 @@
    "fieldname": "moving_avg_price",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Moving Average Price",
+   "label": "Unit Value",
    "precision": "6",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Moving average price for Periodic Moving Average items; the active standard cost for Periodic Standard Cost items."
   },
   {
    "fieldname": "sec_map_state",
    "fieldtype": "Section Break",
-   "label": "MAP State"
+   "label": "MAP State",
+   "depends_on": "eval:doc.valuation_method != \"Periodic Standard Cost\""
   },
   {
    "description": "Running receipt total since closing_qty last hit 0; drives the Stock Ratio.",
@@ -281,7 +293,8 @@
    "collapsible": 1,
    "fieldname": "sec_std",
    "fieldtype": "Section Break",
-   "label": "STD State"
+   "label": "STD State",
+   "depends_on": "eval:doc.valuation_method == \"Periodic Standard Cost\""
   },
   {
    "description": "Active standard cost for STD scopes (MAP scopes leave this empty).",
@@ -357,7 +370,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-30 12:00:00.000000",
+ "modified": "2026-09-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period Balance",

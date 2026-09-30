@@ -238,6 +238,16 @@ def run(commit=False):
 	finally:
 		ITEM = orig_item
 
+	# STD-001 (client, 28/09): a Standard Cost balance row says so, and its
+	# unit-value column is not headed "Moving Average Price"
+	methods = set(frappe.get_all("Inventory Period Balance",
+		filters={"item_code": ("in", [ITEM, item2]), "company": company}, pluck="valuation_method"))
+	meta = frappe.get_meta("Inventory Period Balance")
+	check("STD balance rows carry Periodic Standard Cost; unit column neutral",
+		methods == {"Periodic Standard Cost"} and meta.get_label("moving_avg_price") == "Unit Value"
+		and "Periodic Standard Cost" in (meta.get_field("sec_map_state").depends_on or ""),
+		f"{methods} / {meta.get_label('moving_avg_price')}")
+
 	run_ytd(company)
 
 	failed = [x for x in CHECKS if not x[1]]

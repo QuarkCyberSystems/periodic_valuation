@@ -16,6 +16,7 @@ class InventoryPeriodBalance(Document):
 
 	def before_insert(self):
 		kernel_only_insert(self)
+		self.valuation_method = balance_valuation_method(self.item_code, self.company)
 
 	def validate(self):
 		self.validate_unique_scope()
@@ -73,3 +74,15 @@ class InventoryPeriodBalance(Document):
 				self.period_year, self.period_month)
 		return {"is_std": is_std, "postable": status in POSTING_ALLOWED_STATES,
 			"period_status": status, "settled": settled}
+
+
+def balance_valuation_method(item_code, company):
+	"""The method a balance row belongs to. Standard Cost rows reuse the
+	unit-value column for the active standard cost (kernel), so the row has
+	to say which it is — the form and list read it (client ticket STD-001,
+	28/09: STD balances were headed "Moving Average Price"). An item's
+	method is fixed for its lifetime, so the stamp never goes stale."""
+	from erpnext.stock.utils import get_valuation_method
+
+	return get_valuation_method(item_code, company)
+

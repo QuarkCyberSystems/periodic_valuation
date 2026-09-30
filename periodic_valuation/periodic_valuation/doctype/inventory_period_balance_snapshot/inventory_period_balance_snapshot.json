@@ -256,9 +256,10 @@
   {
    "fieldname": "moving_avg_price",
    "fieldtype": "Float",
-   "label": "MAP",
+   "label": "Unit Value",
    "precision": "6",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Moving average price for Periodic Moving Average items; the active standard cost for Periodic Standard Cost items."
   },
   {
    "fieldname": "total_received_since_zero",
@@ -288,7 +289,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-30 12:00:00.000000",
+ "modified": "2026-09-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period Balance Snapshot",

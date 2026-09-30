@@ -7,3 +7,4 @@ periodic_valuation.patches.v1_0.rename_sap_to_periodic
 # Patches added in this section will be executed after doctypes are migrated
 periodic_valuation.patches.v1_0.rename_sap_to_periodic_data
 periodic_valuation.patches.v1_0.backfill_reversal_value_delta
+periodic_valuation.patches.v1_0.stamp_balance_valuation_method
