@@ -191,6 +191,16 @@ class ItemStandardCostVersion(Document):
 	def post_revaluation_triplet(self, old_sc):
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
 		today = getdate(frappe.utils.nowdate())
+		# quantities are the month to date; the entries are dated day 1
+		post_date = revaluation_posting_date(today)
+		# The engine refuses only settled periods; a document posting checks
+		# the period itself, and this one has to as well. Without it the
+		# overnight job booked an October revaluation to the GL with no
+		# October period, so the period balance and stock ledger never
+		# received it (ISCV-2026-00044, badiav16, 01/10/2026).
+		from periodic_valuation.shared.periods import assert_posting_allowed
+
+		assert_posting_allowed(self.company, post_date)
 		delta = flt(self.standard_cost) - old_sc
 
 		if engine.view == "MTD":
@@ -206,18 +216,18 @@ class ItemStandardCostVersion(Document):
 		for trans, qty in (("Rev Beg", beg), ("REV In", in_qty)):
 			amount = r2(delta * qty)
 			if amount:
-				engine.post(trans=trans, posting_date=today, source=source,
+				engine.post(trans=trans, posting_date=post_date, source=source,
 					sc=self.standard_cost, ac=old_sc, t_sc_override=amount,
 					cost_version=self.name)
 		out_amount = r2(-(delta * out_qty))
 		if out_amount:
-			engine.post(trans="REV out", posting_date=today, source=source,
+			engine.post(trans="REV out", posting_date=post_date, source=source,
 				sc=self.standard_cost, ac=old_sc, t_sc_override=out_amount,
 				cost_version=self.name)
 
 		# restate the period balance: the triplet's net stock effect lands in
 		# the reval bucket so GL == movement table holds across SC changes
-		self._restate_period_balance(engine, today, delta, beg, in_qty, out_qty)
+		self._restate_period_balance(engine, post_date, delta, beg, in_qty, out_qty)
 		self.db_set("revaluation_posted", 1, update_modified=False)
 
 	def _restate_period_balance(self, engine, today, delta, beg, in_qty, out_qty):
@@ -252,6 +262,19 @@ class ItemStandardCostVersion(Document):
 			frappe.throw(_("Only DRAFT versions can be deleted."))
 
 
+def revaluation_posting_date(today=None):
+	"""The date a cost version's revaluation posts: day 1 of the month it
+	posts in (client tickets STD-003 / STD-004, ruled 01/10/2026). A
+	version valid from the current month posts on day 1 of that month, not
+	on the day someone released it; a backdated version (valid from an
+	earlier, still-open month) posts on day 1 of the current period; a
+	future version posts when its month begins, on day 1. The revalued
+	quantities are still the month to date when it posts."""
+	from frappe.utils import get_first_day, nowdate
+
+	return get_first_day(getdate(today or nowdate()))
+
+
 def materialize_pending_revaluations():
 	"""Daily scheduler (with a lazy backstop in get_active_standard_cost):
 	post the boundary revaluation for released versions whose valid-from
@@ -271,4 +294,11 @@ def materialize_pending_revaluations():
 	for row in pending:
 		if (row.valid_from_year, row.valid_from_month) > (today.year, today.month):
 			continue  # still future
-		frappe.get_doc("Item Standard Cost Version", row.name).materialize_boundary()
+		# a month whose period is not open yet keeps the version pending;
+		# the next run posts it once the period opens
+		frappe.db.savepoint("scv_materialize")
+		try:
+			frappe.get_doc("Item Standard Cost Version", row.name).materialize_boundary()
+		except frappe.ValidationError:
+			frappe.db.rollback(save_point="scv_materialize")
+			frappe.clear_last_message()
