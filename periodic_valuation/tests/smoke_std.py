@@ -235,6 +235,18 @@ def run(commit=False):
 		check("SCV release triplet (In +200, out -60)",
 			by.get("REV In") == 200.00 and by.get("REV out") == -60.00 and "Rev Beg" not in by,
 			str(by))
+
+		# STD-002 (client, 28/09): the form reaches the revaluation it posted,
+		# or says why there is none
+		def _rev_state(name):
+			d = frappe.get_doc("Item Standard Cost Version", name)
+			d.run_method("onload")
+			return (d.get_onload() or {}).get("revaluation") or {}
+		s2_state, s1_state = _rev_state(v2.name), _rev_state(v1.name)
+		check("SCV form links its revaluation ledger; a first version says why it has none",
+			s2_state.get("posted") is True and s2_state.get("from_date")
+			and s1_state == {"posted": False, "reason": "first_version"},
+			f"{s2_state} / {s1_state}")
 	finally:
 		ITEM = orig_item
 

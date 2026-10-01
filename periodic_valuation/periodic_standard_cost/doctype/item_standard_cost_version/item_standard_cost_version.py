@@ -62,6 +62,30 @@ class ItemStandardCostVersion(Document):
 					title=_("Immutable"),
 				)
 
+	def onload(self):
+		"""What the form shows about this version's revaluation (client
+		ticket STD-002, 28/09: "the system does not display the generated
+		Journal Voucher"). The revaluation posts GL rows under this document
+		itself — there is no separate Journal Entry — so the form links to
+		them, or says why there are none."""
+		if self.status == "DRAFT":
+			return
+		gl = frappe.db.sql(
+			"""select min(posting_date) as first, max(posting_date) as last, count(*) as n
+			   from `tabGL Entry` where voucher_type = %s and voucher_no = %s and is_cancelled = 0""",
+			(self.doctype, self.name),
+			as_dict=True,
+		)[0]
+		if gl.n:
+			state = {"posted": True, "from_date": gl.first, "to_date": gl.last}
+		elif not self.revaluation_posted:
+			state = {"posted": False, "reason": "pending"}
+		elif not self.supersedes_version:
+			state = {"posted": False, "reason": "first_version"}
+		else:
+			state = {"posted": False, "reason": "nothing_to_revalue"}
+		self.set_onload("revaluation", state)
+
 	@frappe.whitelist()
 	def release(self):
 		"""Release this version. A same-period prior is replaced outright
