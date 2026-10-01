@@ -242,11 +242,24 @@ def run(commit=False):
 			d = frappe.get_doc("Item Standard Cost Version", name)
 			d.run_method("onload")
 			return (d.get_onload() or {}).get("revaluation") or {}
-		s2_state, s1_state = _rev_state(v2.name), _rev_state(v1.name)
+		# (v1 doubles as this scenario's stand-in source document, so GL sits
+		# under it; the first-version case needs a version nothing posts under)
+		item3 = "_STD-FIRST"
+		if not frappe.db.exists("Item", item3):
+			frappe.get_doc({"doctype": "Item", "item_code": item3, "item_name": item3,
+				"item_group": frappe.get_all("Item Group", filters={"is_group": 0}, limit=1, pluck="name")[0],
+				"stock_uom": frappe.get_all("UOM", limit=1, pluck="name")[0],
+				"is_stock_item": 1, "valuation_method": "Periodic Standard Cost",
+				"settlement_view": "MTD"}).insert(ignore_permissions=True)
+		ITEM = item3
+		first = make_scv(company, today.year, today.month, 7)
+		first.release()
+		ITEM = item2
+		s2_state, first_state = _rev_state(v2.name), _rev_state(first.name)
 		check("SCV form links its revaluation ledger; a first version says why it has none",
-			s2_state.get("posted") is True and s2_state.get("from_date")
-			and s1_state == {"posted": False, "reason": "first_version"},
-			f"{s2_state} / {s1_state}")
+			s2_state.get("posted") is True and bool(s2_state.get("from_date"))
+			and first_state == {"posted": False, "reason": "first_version"},
+			f"{s2_state} / {first_state}")
 	finally:
 		ITEM = orig_item
 
