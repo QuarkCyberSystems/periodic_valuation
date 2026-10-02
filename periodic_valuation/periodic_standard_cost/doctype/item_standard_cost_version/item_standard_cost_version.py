@@ -191,8 +191,9 @@ class ItemStandardCostVersion(Document):
 	def post_revaluation_triplet(self, old_sc):
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
 		today = getdate(frappe.utils.nowdate())
-		# quantities are the month to date; the entries are dated day 1
-		post_date = revaluation_posting_date(today)
+		# quantities are the month to date; the entries are dated day 1 or the
+		# last day of the month, as the company's settings say (STD-003)
+		post_date = revaluation_posting_date(today, self.company)
 		# The engine refuses only settled periods; a document posting checks
 		# the period itself, and this one has to as well. Without it the
 		# overnight job booked an October revaluation to the GL with no
@@ -262,17 +263,27 @@ class ItemStandardCostVersion(Document):
 			frappe.throw(_("Only DRAFT versions can be deleted."))
 
 
-def revaluation_posting_date(today=None):
-	"""The date a cost version's revaluation posts: day 1 of the month it
-	posts in (client tickets STD-003 / STD-004, ruled 01/10/2026). A
-	version valid from the current month posts on day 1 of that month, not
-	on the day someone released it; a backdated version (valid from an
-	earlier, still-open month) posts on day 1 of the current period; a
-	future version posts when its month begins, on day 1. The revalued
-	quantities are still the month to date when it posts."""
-	from frappe.utils import get_first_day, nowdate
+LAST_DAY = "Last day of the period"
 
-	return get_first_day(getdate(today or nowdate()))
+
+def revaluation_posting_date(today=None, company=None):
+	"""The date a cost version's revaluation posts: day 1 of the month it
+	posts in (client tickets STD-003 / STD-004, ruled 01/10/2026), or —
+	where the company's Periodic Standard Cost Settings say "Last day of the
+	period" — that month's last day (STD-003 follow-up, client 01/10/2026).
+	Which month is unchanged: a version valid from the current month posts
+	in that month, not on the day someone released it; a backdated version
+	(valid from an earlier, still-open month) posts in the current period; a
+	future version posts when its month begins. The revalued quantities are
+	the month to date when it posts, whichever day it is dated."""
+	from frappe.utils import get_first_day, get_last_day, nowdate
+
+	day = getdate(today or nowdate())
+	if company and frappe.db.get_value(
+		"Periodic Standard Cost Settings", {"company": company}, "revaluation_posting_date"
+	) == LAST_DAY:
+		return get_last_day(day)
+	return get_first_day(day)
 
 
 def materialize_pending_revaluations():
