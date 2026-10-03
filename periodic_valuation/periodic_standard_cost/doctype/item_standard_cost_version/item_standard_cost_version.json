@@ -27,6 +27,10 @@
   "released_by",
   "cb3",
   "revaluation_posted",
+  "switch_at_period_end",
+  "price_from_year",
+  "price_from_month",
+  "revaluation_date",
   "remarks"
  ],
  "fields": [
@@ -159,6 +163,36 @@
    "read_only": 1
   },
   {
+   "fieldname": "switch_at_period_end",
+   "fieldtype": "Check",
+   "label": "Switches at Period End",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Set at release when Periodic Standard Cost Settings > Revaluation Posting Date is 'Last day of the period' (DR-50): the old cost prices the switch month, its closing stock is revalued on that month's last day, and this cost prices from the next month."
+  },
+  {
+   "fieldname": "price_from_year",
+   "fieldtype": "Int",
+   "label": "Prices From Year",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "price_from_month",
+   "fieldtype": "Int",
+   "label": "Prices From Month",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "revaluation_date",
+   "fieldtype": "Date",
+   "label": "Revaluation Date",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "The date the revaluation is booked on."
+  },
+  {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
@@ -169,7 +203,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-09 12:00:00.000000",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Item Standard Cost Version",

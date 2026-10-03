@@ -6,14 +6,19 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
-from periodic_valuation.periodic_standard_cost.engine import StdEngine, r2
+from periodic_valuation.periodic_standard_cost.engine import StdEngine, price_from, r2
+
+LAST_DAY = "Last day of the period"
 
 
 class ItemStandardCostVersion(Document):
 	def validate(self):
 		if not (1 <= (self.valid_from_month or 0) <= 12):
 			frappe.throw(_("Valid From Month must be 1-12."))
-		self.effective_from = f"{self.valid_from_year}-{self.valid_from_month:02d}-01"
+		# the first day this version prices: its valid-from month, or the month
+		# after the switch when it switches at period end (DR-50)
+		y, m = price_from(self)
+		self.effective_from = f"{y}-{m:02d}-01"
 		if flt(self.standard_cost) <= 0:
 			frappe.throw(_("Standard Cost must be positive."))
 
@@ -39,15 +44,22 @@ class ItemStandardCostVersion(Document):
 				)
 			)
 
-		if self.status == "RELEASED" and frappe.db.exists(
-			"Item Standard Cost Version",
-			{
-				"company": self.company, "item_code": self.item_code,
-				"warehouse": ("in", (self.warehouse or "", None)),
-				"valid_from_year": self.valid_from_year,
-				"valid_from_month": self.valid_from_month, "status": "RELEASED",
-				"name": ("!=", self.name),
-			},
+		# two RELEASED versions may share a valid-from month only when one
+		# switches at period end (DR-50): the earlier keeps pricing until the
+		# switch, so they never price the same month
+		if self.status == "RELEASED" and any(
+			price_from(x) == price_from(self)
+			for x in frappe.get_all(
+				"Item Standard Cost Version",
+				filters={
+					"company": self.company, "item_code": self.item_code,
+					"warehouse": ("in", (self.warehouse or "", None)),
+					"valid_from_year": self.valid_from_year,
+					"valid_from_month": self.valid_from_month, "status": "RELEASED",
+					"name": ("!=", self.name),
+				},
+				fields=["valid_from_year", "valid_from_month", "price_from_year", "price_from_month"],
+			)
 		):
 			frappe.throw(
 				_("A RELEASED version already exists for this scope and period."),
@@ -117,16 +129,43 @@ class ItemStandardCostVersion(Document):
 			},
 		)
 		live_prior_sc = None
+		last_day_mode = _last_day_mode(self.company)
 		if same_period_prior:
-			if effective_now:
-				spp = frappe.get_doc("Item Standard Cost Version", same_period_prior)
+			spp = frappe.get_doc("Item Standard Cost Version", same_period_prior)
+			# a sibling that switches at period end is live only from its
+			# prices-from month (DR-50)
+			live = price_from(spp) <= (today.year, today.month)
+			if live:
 				spp.materialize_boundary()
 				live_prior_sc = flt(spp.standard_cost)
-			frappe.db.set_value("Item Standard Cost Version", same_period_prior, "status", "SUPERSEDED")
+			if live and last_day_mode:
+				# DR-50: the live sibling keeps pricing until this version's
+				# switch at period end - it is replaced then, not now
+				same_period_prior = None
+			else:
+				frappe.db.set_value("Item Standard Cost Version", same_period_prior, "status", "SUPERSEDED")
+
+		# DR-50 ("Last day of the period"): the old cost prices the switch
+		# month - the valid-from month, or the release month when that is
+		# later (a backdated change switches in the current period, as
+		# STD-004) - and this version prices from the month after
+		switch = max((self.valid_from_year, self.valid_from_month), (today.year, today.month))
+		if last_day_mode:
+			self.switch_at_period_end = 1
+			self.price_from_year, self.price_from_month = _next_month(*switch)
 
 		prior_name, prior_sc = self._resolve_effective_prior()
 		if live_prior_sc is not None:
 			prior_sc = live_prior_sc
+		if last_day_mode and prior_sc is None:
+			# the item's first cost: nothing to switch from, it prices its
+			# valid-from month
+			self.switch_at_period_end = 0
+			self.price_from_year = self.price_from_month = None
+		elif last_day_mode:
+			from frappe.utils import get_last_day
+
+			self.revaluation_date = get_last_day(f"{switch[0]}-{switch[1]:02d}-01")
 
 		self.flags.via_release_flow = True
 		self.status = "RELEASED"
@@ -137,6 +176,11 @@ class ItemStandardCostVersion(Document):
 
 		if prior_sc is None:
 			self.db_set("revaluation_posted", 1, update_modified=False)
+		elif self.switch_at_period_end:
+			# the closing stock is revalued once the switch month has ended
+			# (materialize_boundary), or when that month settles
+			if flt(self.standard_cost) == prior_sc:
+				self.db_set("revaluation_posted", 1, update_modified=False)
 		elif effective_now:
 			if flt(self.standard_cost) == prior_sc:
 				self.db_set("revaluation_posted", 1, update_modified=False)
@@ -158,18 +202,17 @@ class ItemStandardCostVersion(Document):
 				"warehouse": ("in", (self.warehouse or "", None)), "status": "RELEASED",
 				"name": ("!=", self.name),
 			},
-			fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "released_on"],
+			fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "released_on",
+				"price_from_year", "price_from_month"],
 		)
-		candidates = [
-			x for x in rows
-			if (x.valid_from_year, x.valid_from_month) <= (self.valid_from_year, self.valid_from_month)
-		]
+		mine = price_from(self)
+		candidates = [x for x in rows if price_from(x) <= mine]
 		if not candidates:
 			return None, None
-		best = max(candidates, key=lambda x: (x.valid_from_year, x.valid_from_month, x.released_on or ""))
+		best = max(candidates, key=lambda x: (*price_from(x), x.released_on or ""))
 		return best.name, flt(best.standard_cost)
 
-	def materialize_boundary(self):
+	def materialize_boundary(self, force=False):
 		"""Post this version's revaluation triplet once it is effective.
 		old_sc is resolved NOW (not at release) so a superseded-in-between
 		sibling never distorts the delta. Reentrancy-guarded because the
@@ -180,20 +223,25 @@ class ItemStandardCostVersion(Document):
 		try:
 			if frappe.db.get_value(self.doctype, self.name, "revaluation_posted"):
 				return
+			if self.switch_at_period_end and not force and \
+					getdate(frappe.utils.nowdate()) <= getdate(self.revaluation_date):
+				return  # the switch month has not ended yet
 			_prior_name, prior_sc = self._resolve_effective_prior()
 			if prior_sc is None or flt(self.standard_cost) == prior_sc:
 				self.db_set("revaluation_posted", 1, update_modified=False)
 				return
-			self.post_revaluation_triplet(prior_sc)
+			if self.switch_at_period_end:
+				self.post_period_end_revaluation(prior_sc)
+			else:
+				self.post_revaluation_triplet(prior_sc)
 		finally:
 			frappe.flags.in_scv_materialize = False
 
 	def post_revaluation_triplet(self, old_sc):
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
 		today = getdate(frappe.utils.nowdate())
-		# quantities are the month to date; the entries are dated day 1 or the
-		# last day of the month, as the company's settings say (STD-003)
-		post_date = revaluation_posting_date(today, self.company)
+		# quantities are the month to date; the entries are dated day 1
+		post_date = revaluation_posting_date(today)
 		# The engine refuses only settled periods; a document posting checks
 		# the period itself, and this one has to as well. Without it the
 		# overnight job booked an October revaluation to the GL with no
@@ -229,6 +277,48 @@ class ItemStandardCostVersion(Document):
 		# restate the period balance: the triplet's net stock effect lands in
 		# the reval bucket so GL == movement table holds across SC changes
 		self._restate_period_balance(engine, post_date, delta, beg, in_qty, out_qty)
+		self.db_set({"revaluation_posted": 1, "revaluation_date": post_date}, update_modified=False)
+
+	def post_period_end_revaluation(self, old_sc):
+		"""DR-50 ("Last day of the period"), after the client design §4.4 /
+		§5.7: the movements of the switch month stay at the cost they were
+		posted at, and only the quantity still on hand at the switch point is
+		revalued - closing qty x (new - old), Dr Stock / Cr Standard Cost
+		Revaluation Reserve, dated the month's last day (Rev End). The
+		month's settlement gives it wholly to ending stock, so it carries into
+		the next month's pool exactly as a day-1 boundary revaluation (Rev Beg)
+		would sit there."""
+		from periodic_valuation.periodic_moving_average.kernel import (
+			ScopeState,
+			ensure_physical_warehouse,
+			recompute_closing,
+			write_value_sle,
+		)
+		from periodic_valuation.periodic_standard_cost.kernel import _cascade_backdated_ipb
+		from periodic_valuation.shared.periods import assert_posting_allowed, get_period
+
+		engine = StdEngine(self.company, self.item_code, self.warehouse)
+		day = getdate(self.revaluation_date)
+		assert_posting_allowed(self.company, day)
+		closing = engine.end_qty_mtd(day.year, day.month) if engine.view == "MTD" \
+			else engine.end_qty_ytd(day.year, day.month)
+		amount = r2((flt(self.standard_cost) - old_sc) * closing)
+		if amount:
+			source = (self.doctype, self.name)
+			engine.post(trans="Rev End", posting_date=day, source=source, sc=self.standard_cost,
+				ac=old_sc, t_sc_override=amount, cost_version=self.name)
+			period = get_period(self.company, day)
+			if period:
+				scope = ScopeState(self.company, self.item_code, self.warehouse)
+				ipb = scope.load(period)
+				ipb.reval_value = flt(ipb.reval_value) + amount
+				recompute_closing(ipb)
+				scope.save(ipb, source=source)
+				# a later period's balance row already open carries the
+				# restated stock in its opening
+				_cascade_backdated_ipb(scope, period, 0, amount, source=source)
+				write_value_sle(ensure_physical_warehouse(scope), ipb, source=(self.doctype, self.name, None),
+					posting_date=day, value_delta=amount)
 		self.db_set("revaluation_posted", 1, update_modified=False)
 
 	def _restate_period_balance(self, engine, today, delta, beg, in_qty, out_qty):
@@ -263,27 +353,49 @@ class ItemStandardCostVersion(Document):
 			frappe.throw(_("Only DRAFT versions can be deleted."))
 
 
-LAST_DAY = "Last day of the period"
+def revaluation_posting_date(today=None):
+	"""The date a day-1 cost version's revaluation posts: day 1 of the month it
+	posts in (client tickets STD-003 / STD-004, ruled 01/10/2026). A
+	version valid from the current month posts on day 1 of that month, not
+	on the day someone released it; a backdated version (valid from an
+	earlier, still-open month) posts on day 1 of the current period; a
+	future version posts when its month begins, on day 1. The revalued
+	quantities are still the month to date when it posts. The last-day
+	option is a different rule, not a different date: see
+	post_period_end_revaluation (DR-50)."""
+	from frappe.utils import get_first_day, nowdate
+
+	return get_first_day(getdate(today or nowdate()))
 
 
-def revaluation_posting_date(today=None, company=None):
-	"""The date a cost version's revaluation posts: day 1 of the month it
-	posts in (client tickets STD-003 / STD-004, ruled 01/10/2026), or —
-	where the company's Periodic Standard Cost Settings say "Last day of the
-	period" — that month's last day (STD-003 follow-up, client 01/10/2026).
-	Which month is unchanged: a version valid from the current month posts
-	in that month, not on the day someone released it; a backdated version
-	(valid from an earlier, still-open month) posts in the current period; a
-	future version posts when its month begins. The revalued quantities are
-	the month to date when it posts, whichever day it is dated."""
-	from frappe.utils import get_first_day, get_last_day, nowdate
-
-	day = getdate(today or nowdate())
-	if company and frappe.db.get_value(
+def _last_day_mode(company):
+	return frappe.db.get_value(
 		"Periodic Standard Cost Settings", {"company": company}, "revaluation_posting_date"
-	) == LAST_DAY:
-		return get_last_day(day)
-	return get_first_day(day)
+	) == LAST_DAY
+
+
+def _next_month(year, month):
+	return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def materialize_period_end_revaluations(company, item_code, warehouse, year, month):
+	"""Called as a period settles: any cost change that switches at this
+	period's end revalues the closing stock now, before the settlement
+	(after it nothing more can be dated in the period)."""
+	from frappe.utils import get_first_day, get_last_day
+
+	first = get_first_day(f"{year}-{month:02d}-01")
+	for name in frappe.get_all(
+		"Item Standard Cost Version",
+		filters={
+			"company": company, "item_code": item_code,
+			"warehouse": ("in", (warehouse or "", None)),
+			"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0,
+			"revaluation_date": ("between", (first, get_last_day(first))),
+		},
+		pluck="name",
+	):
+		frappe.get_doc("Item Standard Cost Version", name).materialize_boundary(force=True)
 
 
 def materialize_pending_revaluations():
