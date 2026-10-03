@@ -78,6 +78,15 @@ def get_settlement_view(company, item_code):
 	return resolved
 
 
+def price_from(version):
+	"""(year, month) a cost version starts pricing movements in: its valid-from
+	month, or - when it switches at period end (DR-50, "Last day of the
+	period") - the month after the one its revaluation closes."""
+	if version.get("price_from_year"):
+		return (version.price_from_year, version.price_from_month)
+	return (version.valid_from_year, version.valid_from_month)
+
+
 def get_active_standard_cost(company, item_code, warehouse, posting_date):
 	"""Timing Rule A/B: the RELEASED cost version effective at the posting date."""
 	d = getdate(posting_date)
@@ -90,12 +99,10 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 			"warehouse": ("in", ((warehouse or "") if include_wh else "", None)),
 			"status": "RELEASED",
 		},
-		fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "released_on"],
+		fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "released_on",
+			"price_from_year", "price_from_month"],
 	)
-	candidates = [
-		x for x in rows
-		if (x.valid_from_year, x.valid_from_month) <= (d.year, d.month)
-	]
+	candidates = [x for x in rows if price_from(x) <= (d.year, d.month)]
 	if not candidates:
 		frappe.throw(
 			_("No RELEASED Item Standard Cost Version covers {0} for {1}. Release one before posting.").format(
@@ -103,7 +110,7 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 			),
 			title=_("No Standard Cost"),
 		)
-	best = max(candidates, key=lambda x: (x.valid_from_year, x.valid_from_month, x.released_on or ""))
+	best = max(candidates, key=lambda x: (*price_from(x), x.released_on or ""))
 	_materialize_if_pending(best.name)
 	return best
 
@@ -345,7 +352,7 @@ class StdEngine:
 			return [(a.stock, s), (offset_override or a.stock_adj, -s)]
 		if trans == "SC-":
 			return [(offset_override or a.stock_adj, -s), (a.stock, s)]
-		if trans in ("Rev Beg", "REV In", "REC (BD) - Rev", "REC (BY) - Rev"):
+		if trans in ("Rev Beg", "REV In", "Rev End", "REC (BD) - Rev", "REC (BY) - Rev"):
 			return [(a.stock, s), (a.reserve, -s)]
 		if trans == "REV out":
 			# t_sc convention: -(delta x out_qty). SC increase (delta>0) -> s<0 ->
@@ -676,6 +683,14 @@ class StdEngine:
 					self.item_code, year, month
 				)
 			)
+		# DR-50: a cost change that switches at this period's end revalues the
+		# closing stock on its last day; it must be on the books before the
+		# period settles (after settlement nothing more can be dated in it)
+		from periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version import (
+			materialize_period_end_revaluations,
+		)
+
+		materialize_period_end_revaluations(self.company, self.item_code, self.warehouse, year, month)
 		before = now_datetime()
 		if self.view == "MTD":
 			beg_qty = self.beg_qty_mtd(year, month)
@@ -712,18 +727,27 @@ class StdEngine:
 		# because end + out = base. The old all-to-consumption/all-to-inventory
 		# clamps only ever fired in exactly these cases and contradicted the
 		# workbook (Jan: es 6559.5611 / out -218.652 on a 6340.91 pool).
-		es_var = r2(var * end_qty / denom)
-		out_var = r2(var * out_qty / denom)
+		# DR-50: the period-end revaluation (Rev End) restates only the stock
+		# still on hand at the switch - none of the period's consumption was
+		# at the new cost - so it goes wholly to ending stock and carries into
+		# the next period's pool with the inventory share
+		rev_end = self._sum("total_ac - total_sc",
+			"period_year = %(y)s AND period_month = %(m)s AND std_trans = 'Rev End'",
+			{"y": year, "m": month})
 		share = end_qty / denom
 		cons_share = out_qty / denom
+		es_var = r2((var - rev_end) * share + rev_end)
+		out_var = r2((var - rev_end) * cons_share)
 		# FULL_SETTLE_AT_YEAR_END (DR-16 option, DR-38): December allocates the
 		# whole pool to consumption - nothing capitalises, nothing carries into
 		# the new year, so no Sett-Rev is posted and the prior year is hard-closed.
 		full_settle = month == 12 and (
 			get_std_setting(self.company, "year_end_variance_carryforward") == "FULL_SETTLE_AT_YEAR_END"
 		)
+		rev_end_es = rev_end
 		if full_settle:
 			es_var, out_var, share, cons_share = 0.0, r2(var), 0.0, 1.0
+			rev_end_es = 0.0
 
 		frappe.flags[KERNEL_FLAG] = True
 		try:
@@ -738,9 +762,9 @@ class StdEngine:
 				"ppv_pool": r2(ppv), "rev_pool": r2(rev),
 				"total_ac": r2(beg_value + in_value + ppv + rev), "variance": r2(var),
 				"es_qty": end_qty, "es_var": es_var,
-				"ppv_es": r2(ppv * share), "rev_es": r2(rev * share),
+				"ppv_es": r2(ppv * share), "rev_es": r2((rev - rev_end) * share + rev_end_es),
 				"out_qty": out_qty, "out_var": out_var,
-				"ppv_cons": r2(ppv * cons_share), "rev_cons": r2(rev * cons_share),
+				"ppv_cons": r2(ppv * cons_share), "rev_cons": r2((rev - rev_end) * cons_share + rev_end - rev_end_es),
 				"es_qty_override": es_qty_override,
 			}).insert(ignore_permissions=True)
 		finally:

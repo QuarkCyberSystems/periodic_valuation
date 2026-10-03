@@ -37,6 +37,10 @@ TRANS_FLAGS = {
 	"Rev Beg":            Flags("In",  1, 0, 0, 0, 1),
 	"REV In":             Flags("In",  1, 0, 0, 0, 1),
 	"REV out":            Flags("Out", 0, 1, 0, 0, 0),
+	# DR-50: revaluation of the period's closing stock on its last day, when
+	# a cost change switches at period end - the period's settlement gives it
+	# wholly to ending stock (close_period)
+	"Rev End":            Flags("In",  1, 0, 0, 0, 1),
 	"Sett":               Flags("",    0, 0, 1, 0, 0),
 	"Sett - Rev":         Flags("",    0, 0, 1, 0, 0),
 	"Sett - Reverse":     Flags("",    0, 0, 1, 0, 0),

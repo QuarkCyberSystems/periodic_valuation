@@ -106,7 +106,7 @@
    "label": "Revaluation Posting Date",
    "options": "First day of the period\nLast day of the period",
    "default": "First day of the period",
-   "description": "The date a Standard Cost change's revaluation is booked on, in the month it posts in: day 1 (the new cost applies to the month's movements from day 1) or the last day of that month. A version valid from an earlier, still-open month posts in the current period; a future version posts when its month begins. The revalued quantities are the month to date either way."
+   "description": "When a Standard Cost change takes effect and how its revaluation is booked (applies to versions released after the change). First day of the period: the new cost prices the valid-from month from day 1 and the stock is revalued on day 1 (Rev Beg / REV In / REV out). Last day of the period: the old cost prices the valid-from month (or the release month, if later), its closing stock is revalued on that month's last day (Rev End), and the new cost prices from the next month."
   },
   {
    "default": "1",
@@ -146,7 +146,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-02 18:00:00.000000",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Periodic Standard Cost Settings",
