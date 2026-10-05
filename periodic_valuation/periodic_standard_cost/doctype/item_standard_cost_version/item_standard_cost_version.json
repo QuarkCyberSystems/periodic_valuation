@@ -174,7 +174,7 @@
   },
   {
    "default": "0",
-   "description": "Set at release when Periodic Standard Cost Settings > Revaluation Posting Date is 'Date of release': movements dated before the release date keep the earlier cost, this cost applies from the release date (Effective From), and the stock on hand is revalued that day.",
+   "description": "Set at release when Periodic Standard Cost Settings > Revaluation Posting Date is 'Latest day of the period': movements dated before the release date keep the earlier cost, this cost applies from the release date (Effective From), and the stock on hand is revalued that day.",
    "fieldname": "switch_on_release",
    "fieldtype": "Check",
    "label": "Switches at Release",

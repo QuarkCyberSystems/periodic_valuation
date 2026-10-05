@@ -37,10 +37,10 @@ dated the release day (Rev Rel).
      current month's settlement still shares it by the consumption since
      the switch across both months (40 / 90), not by the year's share
   J  the migration patch moves a "Last day of the period" setting to
-     "Date of release"
+     "Latest day of the period"
   K  a release whose switch month cannot take a posting is refused, and
      nothing of it stays on the books
-  L  a cross-month late entry under "Date of release" keeps its (BD)
+  L  a cross-month late entry under "Latest day of the period" keeps its (BD)
      companion (DR-09) and carries no Rev Rel bridge
   M  a release on day 1 settles exactly as a whole-month split
   N  a Rev End already posted under the old rule still settles wholly to
@@ -160,7 +160,7 @@ def _scenarios(today):
 		wh, _wh2 = pack.ensure_company()
 		pack.make_period(prev.year, prev.month, "PREV_OPEN_UNSETTLED")
 		cur_period = pack.make_period(today.year, today.month, "OPEN")
-		_set("Date of release")
+		_set("Latest day of the period")
 
 		# ---- A: current month, 70 -> 90 ---------------------------------
 		a = pack.std_item("_STD-RELDAY-A")
@@ -350,7 +350,7 @@ def _scenarios(today):
 			and not v25.switch_on_release and getdate(v25.revaluation_date) == day1, str(t))
 
 		# ---- I: YTD, release in the previous month ------------------------
-		_set("Date of release")
+		_set("Latest day of the period")
 		if prev.year == today.year:
 			i = pack.std_item("_STD-RELDAY-I", view="YTD")
 			p2, p3, p10 = (add_days(get_first_day(prev), n) for n in (1, 2, 9))
@@ -376,9 +376,9 @@ def _scenarios(today):
 		frappe.db.sql("""update `tabPeriodic Standard Cost Settings` set revaluation_posting_date = 'Last day of the period'
 			where company = %s""", pack.COMPANY)
 		switch_cost_changes_at_release.execute()
-		check("J: the patch moves the setting to Date of release",
+		check("J: the patch moves the setting to Latest day of the period",
 			frappe.db.get_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
-				"revaluation_posting_date") == "Date of release")
+				"revaluation_posting_date") == "Latest day of the period")
 
 		_more_scenarios(today, wh, day1, early, prev, last, nxt, cur_period)
 	finally:

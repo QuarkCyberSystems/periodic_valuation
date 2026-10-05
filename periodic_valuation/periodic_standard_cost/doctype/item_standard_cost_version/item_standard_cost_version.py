@@ -8,7 +8,7 @@ from frappe.utils import flt, getdate, now_datetime
 
 from periodic_valuation.periodic_standard_cost.engine import StdEngine, price_from, r2, switch_order
 
-RELEASE_DAY = "Date of release"
+RELEASE_DAY = "Latest day of the period"
 # the option's name before the DR-50 amendment (05/10/2026); the
 # switch_cost_changes_at_release patch moves settings off it
 LEGACY_LAST_DAY = "Last day of the period"
@@ -146,7 +146,7 @@ class ItemStandardCostVersion(Document):
 		version effective in the current or a past period (DR-12 granular),
 		deferred to the valid-from boundary for a future-dated version.
 
-		"Date of release" (DR-50 as amended 05/10/2026): a version effective
+		"Latest day of the period" (DR-50 as amended 05/10/2026): a version effective
 		in the current or a past period switches at its release, inside the
 		current period. Movements dated before the release keep the cost in
 		force then; this version prices from the release date; the stock on
@@ -277,7 +277,7 @@ class ItemStandardCostVersion(Document):
 			frappe.flags.in_scv_materialize = False
 
 	def post_release_revaluation(self, old_sc):
-		"""DR-50 as amended (05/10/2026, "Date of release"): the stock on hand
+		"""DR-50 as amended (05/10/2026, "Latest day of the period"): the stock on hand
 		when the cost changes is revalued once, dated the release day -
 		on hand x (new - old), Dr Stock In Hand / Cr Standard Cost
 		Revaluation Reserve (Rev Rel). Movements already posted keep their

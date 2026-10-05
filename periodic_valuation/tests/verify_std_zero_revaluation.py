@@ -7,7 +7,7 @@ bench --site <site> execute periodic_valuation.tests.verify_std_zero_revaluation
      movement records one Rev Beg of zero amount on day 1, linked to the
      version (old and new cost on it), with no GL and no stock-ledger row;
      the form says it was recorded with zero value and offers the events
-  B  Date of release (DR-50 as amended): the same change, backdated,
+  B  Latest day of the period (DR-50 as amended): the same change, backdated,
      records one zero Rev Rel on the release day; the earlier version
      stays RELEASED, names its successor and the last day it is in force
      (the day before the release) (STD-011)
@@ -104,7 +104,7 @@ def _run():
 			rev.get("reason") == "nothing_to_revalue" and rev.get("events") == 1, str(rev))
 
 		# ---- B: date of release, no stock, no movement --------------------
-		_set("Date of release")
+		_set("Latest day of the period")
 		b = pack.std_item("_STD-ZERO-B")
 		v_b_old = pack.scv_release(b, prev.year, prev.month, 150)
 		v_b = pack.scv_release(b, prev.year, prev.month, 180)  # backdated, as ISCV-2026-00096
