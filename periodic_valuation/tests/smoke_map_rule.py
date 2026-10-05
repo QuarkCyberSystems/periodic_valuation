@@ -40,8 +40,26 @@ def gl_net(voucher, account, posting_date=None):
 	return flt(sum(flt(g.debit) - flt(g.credit) for g in rows), 2)
 
 
+def _distinct_prd_account():
+	"""The PRD / price-difference checks need two accounts. A seeded site may
+	point both settings at one (Cost of Goods Sold); then this suite gives PRD
+	its own account for the run (rolled back with it)."""
+	settings = frappe.db.get_value("Periodic Moving Average Settings", {"company": COMPANY},
+		["name", "prd_account", "price_difference_account"], as_dict=True)
+	if not settings or settings.prd_account != settings.price_difference_account:
+		return
+	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
+	account = f"_SMK PRD - {abbr}"
+	if not frappe.db.exists("Account", account):
+		parent = frappe.db.get_value("Account", settings.price_difference_account, "parent_account")
+		frappe.get_doc({"doctype": "Account", "account_name": "_SMK PRD", "company": COMPANY,
+			"parent_account": parent, "root_type": "Expense"}).insert(ignore_permissions=True)
+	frappe.db.set_value("Periodic Moving Average Settings", settings.name, "prd_account", account)
+
+
 def run(commit=False):
 	wh = ensure_masters()
+	_distinct_prd_account()
 	# invoices below price at a rate other than the receipt's (DR-44e), as the
 	# other valuation suites do; a fresh site keeps the rates equal by default
 	frappe.db.set_single_value("Buying Settings", "maintain_same_rate", 0)
