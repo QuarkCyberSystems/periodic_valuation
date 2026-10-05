@@ -38,15 +38,20 @@ class ItemStandardCostVersion(Document):
 		include_wh = frappe.get_cached_value("Item", self.item_code, "valuation_includes_warehouse")
 		self.warehouse = self.warehouse if include_wh else None
 
+		# DR-23: a release may not target a frozen month. A version re-stamped
+		# under the DR-50 amendment was released while its valid-from month was
+		# open and now takes effect at its switch month, so that is the month
+		# checked (the valid-from month may have closed since)
+		target = price_from(self) if self.flags.restamp else (self.valid_from_year, self.valid_from_month)
 		target_locked = frappe.db.get_value(
 			"Inventory Period",
-			{"company": self.company, "period_year": self.valid_from_year,
-			 "period_month": self.valid_from_month, "status": "SETTLED_FROZEN"},
+			{"company": self.company, "period_year": target[0],
+			 "period_month": target[1], "status": "SETTLED_FROZEN"},
 		)
 		if target_locked:
 			frappe.throw(
 				_("The target period {0}-{1:02d} is settled and frozen; a cost version cannot take effect there.").format(
-					self.valid_from_year, self.valid_from_month
+					*target
 				)
 			)
 
@@ -505,6 +510,7 @@ def restamp_period_end_switches():
 			frappe.db.savepoint("scv_restamp")
 			try:
 				doc.flags.via_release_flow = True
+				doc.flags.restamp = True
 				doc.switch_at_period_end = 0
 				doc.price_from_year = doc.price_from_month = None
 				doc.revaluation_date = None
@@ -523,6 +529,7 @@ def restamp_period_end_switches():
 		frappe.db.savepoint("scv_restamp")
 		try:
 			doc.flags.via_release_flow = True
+			doc.flags.restamp = True
 			doc.switch_at_period_end = 0
 			doc.switch_on_release = 1
 			doc.price_from_year, doc.price_from_month = day.year, day.month

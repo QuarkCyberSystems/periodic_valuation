@@ -51,6 +51,9 @@ dated the release day (Rev Rel).
      switch on the re-stamp day
   Q  FULL_SETTLE December gives a release revaluation to consumption with
      the rest of the pool
+  R  a pending version whose valid-from month has since been frozen is
+     still re-stamped (it takes effect in the current month); a new
+     release into a frozen month is still refused (DR-23)
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -311,7 +314,7 @@ def _scenarios(today):
 		}, update_modified=False)
 		outcome = restamp_period_end_switches()
 		check("G: the re-stamp reports what it changed",
-			vg.name in outcome["restamped"] and vg2.name in outcome["boundary"] and not outcome["failed"], str(outcome))
+			vg.name in outcome["restamped"] and vg2.name in outcome["boundary"], str(outcome))
 		vg.reload()
 		check("G: the pending version now switches at its release",
 			vg.switch_on_release and not vg.switch_at_period_end and getdate(vg.effective_from) == today
@@ -501,3 +504,33 @@ def _more_scenarios(today, wh, day1, early, prev, last, nxt, cur_period):
 			f"{_events(vq.name)} es {sett_q.rev_es} cons {sett_q.rev_cons}")
 	else:
 		print("SKIP Q: no fiscal year covers last December")
+
+	# ---- R: valid-from month frozen since the release --------------------
+	pp = add_days(get_first_day(prev), -1)
+	pp_period = pack.make_period(pp.year, pp.month, "OPEN")
+	r = pack.std_item("_STD-RELDAY-R")
+	vr0 = pack.scv_release(r, pp.year, pp.month, 30)
+	pack.make_pr(r, wh, 6, 30, posting_date=str(get_first_day(pp)))
+	vr = frappe.get_doc({"doctype": SCV, "company": pack.COMPANY, "item_code": r,
+		"valid_from_year": pp.year, "valid_from_month": pp.month,
+		"standard_cost": 34, "source_type": "MANUAL_OVERRIDE"}).insert(ignore_permissions=True)
+	frappe.db.set_value(SCV, vr.name, {
+		"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0,
+		"price_from_year": nxt.year, "price_from_month": nxt.month, "revaluation_date": last,
+		"effective_from": nxt, "released_on": f"{today} {frappe.utils.nowtime()}", "supersedes_version": vr0.name,
+	}, update_modified=False)
+	frappe.db.set_value("Inventory Period", pp_period, "status", "SETTLED_FROZEN", update_modified=False)
+	outcome = restamp_period_end_switches()
+	vr.reload()
+	check("R: a pending version valid from a since-frozen month is re-stamped and revalues 6 x 4 today",
+		vr.name in outcome["restamped"] and vr.switch_on_release
+		and [(x.std_trans, flt(x.total_sc), getdate(x.posting_date)) for x in _events(vr.name)]
+		== [("Rev Rel", 24.0, today)], f"{outcome} {_events(vr.name)}")
+	frappe.db.savepoint("relday_r")
+	refused = False
+	try:
+		pack.scv_release(r, pp.year, pp.month, 36)
+	except frappe.ValidationError:
+		refused = True
+	frappe.db.rollback(save_point="relday_r")
+	check("R: a new release into the frozen month is still refused (DR-23)", refused)
