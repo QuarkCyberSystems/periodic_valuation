@@ -80,8 +80,10 @@ def get_settlement_view(company, item_code):
 
 def price_from(version):
 	"""(year, month) a cost version starts pricing movements in: its valid-from
-	month, or - when it switches at period end (DR-50, "Last day of the
-	period") - the month after the one its revaluation closes."""
+	month; for a version that switches at its release (DR-50 as amended
+	05/10/2026) the release month, and within that month only from its
+	effective_from date (see get_active_standard_cost); for a legacy
+	period-end switch, the month after the one its revaluation closed."""
 	if version.get("price_from_year"):
 		return (version.price_from_year, version.price_from_month)
 	return (version.valid_from_year, version.valid_from_month)
@@ -100,9 +102,13 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 			"status": "RELEASED",
 		},
 		fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "released_on",
-			"price_from_year", "price_from_month"],
+			"price_from_year", "price_from_month", "switch_on_release", "effective_from"],
 	)
-	candidates = [x for x in rows if price_from(x) <= (d.year, d.month)]
+	# DR-50 (amended): a version that switches at its release prices from its
+	# release date - a posting dated earlier in that month keeps the cost that
+	# was in force then
+	candidates = [x for x in rows if price_from(x) <= (d.year, d.month)
+		and not (x.switch_on_release and x.effective_from and d < getdate(x.effective_from))]
 	if not candidates:
 		frappe.throw(
 			_("No RELEASED Item Standard Cost Version covers {0} for {1}. Release one before posting.").format(
@@ -110,9 +116,19 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 			),
 			title=_("No Standard Cost"),
 		)
-	best = max(candidates, key=lambda x: (*price_from(x), x.released_on or ""))
+	best = max(candidates, key=switch_order)
 	_materialize_if_pending(best.name)
 	return best
+
+
+def switch_order(version):
+	"""Sort key of RELEASED versions by the moment each took over pricing: its
+	prices-from month, then its switch date within that month, then its
+	release."""
+	pf = price_from(version)
+	switch = getdate(version.effective_from) if version.get("switch_on_release") and version.get("effective_from") \
+		else getdate(f"{pf[0]}-{pf[1]:02d}-01")
+	return (*pf, switch, version.released_on or "")
 
 
 def _materialize_if_pending(scv_name):
@@ -352,7 +368,7 @@ class StdEngine:
 			return [(a.stock, s), (offset_override or a.stock_adj, -s)]
 		if trans == "SC-":
 			return [(offset_override or a.stock_adj, -s), (a.stock, s)]
-		if trans in ("Rev Beg", "REV In", "Rev End", "REC (BD) - Rev", "REC (BY) - Rev"):
+		if trans in ("Rev Beg", "REV In", "Rev End", "Rev Rel", "REC (BD) - Rev", "REC (BY) - Rev"):
 			return [(a.stock, s), (a.reserve, -s)]
 		if trans == "REV out":
 			# t_sc convention: -(delta x out_qty). SC increase (delta>0) -> s<0 ->
@@ -727,27 +743,24 @@ class StdEngine:
 		# because end + out = base. The old all-to-consumption/all-to-inventory
 		# clamps only ever fired in exactly these cases and contradicted the
 		# workbook (Jan: es 6559.5611 / out -218.652 on a 6340.91 pool).
-		# DR-50: the period-end revaluation (Rev End) restates only the stock
-		# still on hand at the switch - none of the period's consumption was
-		# at the new cost - so it goes wholly to ending stock and carries into
-		# the next period's pool with the inventory share
-		rev_end = self._sum("total_ac - total_sc",
-			"period_year = %(y)s AND period_month = %(m)s AND std_trans = 'Rev End'",
-			{"y": year, "m": month})
+		# DR-50: a revaluation made at a cost switch restates the stock on hand
+		# at the switch, so it is shared only between the units that were
+		# still there or came after it (_switch_revaluations); the rest of the
+		# pool splits over the whole period
+		held, held_es = self._switch_revaluations(year, month, end_qty)
 		share = end_qty / denom
 		cons_share = out_qty / denom
-		es_var = r2((var - rev_end) * share + rev_end)
-		out_var = r2((var - rev_end) * cons_share)
+		es_var = r2((var - held) * share + held_es)
+		out_var = r2((var - held) * cons_share + held - held_es)
 		# FULL_SETTLE_AT_YEAR_END (DR-16 option, DR-38): December allocates the
 		# whole pool to consumption - nothing capitalises, nothing carries into
 		# the new year, so no Sett-Rev is posted and the prior year is hard-closed.
 		full_settle = month == 12 and (
 			get_std_setting(self.company, "year_end_variance_carryforward") == "FULL_SETTLE_AT_YEAR_END"
 		)
-		rev_end_es = rev_end
 		if full_settle:
 			es_var, out_var, share, cons_share = 0.0, r2(var), 0.0, 1.0
-			rev_end_es = 0.0
+			held_es = 0.0
 
 		frappe.flags[KERNEL_FLAG] = True
 		try:
@@ -762,9 +775,9 @@ class StdEngine:
 				"ppv_pool": r2(ppv), "rev_pool": r2(rev),
 				"total_ac": r2(beg_value + in_value + ppv + rev), "variance": r2(var),
 				"es_qty": end_qty, "es_var": es_var,
-				"ppv_es": r2(ppv * share), "rev_es": r2((rev - rev_end) * share + rev_end_es),
+				"ppv_es": r2(ppv * share), "rev_es": r2((rev - held) * share + held_es),
 				"out_qty": out_qty, "out_var": out_var,
-				"ppv_cons": r2(ppv * cons_share), "rev_cons": r2((rev - rev_end) * cons_share + rev_end - rev_end_es),
+				"ppv_cons": r2(ppv * cons_share), "rev_cons": r2((rev - held) * cons_share + held - held_es),
 				"es_qty_override": es_qty_override,
 			}).insert(ignore_permissions=True)
 		finally:
@@ -791,6 +804,50 @@ class StdEngine:
 		self._stamp_ipb_settlement(sett, year, month, sc)
 		self._absorb_settlement_value(sett, year, month, es_var)
 		return frappe.get_doc("Inventory Period Settlement", sett.name)
+
+	def _switch_revaluations(self, year, month, end_qty):
+		"""The period's switch revaluations and their ending-stock share (DR-50).
+
+		Returns (pool amount, ending-stock portion):
+		- Rev End (period-end switch, before the 05/10/2026 amendment) revalued
+		  only the closing stock, so it goes wholly to ending stock.
+		- Rev Rel (switch at release) revalued the stock on hand at the
+		  release; consumption before it was at the old cost and never
+		  carried the revaluation. It is shared between ending stock and the
+		  consumption after the switch: ending / (ending + consumed since).
+		  A release on day 1 gives the whole-month split of Rev Beg; a
+		  release with nothing consumed since gives everything to ending
+		  stock, as Rev End.
+		The late-entry bridges of a release (Rev Rel rows of the same
+		version) belong to its amount."""
+		rows = frappe.get_all(
+			"Inventory Valuation Event",
+			filters=dict(self._scope_filters(), period_year=year, period_month=month,
+				std_trans=("in", ("Rev End", "Rev Rel"))),
+			fields=["std_trans", "total_sc", "total_ac", "cost_version", "creation"],
+			order_by="creation asc",
+		)
+		if not rows:
+			return 0.0, 0.0
+		held = held_es = 0.0
+		releases = {}
+		for r in rows:
+			amount = flt(r.total_ac) - flt(r.total_sc)
+			held += amount
+			if r.std_trans == "Rev End":
+				held_es += amount
+			else:
+				releases.setdefault(r.cost_version, []).append(r)
+		out_events = self.events({"period_year": year, "period_month": month, "out_flag": 1}) \
+			if releases else []
+		for version, rel in releases.items():
+			amount = sum(flt(r.total_ac) - flt(r.total_sc) for r in rel)
+			switch_day = getdate(frappe.db.get_value("Item Standard Cost Version", version, "effective_from"))
+			consumed_since = -sum(flt(e.qty_adj) for e in out_events
+				if e.creation > rel[0].creation and getdate(e.posting_date) >= switch_day)
+			basis = end_qty + consumed_since
+			held_es += amount * (end_qty / basis if basis else 1.0)
+		return held, held_es
 
 	def _absorb_settlement_value(self, sett, year, month, es_var, sign=1):
 		"""Sett debits Stock In Hand (es_var) on the period's last day and the

@@ -42,13 +42,15 @@ function show_revaluation(frm) {
 			__("View")
 		);
 		frm.add_custom_button(__("Revaluation Events"), () => route_to_events(frm), __("View"));
+		show_release_switch(frm);
 		return;
 	}
 	const period = `${String(frm.doc.valid_from_month).padStart(2, "0")}-${frm.doc.valid_from_year}`;
 	const fmt = (d) => frappe.datetime.str_to_user(d);
 	const why = {
 		pending: __("Revaluation pending: it posts when {0} begins.", [period]),
-		// STD-011: Revaluation Posting Date = Last day of the period
+		// versions released under the "Last day of the period" rule before the
+		// DR-50 amendment (05/10/2026) and not re-stamped
 		switch_pending: __(
 			"Switches at period end: the current standard cost stays in force until {0}. The stock on hand on {0} is revalued on that day, and this cost applies from {1}.",
 			[fmt(rev.revaluation_date), fmt(rev.effective_from)]
@@ -60,6 +62,18 @@ function show_revaluation(frm) {
 	}[rev.reason];
 	const pending = ["pending", "switch_pending"].includes(rev.reason);
 	if (why) frm.dashboard.set_headline(why, pending ? "orange" : "blue");
+	else show_release_switch(frm);
+}
+
+// DR-50 as amended: say where the switch fell, so the client sees why a
+// movement dated earlier in the month still carries the earlier cost
+function show_release_switch(frm) {
+	if (!frm.doc.switch_on_release) return;
+	frm.dashboard.set_headline(
+		__("Switched at release on {0}: movements dated before it keep the earlier cost, and the stock on hand was revalued that day.",
+			[frappe.datetime.str_to_user(frm.doc.effective_from)]),
+		"blue"
+	);
 }
 
 function show_replaced_by(frm) {

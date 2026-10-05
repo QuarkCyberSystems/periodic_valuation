@@ -138,6 +138,8 @@ def _post_entry(controller, sle, is_return):
 		value = r2(qty * sc)
 
 	_write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_name=scv.name)
+	if not cross_month:
+		_bridge_release_switch(engine, posting_date, qty, sc, source, today)
 
 
 def _post_opening_std(controller, sle):
@@ -251,6 +253,7 @@ def _post_cancellation_std(controller, engine, sle, period):
 	elif value:
 		write_value_sle(scope, ipb, source=source, posting_date=mirror.posting_date,
 			value_delta=value, stock_uom=sle.get("stock_uom"))
+	bridge_cancelled_before_switch(engine, orig_rows, source, getdate(frappe.utils.nowdate()))
 
 
 def _backdate_class(engine, posting_date, today):
@@ -336,6 +339,83 @@ def _post_companion_if_needed(engine, controller, sle, trans, qty, sc_original, 
 				source=(source[0], source[1], source[2] if len(source) > 2 else None),
 				posting_date=today, value_delta=r2(companion_value),
 				stock_uom=sle.get("stock_uom"))
+
+
+def _bridge_release_switch(engine, posting_date, qty, sc_posted, source, today):
+	"""DR-50 (amended 05/10/2026), late entries: a movement dated before a
+	cost switch that happened at release keeps the cost in force on its date,
+	but the release revalued the stock on hand without it. Bridge the
+	difference into today - qty x (current - posted cost), Stock In Hand
+	against the Standard Cost Revaluation Reserve - as a Rev Rel row of the
+	version now in force, so the settlement treats it as part of that
+	release's revaluation. Same-month only: a cross-month backdate carries
+	its own (BD)/(BY) companion. A cancellation reverses the bridge with the
+	rest of the document's events."""
+	if not qty or posting_date >= today:
+		return
+	current = get_active_standard_cost(engine.company, engine.item_code, engine.physical_warehouse, today)
+	if not current.switch_on_release:
+		return
+	amount = r2(qty * (flt(current.standard_cost) - flt(sc_posted)))
+	if not amount:
+		return
+	engine.post(trans="Rev Rel", posting_date=today, source=source, ref=source[1],
+		sc=current.standard_cost, ac=sc_posted, t_sc_override=amount, cost_version=current.name)
+	book_revaluation(engine, today, amount, source)
+
+
+def bridge_cancelled_before_switch(engine, originals, source, today):
+	"""Cancellation counterpart of _bridge_release_switch: the reversal goes
+	out at the original cost, but when the original movement was on the books
+	at a release switch since then, that release revalued it - give the
+	revaluation back with the movement (qty x (current - original cost)).
+	A document that carried its own bridge or backdate companion reverses
+	that row instead, so nothing more is posted for it."""
+	if any(r.std_trans == "Rev Rel" or r.std_trans.endswith(" - Rev") for r in originals):
+		return
+	current = get_active_standard_cost(engine.company, engine.item_code, engine.physical_warehouse, today)
+	if not current.switch_on_release:
+		return
+	released = frappe.db.get_value("Item Standard Cost Version", current.name, "released_on")
+	moved = [r for r in originals if flt(r.qty_adj) and r.creation < released]
+	amount = r2(sum(-flt(r.qty_adj) * (flt(current.standard_cost) - flt(r.standard_cost)) for r in moved))
+	if not amount:
+		return
+	engine.post(trans="Rev Rel", posting_date=today, source=source, ref=source[1],
+		sc=current.standard_cost, ac=moved[0].standard_cost, t_sc_override=amount, cost_version=current.name)
+	book_revaluation(engine, today, amount, source)
+
+
+def book_revaluation(engine, day, amount, source, standard_cost=None):
+	"""Carry a value-only standard-cost revaluation into the period balance
+	(and every later balance row already open) and the stock ledger (DR-02).
+	`standard_cost` restates the balance's active cost when the revaluation
+	switches it."""
+	from periodic_valuation.periodic_moving_average.kernel import (
+		ScopeState,
+		ensure_physical_warehouse,
+		recompute_closing,
+		write_value_sle,
+	)
+	from periodic_valuation.shared.periods import get_period
+
+	period = get_period(engine.company, day)
+	if not period:
+		return
+	scope = ScopeState(engine.company, engine.item_code, engine.physical_warehouse)
+	ipb = scope.load(period)
+	ipb.reval_value = flt(ipb.reval_value) + amount
+	recompute_closing(ipb)
+	if standard_cost:
+		ipb.moving_avg_price = flt(standard_cost)
+		ipb.period_standard_cost = flt(standard_cost)
+	if flt(ipb.period_standard_cost):
+		ipb.closing_reference_value = r2(flt(ipb.closing_qty) * flt(ipb.period_standard_cost))
+	scope.save(ipb, source=source[:2])
+	_cascade_backdated_ipb(scope, period, 0, amount, source=source[:2])
+	write_value_sle(ensure_physical_warehouse(scope), ipb,
+		source=(source[0], source[1], source[2] if len(source) > 2 else None),
+		posting_date=day, value_delta=amount)
 
 
 def _assert_stock_available(engine, qty_needed):

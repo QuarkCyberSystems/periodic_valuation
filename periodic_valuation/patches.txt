@@ -8,3 +8,4 @@ periodic_valuation.patches.v1_0.rename_sap_to_periodic
 periodic_valuation.patches.v1_0.rename_sap_to_periodic_data
 periodic_valuation.patches.v1_0.backfill_reversal_value_delta
 periodic_valuation.patches.v1_0.stamp_balance_valuation_method
+periodic_valuation.patches.v1_0.switch_cost_changes_at_release
