@@ -38,6 +38,19 @@ dated the release day (Rev Rel).
      the switch across both months (40 / 90), not by the year's share
   J  the migration patch moves a "Last day of the period" setting to
      "Date of release"
+  K  a release whose switch month cannot take a posting is refused, and
+     nothing of it stays on the books
+  L  a cross-month late entry under "Date of release" keeps its (BD)
+     companion (DR-09) and carries no Rev Rel bridge
+  M  a release on day 1 settles exactly as a whole-month split
+  N  a Rev End already posted under the old rule still settles wholly to
+     ending stock
+  O  a late entry into a reopened month posts plain: no companion, no
+     bridge (DR-09)
+  P  a pending version released in an earlier month is re-stamped to
+     switch on the re-stamp day
+  Q  FULL_SETTLE December gives a release revaluation to consumption with
+     the rest of the pool
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -363,5 +376,128 @@ def _scenarios(today):
 		check("J: the patch moves the setting to Date of release",
 			frappe.db.get_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
 				"revaluation_posting_date") == "Date of release")
+
+		_more_scenarios(today, wh, day1, early, prev, last, nxt, cur_period)
 	finally:
 		frappe.db.rollback(save_point="std_reval_release")
+
+
+def _more_scenarios(today, wh, day1, early, prev, last, nxt, cur_period):
+	from periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version import (
+		restamp_period_end_switches,
+	)
+	from periodic_valuation.periodic_standard_cost.engine import StdEngine
+
+	# ---- K: the switch month cannot take a posting --------------------
+	k = pack.std_item("_STD-RELDAY-K")
+	pack.scv_release(k, prev.year, prev.month, 10)
+	pack.make_pr(k, wh, 5, 10, posting_date=str(early))
+	frappe.db.set_value("Inventory Period", cur_period, "status", "SETTLED_FROZEN", update_modified=False)
+	frappe.db.savepoint("relday_k")
+	refused = False
+	try:
+		pack.scv_release(k, prev.year, prev.month, 12)
+	except frappe.ValidationError:
+		refused = True
+	frappe.db.rollback(save_point="relday_k")
+	frappe.db.set_value("Inventory Period", cur_period, "status", "OPEN", update_modified=False)
+	check("K: a release into a month that cannot take the revaluation is refused, nothing kept",
+		refused and not frappe.get_all(SCV, filters={"item_code": k, "standard_cost": 12})
+		and not frappe.get_all("Inventory Valuation Event", filters={"item_code": k, "std_trans": "Rev Rel"})
+		and _stock_value(k) == 50, str(_stock_value(k)))
+
+	# ---- L: cross-month late entry keeps its (BD) companion ------------
+	el = pack.std_item("_STD-RELDAY-L")
+	pack.scv_release(el, prev.year, prev.month, 10)
+	pack.make_pr(el, wh, 4, 10, posting_date=str(prev))
+	pack.scv_release(el, today.year, today.month, 12)
+	pr_l = pack.make_pr(el, wh, 5, 10, posting_date=str(prev))
+	ev = sorted((x.std_trans, flt(x.total_sc)) for x in _events(pr_l.name))
+	check("L: a late entry into the previous month posts REC (BD) at 10 and its companion 5 x 2, no Rev Rel",
+		ev == [("REC (BD)", 50.0), ("REC (BD) - Rev", 10.0)] and _stock_value(el) == 9 * 12, f"{ev} {_stock_value(el)}")
+
+	# ---- M: a release on day 1 = the whole-month split ------------------
+	m = pack.std_item("_STD-RELDAY-M")
+	pack.scv_release(m, prev.year, prev.month, 20)
+	pack.make_pr(m, wh, 30, 20, posting_date=str(prev))
+	with _Today(day1):
+		vm = pack.scv_release(m, today.year, today.month, 25)
+	pack.make_pr(m, wh, 10, 25, posting_date=str(today))
+	pack.make_dn(m, wh, 15, posting_date=str(today))
+	check("M: the day-1 release revalues the 30 on hand by 150 on day 1",
+		[(flt(x.total_sc), getdate(x.posting_date)) for x in _events(vm.name)] == [(150.0, day1)], str(_events(vm.name)))
+	sett_m = _settle(m, today.year, today.month)
+	check("M: it settles as the whole-month split, ending 25 / (beg 30 + in 10)",
+		abs(flt(sett_m.rev_es) - (-150 * 25 / 40)) < 0.01, f"es {sett_m.rev_es} cons {sett_m.rev_cons}")
+
+	# ---- N: a legacy Rev End still settles wholly to ending stock -------
+	n = pack.std_item("_STD-RELDAY-N")
+	vn0 = pack.scv_release(n, prev.year, prev.month, 50)
+	pack.make_pr(n, wh, 8, 50, posting_date=str(early))
+	vn = frappe.get_doc({"doctype": SCV, "company": pack.COMPANY, "item_code": n,
+		"valid_from_year": today.year, "valid_from_month": today.month,
+		"standard_cost": 55, "source_type": "MANUAL_OVERRIDE"}).insert(ignore_permissions=True)
+	frappe.db.set_value(SCV, vn.name, {
+		"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0,
+		"price_from_year": nxt.year, "price_from_month": nxt.month, "revaluation_date": last,
+		"effective_from": nxt, "released_on": frappe.utils.now_datetime(), "supersedes_version": vn0.name,
+	}, update_modified=False)
+	pack.make_dn(n, wh, 3, posting_date=str(today))
+	frappe.get_doc(SCV, vn.name).post_period_end_revaluation(50)
+	sett_n = _settle(n, today.year, today.month)
+	check("N: Rev End 5 x 5 = 25 on the last day settles wholly to ending stock",
+		[(x.std_trans, flt(x.total_sc)) for x in _events(vn.name)] == [("Rev End", 25.0)]
+		and abs(flt(sett_n.rev_es) + 25) < 0.01 and abs(flt(sett_n.rev_cons)) < 0.01,
+		f"{_events(vn.name)} es {sett_n.rev_es} cons {sett_n.rev_cons}")
+
+	# ---- O: late entry into a reopened month posts plain ----------------
+	o = pack.std_item("_STD-RELDAY-O")
+	pack.scv_release(o, prev.year, prev.month, 10)
+	pack.make_pr(o, wh, 20, 10, posting_date=str(prev))
+	sett_o = _settle(o, prev.year, prev.month)
+	StdEngine(pack.COMPANY, o).sett_reverse(sett_o.name, source=("Inventory Period", cur_period))
+	pack.scv_release(o, today.year, today.month, 12)
+	pr_o = pack.make_pr(o, wh, 5, 10, posting_date=str(prev))
+	check("O: a late entry into the reopened previous month posts plain at 10, no companion, no bridge",
+		[(x.std_trans, flt(x.standard_cost)) for x in _events(pr_o.name)] == [("Rec", 10.0)], str(_events(pr_o.name)))
+
+	# ---- P: pending version released in an earlier month ----------------
+	pp = pack.std_item("_STD-RELDAY-P")
+	vp0 = pack.scv_release(pp, prev.year, prev.month, 30)
+	pack.make_pr(pp, wh, 10, 30, posting_date=str(prev))
+	vp = frappe.get_doc({"doctype": SCV, "company": pack.COMPANY, "item_code": pp,
+		"valid_from_year": prev.year, "valid_from_month": prev.month,
+		"standard_cost": 35, "source_type": "MANUAL_OVERRIDE"}).insert(ignore_permissions=True)
+	frappe.db.set_value(SCV, vp.name, {
+		"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0,
+		"price_from_year": today.year, "price_from_month": today.month, "revaluation_date": prev,
+		"effective_from": day1, "released_on": f"{add_days(get_first_day(prev), 9)} 10:00:00",
+		"supersedes_version": vp0.name,
+	}, update_modified=False)
+	outcome = restamp_period_end_switches()
+	vp.reload()
+	check("P: a version released last month switches on the re-stamp day and revalues 10 x 5 then",
+		vp.name in outcome["restamped"] and vp.switch_on_release and getdate(vp.effective_from) == today
+		and [(x.std_trans, flt(x.total_sc), getdate(x.posting_date)) for x in _events(vp.name)]
+		== [("Rev Rel", 50.0, today)], f"{outcome} {vp.effective_from} {_events(vp.name)}")
+
+	# ---- Q: FULL_SETTLE December -----------------------------------------
+	dec = getdate(f"{today.year - 1}-12-20")
+	if frappe.db.exists("Fiscal Year", {"year_start_date": ("<=", dec), "year_end_date": (">=", dec)}):
+		frappe.db.set_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
+			"year_end_variance_carryforward", "FULL_SETTLE_AT_YEAR_END")
+		pack.make_period(dec.year, 11, "SETTLED_FROZEN")
+		pack.make_period(dec.year, 12, "OPEN")
+		q = pack.std_item("_STD-RELDAY-Q")
+		with _Today(dec):
+			pack.scv_release(q, dec.year, 12, 40)
+			pack.make_pr(q, wh, 10, 40, posting_date=f"{dec.year}-12-02")
+			vq = pack.scv_release(q, dec.year, 12, 44)
+			pack.make_dn(q, wh, 4, posting_date=str(dec))
+			sett_q = _settle(q, dec.year, 12)
+		check("Q: FULL_SETTLE December gives the release revaluation (10 x 4) wholly to consumption",
+			[flt(x.total_sc) for x in _events(vq.name)] == [40.0]
+			and abs(flt(sett_q.rev_es)) < 0.01 and abs(flt(sett_q.rev_cons) + 40) < 0.01,
+			f"{_events(vq.name)} es {sett_q.rev_es} cons {sett_q.rev_cons}")
+	else:
+		print("SKIP Q: no fiscal year covers last December")
