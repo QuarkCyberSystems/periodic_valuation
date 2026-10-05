@@ -527,10 +527,16 @@ def post_via_pma_kernel(controller, sl_entries):
 		period = assert_posting_allowed(company, posting_date)
 		open_period = get_open_period(company)
 
-		if period.status == "OPEN" or not open_period or period.name == open_period.name:
-			_post_current(controller, scope, period, sle, is_cancellation, is_return)
-		else:
+		if _is_backdated(period, open_period):
 			_post_backdated(controller, scope, period, open_period, sle, is_return)
+		else:
+			_post_current(controller, scope, period, sle, is_cancellation, is_return)
+
+
+def _is_backdated(period, open_period):
+	"""A posting into the PREV_OPEN_UNSETTLED month while a later month is open:
+	it books in its own month and carries into the open one."""
+	return not (period.status == "OPEN" or not open_period or period.name == open_period.name)
 
 
 def _guard_rejected_qty(controller):
@@ -735,7 +741,9 @@ def _post_transfer(controller, out_sle, in_sle):
 	movement events on both legs, one value-neutral IVE, no GL (signed plan).
 	Warehouse-scope items (ON): issue at the source scope's MAP, receipt into
 	the destination scope at that unit cost; GL moves value between the two
-	inventory accounts.
+	inventory accounts. Dated in the previous open month, each leg also carries
+	into the open month by the backdated issue/receipt rules (MAP-Warehouse-001):
+	the out-leg as a DR-46 issue carry, the in-leg as a receipt carry.
 	"""
 	company = controller.company
 	item_code = out_sle.get("item_code")
@@ -765,8 +773,15 @@ def _post_transfer(controller, out_sle, in_sle):
 	# warehouse-scope: two independent scopes, value moves at source MAP
 	out_scope = ScopeState(company, item_code, out_sle.get("warehouse"))
 	in_scope = ScopeState(company, item_code, in_sle.get("warehouse"))
+	open_period = get_open_period(company)
+	backdated = _is_backdated(period, open_period)
+	# lock order: previous then current, as _post_backdated
 	ipb_out = out_scope.load(period)
 	ipb_in = in_scope.load(period)
+	cur_out = out_scope.load(open_period) if backdated else None
+	cur_in = in_scope.load(open_period) if backdated else None
+	out_account = get_inventory_account(company, item_code, out_sle.get("warehouse"))
+	in_account = get_inventory_account(company, item_code, in_sle.get("warehouse"))
 
 	rate = flt(ipb_out.frozen_map) if ipb_out.is_negative else flt(ipb_out.moving_avg_price)
 	value = r2(qty * rate)
@@ -783,9 +798,20 @@ def _post_transfer(controller, out_sle, in_sle):
 		value_delta=-value, map_before=map_before_out, stock_uom=out_sle.get("stock_uom"),
 	)
 	out_scope.save(ipb_out, caused_by=ive_out, movement_event=sme_out, source=source)
-	write_sle(controller, out_sle, out_scope, ipb_out, -value)
+	if backdated:
+		# the prior month's zero-qty cleanup moves its closing value, so it
+		# runs before the carry and the carry includes it
+		value_before = flt(ipb_out.closing_value)
+		maybe_rounding_cleanup(controller, out_scope, ipb_out, source, posting_date, qty_scale=qty)
+		carried = r6(value + value_before - flt(ipb_out.closing_value))
+		absorb_out = _carry_issue_into_open(controller, out_scope, cur_out, open_period, -qty, carried,
+			ive_out, out_account, source)
+		write_sle(controller, out_sle, out_scope, cur_out, -value + absorb_out)
+	else:
+		write_sle(controller, out_sle, out_scope, ipb_out, -value)
 
 	map_before_in = flt(ipb_in.moving_avg_price)
+	in_was_negative = bool(ipb_in.is_negative)
 	result = _apply_receipt(ipb_in, qty, rate)
 	sme_in, ive_in = write_events(
 		in_scope, ipb_in, source=source, posting_date=posting_date,
@@ -794,18 +820,22 @@ def _post_transfer(controller, out_sle, in_sle):
 		prd_amount=result["prd"], affects_map=1, stock_uom=in_sle.get("stock_uom"),
 	)
 	in_scope.save(ipb_in, caused_by=ive_in, movement_event=sme_in, source=source)
-	write_sle(controller, in_sle, in_scope, ipb_in, result["net_to_inventory"])
+	if backdated:
+		absorb_in = _carry_receipt_into_open(controller, in_scope, cur_in, open_period, qty, rate, result,
+			in_was_negative, ive_in, in_account, source)
+		write_sle(controller, in_sle, in_scope, cur_in, result["net_to_inventory"] + absorb_in)
+	else:
+		write_sle(controller, in_sle, in_scope, ipb_in, result["net_to_inventory"])
 
-	source_account = get_inventory_account(company, item_code, out_sle.get("warehouse"))
-	dest_account = get_inventory_account(company, item_code, in_sle.get("warehouse"))
-	if source_account != dest_account:
+	if out_account != in_account:
 		post_gl(
 			controller, posting_date,
-			[(dest_account, value, source_account), (source_account, -value, dest_account)],
+			[(in_account, value, out_account), (out_account, -value, in_account)],
 			ive_in,
 		)
 
-	maybe_rounding_cleanup(controller, out_scope, ipb_out, source, posting_date, qty_scale=qty)
+	if not backdated:
+		maybe_rounding_cleanup(controller, out_scope, ipb_out, source, posting_date, qty_scale=qty)
 
 
 def _classify(controller, sle, is_cancellation, is_return):
@@ -1468,42 +1498,8 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 			ive,
 		)
 
-		# The carry flows into the current period at the value the prior period
-		# booked, and the current MAP re-derives from the carried value (signed
-		# plan: carryover_value is the sum of backdated value deltas; MAP-001,
-		# client 10 Sep 2026, DR-46 - supersedes DR-36's correcting leg). The
-		# MAP moves because the two months carry different prices, not because
-		# the issue was valued at anything but a MAP.
-		map_before_cur = flt(ipb_cur.moving_avg_price)
-		ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
-		ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) - issue_value)
-		recompute_closing(ipb_cur)
-		# A current period that is, or becomes, negative (landing on zero
-		# included) is re-priced: the negative-stock model values the deficit
-		# at the frozen MAP (the MAP at the moment of crossing, or the existing
-		# frozen MAP), and the difference against the carried value is a price
-		# difference in the current period, offset to the PRD account - the
-		# same convention as the receipt cases. A positive period whose value
-		# the carry has driven below zero is floored at zero (DR-34: inventory
-		# value goes down to exactly zero and no further), the rest to PRD.
-		absorb = 0.0
-		cur_qty, cur_value = flt(ipb_cur.closing_qty), flt(ipb_cur.closing_value)
-		if cur_qty <= 0:
-			target_rate = flt(ipb_cur.frozen_map) if ipb_cur.is_negative else map_before_cur
-			absorb = r2(cur_qty * target_rate - cur_value)
-		elif cur_value < 0:
-			absorb = r2(-cur_value)
-		if absorb:
-			ipb_cur.adjust_value = r6(flt(ipb_cur.adjust_value) + absorb)
-			recompute_closing(ipb_cur)
-		_freeze_check(ipb_cur)
-		absorb_ive = None
-		if absorb:
-			absorb_ive = _post_day1_absorb(
-				controller, scope, ipb_cur, open_period, absorb, ive, map_before_cur,
-				inventory_account, source,
-			)
-		scope.save(ipb_cur, caused_by=absorb_ive or ive, source=source)
+		absorb = _carry_issue_into_open(controller, scope, ipb_cur, open_period, qty, issue_value,
+			ive, inventory_account, source)
 		write_sle(controller, sle, scope, ipb_cur, -issue_value + absorb)
 		return
 
@@ -1529,6 +1525,60 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 			(inventory_account, -result["prd"], prd_account)]
 	post_gl(controller, posting_date, legs, ive)
 
+	absorb = _carry_receipt_into_open(controller, scope, ipb_cur, open_period, qty, rate, result,
+		prior_was_negative, ive, inventory_account, source)
+	write_sle(controller, sle, scope, ipb_cur, result["net_to_inventory"] + absorb)
+
+
+def _carry_issue_into_open(controller, scope, ipb_cur, open_period, qty, issue_value, ive,
+		inventory_account, source):
+	"""Carry a backdated outflow (qty < 0, booked in the prior period at
+	issue_value) into the open period; saves ipb_cur and returns the day-1
+	absorb the current period's stock state required."""
+	# The carry flows into the current period at the value the prior period
+	# booked, and the current MAP re-derives from the carried value (signed
+	# plan: carryover_value is the sum of backdated value deltas; MAP-001,
+	# client 10 Sep 2026, DR-46 - supersedes DR-36's correcting leg). The
+	# MAP moves because the two months carry different prices, not because
+	# the issue was valued at anything but a MAP.
+	map_before_cur = flt(ipb_cur.moving_avg_price)
+	ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
+	ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) - issue_value)
+	recompute_closing(ipb_cur)
+	# A current period that is, or becomes, negative (landing on zero
+	# included) is re-priced: the negative-stock model values the deficit
+	# at the frozen MAP (the MAP at the moment of crossing, or the existing
+	# frozen MAP), and the difference against the carried value is a price
+	# difference in the current period, offset to the PRD account - the
+	# same convention as the receipt cases. A positive period whose value
+	# the carry has driven below zero is floored at zero (DR-34: inventory
+	# value goes down to exactly zero and no further), the rest to PRD.
+	absorb = 0.0
+	cur_qty, cur_value = flt(ipb_cur.closing_qty), flt(ipb_cur.closing_value)
+	if cur_qty <= 0:
+		target_rate = flt(ipb_cur.frozen_map) if ipb_cur.is_negative else map_before_cur
+		absorb = r2(cur_qty * target_rate - cur_value)
+	elif cur_value < 0:
+		absorb = r2(-cur_value)
+	if absorb:
+		ipb_cur.adjust_value = r6(flt(ipb_cur.adjust_value) + absorb)
+		recompute_closing(ipb_cur)
+	_freeze_check(ipb_cur)
+	absorb_ive = None
+	if absorb:
+		absorb_ive = _post_day1_absorb(
+			controller, scope, ipb_cur, open_period, absorb, ive, map_before_cur,
+			inventory_account, source,
+		)
+	scope.save(ipb_cur, caused_by=absorb_ive or ive, source=source)
+	return absorb
+
+
+def _carry_receipt_into_open(controller, scope, ipb_cur, open_period, qty, rate, result,
+		prior_was_negative, ive, inventory_account, source):
+	"""Carry a backdated inflow (booked in the prior period by _apply_receipt as
+	`result`) into the open period; saves ipb_cur and returns the day-1 absorb
+	the current period's stock state required."""
 	# carryover into the open period
 	ipb_cur.carryover_qty = r6(flt(ipb_cur.carryover_qty) + qty)
 	ipb_cur.carryover_value = r6(flt(ipb_cur.carryover_value) + result["net_to_inventory"])
@@ -1583,7 +1633,7 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 		)
 
 	scope.save(ipb_cur, caused_by=absorb_ive or ive, source=source)
-	write_sle(controller, sle, scope, ipb_cur, result["net_to_inventory"] + absorb)
+	return absorb
 
 
 def _post_day1_absorb(controller, scope, ipb_cur, open_period, absorb, ive, map_before,
