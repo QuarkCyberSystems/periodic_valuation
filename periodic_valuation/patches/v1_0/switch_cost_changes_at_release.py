@@ -20,4 +20,10 @@ def execute():
 		restamp_period_end_switches,
 	)
 
-	restamp_period_end_switches()
+	outcome = restamp_period_end_switches()
+	# RULES §4: say what the patch changed; a skipped or failed version keeps
+	# the old period-end rule and needs a look (Error Log "DR-50 re-stamp
+	# failed: <version>")
+	for key, label in (("restamped", "switched at release"), ("boundary", "back to a day-1 boundary"),
+			("skipped", "SKIPPED - switch month closed"), ("failed", "FAILED - see Error Log")):
+		print(f"DR-50 re-stamp: {len(outcome[key])} {label}" + (f": {', '.join(outcome[key])}" if outcome[key] else ""))

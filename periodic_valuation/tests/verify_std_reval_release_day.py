@@ -296,7 +296,9 @@ def _scenarios(today):
 			"revaluation_date": nxt_last, "effective_from": add_days(nxt_last, 1),
 			"released_on": f"{today} {frappe.utils.nowtime()}", "supersedes_version": vg20.name,
 		}, update_modified=False)
-		restamp_period_end_switches()
+		outcome = restamp_period_end_switches()
+		check("G: the re-stamp reports what it changed",
+			vg.name in outcome["restamped"] and vg2.name in outcome["boundary"] and not outcome["failed"], str(outcome))
 		vg.reload()
 		check("G: the pending version now switches at its release",
 			vg.switch_on_release and not vg.switch_at_period_end and getdate(vg.effective_from) == today

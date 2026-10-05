@@ -475,21 +475,30 @@ def restamp_period_end_switches():
 	"""DR-50 amendment (05/10/2026): a version released under the old
 	"Last day of the period" rule and still waiting for its month-end
 	revaluation switches at its release instead. In release order, each
-	version prices from its release date and revalues the stock on hand now,
+	version prices from its release date and revalues the stock on hand,
 	dated its release day; a movement posted since the release at the old
 	cost is part of that stock, so it carries the new cost from here on.
-	A version whose month is no longer open stays as it is."""
+	A version released in an earlier month than the re-stamp switches on the
+	re-stamp day instead: the current month's movements were priced at the
+	old cost and stay so. A version for a later month than its release goes
+	back to the day-1 boundary of that month. A version whose switch day
+	falls in a month that cannot take a posting stays as it is.
+
+	Returns {"restamped": [...], "boundary": [...], "skipped": [...],
+	"failed": [...]} so the caller can report what it changed."""
 	from periodic_valuation.shared.periods import get_period, period_refusal
 
+	today = getdate(frappe.utils.nowdate())
+	outcome = {"restamped": [], "boundary": [], "skipped": [], "failed": []}
 	for row in frappe.get_all(
 		"Item Standard Cost Version",
 		filters={"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0},
 		fields=["name", "company", "released_on"],
 		order_by="released_on asc",
 	):
-		day = getdate(row.released_on)
+		released = getdate(row.released_on)
 		doc = frappe.get_doc("Item Standard Cost Version", row.name)
-		if (doc.valid_from_year, doc.valid_from_month) > (day.year, day.month):
+		if (doc.valid_from_year, doc.valid_from_month) > (released.year, released.month):
 			# a change for a later month than its release: under the amended
 			# rule it switches on day 1 of that month (first-day boundary);
 			# materialize_pending_revaluations posts it when the month begins
@@ -498,9 +507,12 @@ def restamp_period_end_switches():
 			doc.price_from_year = doc.price_from_month = None
 			doc.revaluation_date = None
 			doc.save(ignore_permissions=True)
+			outcome["boundary"].append(row.name)
 			continue
+		day = released if (released.year, released.month) == (today.year, today.month) else today
 		period = get_period(row.company, day)
 		if not period or period_refusal(period):
+			outcome["skipped"].append(row.name)
 			continue
 		frappe.db.savepoint("scv_restamp")
 		try:
@@ -511,9 +523,14 @@ def restamp_period_end_switches():
 			doc.revaluation_date = day
 			doc.save(ignore_permissions=True)
 			doc.add_comment("Info", _(
-				"Re-stamped under the amended DR-50: switches at its release on {0} instead of the period end."
+				"Re-stamped under the amended DR-50: switches on {0} instead of the period end."
 			).format(frappe.format(day, "Date")))
 			doc.materialize_boundary()
+			if not frappe.db.get_value(doc.doctype, doc.name, "revaluation_posted"):
+				raise frappe.ValidationError(f"{row.name}: revaluation not posted")
+			outcome["restamped"].append(row.name)
 		except Exception:
 			frappe.db.rollback(save_point="scv_restamp")
 			frappe.log_error(title=f"DR-50 re-stamp failed: {row.name}")
+			outcome["failed"].append(row.name)
+	return outcome
