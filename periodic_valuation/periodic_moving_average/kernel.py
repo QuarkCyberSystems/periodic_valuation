@@ -752,10 +752,14 @@ def _post_transfer(controller, out_sle, in_sle):
 	period = assert_posting_allowed(company, posting_date)
 	source = (controller.doctype, controller.name, out_sle.get("voucher_detail_no"))
 	include_wh = frappe.get_cached_value("Item", item_code, "valuation_includes_warehouse")
+	open_period = get_open_period(company)
+	backdated = _is_backdated(period, open_period)
 
 	if not include_wh:
 		scope = ScopeState(company, item_code, out_sle.get("warehouse"))
 		ipb = scope.load(period)
+		# nothing to carry, but the SLE and Bin show the open month
+		ipb_now = scope.load(open_period) if backdated else ipb
 		map_before = flt(ipb.moving_avg_price)
 		# quantity is scope-neutral; record both physical legs for audit
 		for sle, movement in ((out_sle, "transfer_out"), (in_sle, "transfer_in")):
@@ -766,15 +770,13 @@ def _post_transfer(controller, out_sle, in_sle):
 				qty_delta=flt(sle.get("actual_qty")), value_delta=0,
 				map_before=map_before, stock_uom=sle.get("stock_uom"),
 			)
-			write_sle(controller, sle, scope, ipb, 0)
+			write_sle(controller, sle, scope, ipb_now, 0)
 		scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
 		return
 
 	# warehouse-scope: two independent scopes, value moves at source MAP
 	out_scope = ScopeState(company, item_code, out_sle.get("warehouse"))
 	in_scope = ScopeState(company, item_code, in_sle.get("warehouse"))
-	open_period = get_open_period(company)
-	backdated = _is_backdated(period, open_period)
 	# lock order: previous then current, as _post_backdated
 	ipb_out = out_scope.load(period)
 	ipb_in = in_scope.load(period)
@@ -1216,11 +1218,15 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# grand-original receipt, not the return's own event - so a detail-name
 	# filter wrongly finds nothing (WA-0003-01 item 9). Instead we take the
 	# original doc's events for this item, drop any already reversed by a live
-	# cancellation, and pair the line to one by matching quantity.
+	# cancellation, and pair the line to one by matching quantity. A
+	# warehouse-scope item also pairs by warehouse: a transfer's two legs share
+	# item and quantity, and by quantity alone the destination line took the
+	# source's event and reversed its value into the wrong warehouse.
 	candidates = frappe.get_all(
 		"Inventory Valuation Event",
 		filters={"source_doctype": controller.doctype, "source_docname": original,
-			"item_code": scope.item_code, "is_cancelled": 0},
+			"item_code": scope.item_code, "is_cancelled": 0,
+			**({"warehouse": scope.physical_warehouse} if scope.include_warehouse else {})},
 		fields=["name", "value_delta", "qty_basis", "reason_code", "prd_amount",
 			"inventory_portion", "expense_portion"],
 		order_by="creation",

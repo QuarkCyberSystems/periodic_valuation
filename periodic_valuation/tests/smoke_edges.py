@@ -54,6 +54,17 @@ def make_dn(item, wh, qty, posting_date=None):
 	return dn
 
 
+def make_transfer(item, qty, src, dst, posting_date=None):
+	se = frappe.get_doc({
+		"doctype": "Stock Entry", "company": COMPANY, "stock_entry_type": "Material Transfer",
+		"posting_date": posting_date or nowdate(), "set_posting_time": 1,
+		"items": [{"item_code": item, "qty": qty, "s_warehouse": src, "t_warehouse": dst}],
+	})
+	se.insert(ignore_permissions=True)
+	se.submit()
+	return se
+
+
 def ipb(item, warehouse=""):
 	rows = frappe.get_all(
 		"Inventory Period Balance",

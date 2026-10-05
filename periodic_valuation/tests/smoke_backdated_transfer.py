@@ -6,26 +6,28 @@ warehouse's opening + carryover equals its previous closing, and the Bin shows
 the open month's balance. Scenario A is the client's case (10 in at 500,
 5 moved in the open month, then 2 out and 1 back dated in the previous month);
 scenario B moves stock at the previous month's MAP while the open month already
-holds stock at another price. Rolled back unless commit=True.
+holds stock at another price; scenario C lands the source's open month below
+zero, so the carry takes its day-1 price-difference leg; scenario D cancels
+backdated transfers in both directions (the destination warehouse sorting
+before and after the source) and the C transfer with its day-1 leg. Rolled
+back unless commit=True.
 """
 
 import frappe
 from frappe.utils import add_days, add_months, flt, get_first_day, nowdate
 
 from periodic_valuation.shared.period_close import assert_continuity
-from periodic_valuation.tests.smoke_edges import check, CHECKS, ipb_period, make_item, make_pr
+from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+from periodic_valuation.tests.smoke_edges import (
+	CHECKS, check, ipb_period, make_dn, make_item, make_pr, make_transfer as transfer,
+)
 from periodic_valuation.tests.smoke_kernel import COMPANY, ensure_masters
 
 
-def transfer(item, qty, src, dst, posting_date):
-	se = frappe.get_doc({
-		"doctype": "Stock Entry", "company": COMPANY, "stock_entry_type": "Material Transfer",
-		"posting_date": posting_date, "set_posting_time": 1,
-		"items": [{"item_code": item, "qty": qty, "s_warehouse": src, "t_warehouse": dst}],
-	})
-	se.insert(ignore_permissions=True)
-	se.submit()
-	return se
+def cancel(se):
+	name = make_cancellation("Stock Entry", se.name)
+	frappe.get_doc("Stock Entry", name).submit()
+	return name
 
 
 def qv(row):
@@ -62,8 +64,9 @@ def run(commit=False):
 	it = make_item("_SMK-BTRF-A", include_warehouse=1)
 	make_pr(it, wh, 10, 500, posting_date=str(add_days(prior, 7)))
 	transfer(it, 5, wh, wh2, nowdate())
-	transfer(it, 2, wh, wh2, str(add_days(prior, 9)))
-	transfer(it, 1, wh2, wh, str(add_days(prior, 11)))
+	a_out = transfer(it, 2, wh, wh2, str(add_days(prior, 9)))
+	a_back = transfer(it, 1, wh2, wh, str(add_days(prior, 11)))
+	item_a = it
 
 	p1, p2 = ipb_period(it, py, pm, wh), ipb_period(it, py, pm, wh2)
 	c1, c2 = ipb_period(it, cy, cm, wh), ipb_period(it, cy, cm, wh2)
@@ -91,6 +94,39 @@ def run(commit=False):
 		f"{qv(c1)} {c1.moving_avg_price} {qv(c2)} {c2.moving_avg_price}")
 	check("B Bin shows the open month's balance",
 		bin_of(it, wh) == (16, 2600) and bin_of(it, wh2) == (4, 400), f"{bin_of(it, wh)} {bin_of(it, wh2)}")
+
+	# ============ C: the carry takes the source's open month below zero
+	it = make_item("_SMK-BTRF-C", include_warehouse=1)
+	make_pr(it, wh, 10, 100, posting_date=str(add_days(prior, 3)))
+	make_pr(it, wh, 10, 200)                                   # open: 20/3000, MAP 150
+	make_dn(it, wh, 20)                                        # open: 0/0, MAP kept 150
+	c_trf = transfer(it, 4, wh, wh2, str(add_days(prior, 5)))  # at previous MAP 100
+	p1 = ipb_period(it, py, pm, wh)
+	c1, c2 = ipb_period(it, cy, cm, wh), ipb_period(it, cy, cm, wh2)
+	check("C previous month: source 6/600", qv(p1) == (6, 600), str(qv(p1)))
+	check("C open month: source -4 re-priced at frozen MAP 150 (-600), destination 4/400",
+		qv(c1) == (-4, -600) and flt(c1.frozen_map) == 150 and qv(c2) == (4, 400),
+		f"{qv(c1)} frozen {c1.frozen_map} {qv(c2)}")
+	out_ive = frappe.db.get_value("Inventory Valuation Event", {"source_docname": c_trf.name,
+		"warehouse": wh, "reason_code": "transfer"}, "name")
+	day1 = frappe.get_all("Inventory Valuation Event", filters={"caused_by_event_id": out_ive,
+		"reason_code": "prd_split"}, fields=["value_delta", "posting_date"])
+	check("C day-1 price-difference leg of -200 on the 1st of the open month",
+		len(day1) == 1 and flt(day1[0].value_delta, 2) == -200 and str(day1[0].posting_date) == str(cur),
+		str(day1))
+
+	# ============ D: cancel backdated transfers in the open month, both directions
+	cancel(a_out)                                              # source sorts before destination
+	cancel(a_back)                                             # destination sorts before source
+	c1, c2 = ipb_period(item_a, cy, cm, wh), ipb_period(item_a, cy, cm, wh2)
+	check("D A after both cancellations: 5/2500 in each warehouse",
+		qv(c1) == (5, 2500) and qv(c2) == (5, 2500), f"{qv(c1)} {qv(c2)}")
+	check("D A Bin follows", bin_of(item_a, wh) == (5, 2500) and bin_of(item_a, wh2) == (5, 2500),
+		f"{bin_of(item_a, wh)} {bin_of(item_a, wh2)}")
+	cancel(c_trf)
+	c1, c2 = ipb_period(it, cy, cm, wh), ipb_period(it, cy, cm, wh2)
+	check("D C cancellation unwinds the move and its day-1 leg: both warehouses 0/0",
+		qv(c1) == (0, 0) and qv(c2) == (0, 0), f"{qv(c1)} {qv(c2)}")
 
 	# ============ the period-close carry check passes for the open month
 	open_period = frappe.get_doc("Inventory Period", {"company": COMPANY, "period_year": cy, "period_month": cm})
