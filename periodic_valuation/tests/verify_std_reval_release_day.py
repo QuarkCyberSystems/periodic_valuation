@@ -17,10 +17,12 @@ dated the release day (Rev Rel).
      (102 / 122), the rest of the pool over the whole month; GL / event
      identity holds
   B  cancelling a receipt that was on hand at the release gives the
-     revaluation back with it: the item's stock value returns to zero
+     revaluation back with it: the item's stock value returns to zero;
+     cancelling a late receipt reverses its bridge with it
   C  a backdated change (valid from the previous, still-open month)
      switches at the release too: the previous month and the days before
-     the release keep the earlier cost
+     the release keep the earlier cost; with nothing consumed since, the
+     settlement gives the revaluation wholly to ending stock
   D  an item's first cost prices its whole month at once
   E  a change for a future month switches on day 1 of that month
      (first-day boundary), with nothing posted at release
@@ -28,6 +30,11 @@ dated the release day (Rev Rel).
   G  re-stamp: a version released under the old "Last day of the period"
      rule and still pending switches at its release and revalues now
   H  back on "First day of the period" the day-1 rule is unchanged
+  I  YTD: a release in the previous month stays in the year's pool; the
+     current month's settlement still shares it by the consumption since
+     the switch across both months (40 / 90), not by the year's share
+  J  the migration patch moves a "Last day of the period" setting to
+     "Date of release"
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -202,6 +209,13 @@ def _scenarios(today):
 		check("B: the cancellation reverses at 10 and gives back the revaluation (-100, Rev Rel)",
 			sorted((e.std_trans, flt(e.total_sc)) for e in ev) == [("Rec", -500.0), ("Rev Rel", -100.0)], str(ev))
 		check("B: the item's stock value returns to zero", _stock_value(b) == 0, str(_stock_value(b)))
+		pr_b2 = pack.make_pr(b, wh, 7, 10, posting_date=str(early))  # late: bridges 7 x 2 = 14
+		cxl2 = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr_b2.name))
+		cxl2.submit()
+		ev = _events(cxl2.name)
+		check("B: cancelling a late receipt reverses it and its bridge, nothing more",
+			sorted((x.std_trans, flt(x.total_sc)) for x in ev) == [("Rec", -70.0), ("Rev Rel", -14.0)]
+			and _stock_value(b) == 0, f"{ev} {_stock_value(b)}")
 
 		# ---- C: backdated, valid from the previous month ------------------
 		c = pack.std_item("_STD-RELDAY-C")
@@ -215,6 +229,11 @@ def _scenarios(today):
 		check("C: it revalues the 61 on hand by 122 on D",
 			[(e.std_trans, flt(e.total_sc), getdate(e.posting_date)) for e in _events(vc.name)]
 			== [("Rev Rel", 122.0, today)], str(_events(vc.name)))
+		_settle(c, prev.year, prev.month)
+		sett_c = _settle(c, today.year, today.month)
+		check("C: nothing consumed since the switch: the settlement gives it wholly to ending stock",
+			abs(flt(sett_c.rev_es) + 122) < 0.01 and abs(flt(sett_c.rev_cons)) < 0.01,
+			f"es {sett_c.rev_es} cons {sett_c.rev_cons}")
 
 		# ---- D: first cost ----------------------------------------------
 		d = pack.std_item("_STD-RELDAY-D")
@@ -258,7 +277,7 @@ def _scenarios(today):
 		frappe.db.set_value(SCV, vg.name, {
 			"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0,
 			"price_from_year": nxt.year, "price_from_month": nxt.month, "revaluation_date": last,
-			"effective_from": nxt, "released_on": frappe.utils.now_datetime(), "supersedes_version": vg0.name,
+			"effective_from": nxt, "released_on": f"{today} {frappe.utils.nowtime()}", "supersedes_version": vg0.name,
 		}, update_modified=False)
 		pack.make_pr(g, wh, 4, 30, posting_date=str(today))  # posted at the old cost before the re-stamp
 		restamp_period_end_switches()
@@ -282,5 +301,36 @@ def _scenarios(today):
 		check("H: the first-day rule is unchanged - day-1 triplet, new cost all month",
 			t and {getdate(x.posting_date) for x in t} == {day1} and _sc(h, day1) == 25
 			and not v25.switch_on_release and getdate(v25.revaluation_date) == day1, str(t))
+
+		# ---- I: YTD, release in the previous month ------------------------
+		_set("Date of release")
+		if prev.year == today.year:
+			i = pack.std_item("_STD-RELDAY-I", view="YTD")
+			p2, p3, p10 = (add_days(get_first_day(prev), n) for n in (1, 2, 9))
+			with _Today(p10):
+				pack.scv_release(i, prev.year, prev.month, 40)
+				pack.make_pr(i, wh, 100, 40, posting_date=str(p2))
+				pack.make_dn(i, wh, 10, posting_date=str(p3))        # before the switch
+				vi = pack.scv_release(i, prev.year, prev.month, 50)  # 90 on hand -> 900
+				pack.make_dn(i, wh, 20, posting_date=str(p10))       # after the switch
+			check("I: the release revalues the 90 on hand by 900",
+				[flt(x.total_sc) for x in _events(vi.name)] == [900], str(_events(vi.name)))
+			_settle(i, prev.year, prev.month)
+			pack.make_dn(i, wh, 30, posting_date=str(today))
+			sett_i = _settle(i, today.year, today.month)
+			check("I: the current month shares it by the consumption since the switch, 40 / 90",
+				abs(flt(sett_i.rev_es) - (-900 * 40 / 90)) < 0.01, f"es {sett_i.rev_es} cons {sett_i.rev_cons}")
+		else:
+			print("SKIP I: the previous month is in the prior fiscal year")
+
+		# ---- J: the migration patch --------------------------------------
+		from periodic_valuation.patches.v1_0 import switch_cost_changes_at_release
+
+		frappe.db.sql("""update `tabPeriodic Standard Cost Settings` set revaluation_posting_date = 'Last day of the period'
+			where company = %s""", pack.COMPANY)
+		switch_cost_changes_at_release.execute()
+		check("J: the patch moves the setting to Date of release",
+			frappe.db.get_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
+				"revaluation_posting_date") == "Date of release")
 	finally:
 		frappe.db.rollback(save_point="std_reval_release")

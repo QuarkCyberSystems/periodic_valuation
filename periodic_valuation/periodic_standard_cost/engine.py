@@ -819,13 +819,23 @@ class StdEngine:
 		  release with nothing consumed since gives everything to ending
 		  stock, as Rev End.
 		The late-entry bridges of a release (Rev Rel rows of the same
-		version) belong to its amount."""
+		version) belong to its amount.
+
+		YTD re-settles the year's cumulative pool every month (pool_rev), so
+		a release earlier in the year is still in it: its share counts the
+		consumption since the switch across the months to date."""
+		months = ("<=", month) if self.view == "YTD" else month
 		rows = frappe.get_all(
 			"Inventory Valuation Event",
-			filters=dict(self._scope_filters(), period_year=year, period_month=month,
-				std_trans=("in", ("Rev End", "Rev Rel"))),
+			filters=dict(self._scope_filters(), period_year=year, period_month=months,
+				std_trans="Rev Rel"),
 			fields=["std_trans", "total_sc", "total_ac", "cost_version", "creation"],
 			order_by="creation asc",
+		) + frappe.get_all(
+			"Inventory Valuation Event",
+			filters=dict(self._scope_filters(), period_year=year, period_month=month,
+				std_trans="Rev End"),
+			fields=["std_trans", "total_sc", "total_ac", "cost_version", "creation"],
 		)
 		if not rows:
 			return 0.0, 0.0
@@ -838,7 +848,7 @@ class StdEngine:
 				held_es += amount
 			else:
 				releases.setdefault(r.cost_version, []).append(r)
-		out_events = self.events({"period_year": year, "period_month": month, "out_flag": 1}) \
+		out_events = self.events({"period_year": year, "period_month": months, "out_flag": 1}) \
 			if releases else []
 		for version, rel in releases.items():
 			amount = sum(flt(r.total_ac) - flt(r.total_sc) for r in rel)

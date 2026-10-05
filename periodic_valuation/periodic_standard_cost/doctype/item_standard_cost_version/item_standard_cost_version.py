@@ -10,7 +10,7 @@ from periodic_valuation.periodic_standard_cost.engine import StdEngine, price_fr
 
 RELEASE_DAY = "Date of release"
 # the option's name before the DR-50 amendment (05/10/2026); the
-# rename_revaluation_posting_option patch moves settings off it
+# switch_cost_changes_at_release patch moves settings off it
 LEGACY_LAST_DAY = "Last day of the period"
 
 
@@ -369,50 +369,6 @@ class ItemStandardCostVersion(Document):
 		# the reval bucket so GL == movement table holds across SC changes
 		self._restate_period_balance(engine, post_date, delta, beg, in_qty, out_qty)
 		self.db_set({"revaluation_posted": 1, "revaluation_date": post_date}, update_modified=False)
-
-	def post_period_end_revaluation(self, old_sc):
-		"""DR-50 ("Last day of the period"), after the client design §4.4 /
-		§5.7: the movements of the switch month stay at the cost they were
-		posted at, and only the quantity still on hand at the switch point is
-		revalued - closing qty x (new - old), Dr Stock / Cr Standard Cost
-		Revaluation Reserve, dated the month's last day (Rev End). The
-		month's settlement gives it wholly to ending stock, so it carries into
-		the next month's pool exactly as a day-1 boundary revaluation (Rev Beg)
-		would sit there."""
-		from periodic_valuation.periodic_moving_average.kernel import (
-			ScopeState,
-			ensure_physical_warehouse,
-			recompute_closing,
-			write_value_sle,
-		)
-		from periodic_valuation.periodic_standard_cost.kernel import _cascade_backdated_ipb
-		from periodic_valuation.shared.periods import assert_posting_allowed, get_period
-
-		engine = StdEngine(self.company, self.item_code, self.warehouse)
-		day = getdate(self.revaluation_date)
-		assert_posting_allowed(self.company, day)
-		closing = engine.end_qty_mtd(day.year, day.month) if engine.view == "MTD" \
-			else engine.end_qty_ytd(day.year, day.month)
-		amount = r2((flt(self.standard_cost) - old_sc) * closing)
-		if amount:
-			source = (self.doctype, self.name)
-			engine.post(trans="Rev End", posting_date=day, source=source, sc=self.standard_cost,
-				ac=old_sc, t_sc_override=amount, cost_version=self.name)
-			period = get_period(self.company, day)
-			if period:
-				scope = ScopeState(self.company, self.item_code, self.warehouse)
-				ipb = scope.load(period)
-				ipb.reval_value = flt(ipb.reval_value) + amount
-				recompute_closing(ipb)
-				scope.save(ipb, source=source)
-				# a later period's balance row already open carries the
-				# restated stock in its opening
-				_cascade_backdated_ipb(scope, period, 0, amount, source=source)
-				write_value_sle(ensure_physical_warehouse(scope), ipb, source=(self.doctype, self.name, None),
-					posting_date=day, value_delta=amount)
-		else:
-			self._record_zero_revaluation(engine, "Rev End", day, old_sc)
-		self.db_set("revaluation_posted", 1, update_modified=False)
 
 	def _record_zero_revaluation(self, engine, trans, posting_date, old_sc):
 		"""Client ticket STD-010 (04/10/2026): a cost change shows in the
