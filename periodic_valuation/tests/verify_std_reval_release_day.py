@@ -317,6 +317,9 @@ def _scenarios(today):
 			not vg2.switch_at_period_end and not vg2.switch_on_release and not vg2.revaluation_posted
 			and getdate(vg2.effective_from) == nxt and not _events(vg2.name)
 			and _sc(g2, today) == 20 and _sc(g2, nxt) == 30, str(vg2.effective_from))
+		check("G: resolving next month's cost does not post its boundary early",
+			not _events(vg2.name) and not frappe.db.get_value(SCV, vg2.name, "revaluation_posted"),
+			str(_events(vg2.name)))
 
 		# ---- H: back on the first day ------------------------------------
 		_set("First day of the period")

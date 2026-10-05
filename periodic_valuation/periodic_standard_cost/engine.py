@@ -135,10 +135,16 @@ def _materialize_if_pending(scv_name):
 	"""Lazy backstop for boundary revaluations (M11): if the resolved version
 	became effective without its triplet, post it before pricing anything."""
 	row = frappe.db.get_value(
-		"Item Standard Cost Version", scv_name, ["revaluation_posted"], as_dict=True,
+		"Item Standard Cost Version", scv_name,
+		["revaluation_posted", "valid_from_year", "valid_from_month", "price_from_year", "price_from_month"],
+		as_dict=True,
 	)
 	if not row or row.revaluation_posted or frappe.flags.in_scv_materialize:
 		return
+	today = getdate(frappe.utils.nowdate())
+	if price_from(row) > (today.year, today.month):
+		return  # resolving a later month's cost does not bring its boundary forward
+	
 	frappe.get_doc("Item Standard Cost Version", scv_name).materialize_boundary()
 
 

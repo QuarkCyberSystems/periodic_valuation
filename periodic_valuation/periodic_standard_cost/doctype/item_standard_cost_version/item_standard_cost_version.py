@@ -479,8 +479,8 @@ def restamp_period_end_switches():
 	dated its release day; a movement posted since the release at the old
 	cost is part of that stock, so it carries the new cost from here on.
 	A version released in an earlier month than the re-stamp switches on the
-	re-stamp day instead: the current month's movements were priced at the
-	old cost and stay so. A version for a later month than its release goes
+	re-stamp day instead, so its revaluation lands in the current period
+	(the release month could not take a movement at the new cost by then). A version for a later month than its release goes
 	back to the day-1 boundary of that month. A version whose switch day
 	falls in a month that cannot take a posting stays as it is.
 
@@ -502,12 +502,18 @@ def restamp_period_end_switches():
 			# a change for a later month than its release: under the amended
 			# rule it switches on day 1 of that month (first-day boundary);
 			# materialize_pending_revaluations posts it when the month begins
-			doc.flags.via_release_flow = True
-			doc.switch_at_period_end = 0
-			doc.price_from_year = doc.price_from_month = None
-			doc.revaluation_date = None
-			doc.save(ignore_permissions=True)
-			outcome["boundary"].append(row.name)
+			frappe.db.savepoint("scv_restamp")
+			try:
+				doc.flags.via_release_flow = True
+				doc.switch_at_period_end = 0
+				doc.price_from_year = doc.price_from_month = None
+				doc.revaluation_date = None
+				doc.save(ignore_permissions=True)
+				outcome["boundary"].append(row.name)
+			except Exception:
+				frappe.db.rollback(save_point="scv_restamp")
+				frappe.log_error(title=f"DR-50 re-stamp failed: {row.name}")
+				outcome["failed"].append(row.name)
 			continue
 		day = released if (released.year, released.month) == (today.year, today.month) else today
 		period = get_period(row.company, day)
