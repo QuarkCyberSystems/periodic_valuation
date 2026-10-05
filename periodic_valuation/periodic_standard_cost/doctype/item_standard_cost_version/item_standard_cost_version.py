@@ -88,15 +88,39 @@ class ItemStandardCostVersion(Document):
 			(self.doctype, self.name),
 			as_dict=True,
 		)[0]
+		events = frappe.db.count("Inventory Valuation Event", {
+			"source_doctype": self.doctype, "source_docname": self.name, "is_cancelled": 0,
+		})
 		if gl.n:
 			state = {"posted": True, "from_date": gl.first, "to_date": gl.last}
 		elif not self.revaluation_posted:
-			state = {"posted": False, "reason": "pending"}
+			# client ticket STD-011 (04/10): a version that switches at period
+			# end says so, with the dates, instead of "posts when <valid-from>
+			# begins"
+			state = {"posted": False, "reason": "switch_pending" if self.switch_at_period_end else "pending",
+				"revaluation_date": self.revaluation_date, "effective_from": self.effective_from}
 		elif not self.supersedes_version:
 			state = {"posted": False, "reason": "first_version"}
 		else:
 			state = {"posted": False, "reason": "nothing_to_revalue"}
+		state["events"] = events
 		self.set_onload("revaluation", state)
+
+		# the version that replaces this one (STD-011): under "Last day of the
+		# period" the earlier version stays RELEASED and keeps pricing until
+		# the switch - the resolver still needs it for that month - so the
+		# form names its successor and the last day it is in force
+		if self.status == "RELEASED":
+			successor = frappe.get_all(
+				"Item Standard Cost Version",
+				filters={"supersedes_version": self.name, "status": "RELEASED"},
+				fields=["name", "effective_from", "switch_at_period_end", "revaluation_posted"],
+				order_by="released_on desc", limit=1,
+			)
+			if successor:
+				s = successor[0]
+				s["in_force_until"] = frappe.utils.add_days(s.effective_from, -1)
+				self.set_onload("replaced_by", s)
 
 	@frappe.whitelist()
 	def release(self):
@@ -262,17 +286,22 @@ class ItemStandardCostVersion(Document):
 			out_qty = engine._reval_qty_at("REV out", today, sc_new=flt(self.standard_cost), sc_old=old_sc)
 
 		source = (self.doctype, self.name)
+		posted = False
 		for trans, qty in (("Rev Beg", beg), ("REV In", in_qty)):
 			amount = r2(delta * qty)
 			if amount:
 				engine.post(trans=trans, posting_date=post_date, source=source,
 					sc=self.standard_cost, ac=old_sc, t_sc_override=amount,
 					cost_version=self.name)
+				posted = True
 		out_amount = r2(-(delta * out_qty))
 		if out_amount:
 			engine.post(trans="REV out", posting_date=post_date, source=source,
 				sc=self.standard_cost, ac=old_sc, t_sc_override=out_amount,
 				cost_version=self.name)
+			posted = True
+		if not posted:
+			self._record_zero_revaluation(engine, "Rev Beg", post_date, old_sc)
 
 		# restate the period balance: the triplet's net stock effect lands in
 		# the reval bucket so GL == movement table holds across SC changes
@@ -319,7 +348,20 @@ class ItemStandardCostVersion(Document):
 				_cascade_backdated_ipb(scope, period, 0, amount, source=source)
 				write_value_sle(ensure_physical_warehouse(scope), ipb, source=(self.doctype, self.name, None),
 					posting_date=day, value_delta=amount)
+		else:
+			self._record_zero_revaluation(engine, "Rev End", day, old_sc)
 		self.db_set("revaluation_posted", 1, update_modified=False)
+
+	def _record_zero_revaluation(self, engine, trans, posting_date, old_sc):
+		"""Client ticket STD-010 (04/10/2026): a cost change shows in the
+		valuation log even when no stock was on hand or moved. One event
+		of zero amount, linked to this version and dated as the revaluation
+		would be (Rev Beg on day 1, or Rev End on the switch month's last
+		day), records the old and new cost. It has no GL, no stock-ledger row
+		and no quantity, so the period-close gates and the settlement pools
+		are unchanged (as the zero-delta backdate companions in kernel.py)."""
+		engine.post(trans=trans, posting_date=posting_date, source=(self.doctype, self.name),
+			sc=self.standard_cost, ac=old_sc, t_sc_override=0, cost_version=self.name)
 
 	def _restate_period_balance(self, engine, today, delta, beg, in_qty, out_qty):
 		from periodic_valuation.periodic_moving_average.kernel import (

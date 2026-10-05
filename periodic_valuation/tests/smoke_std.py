@@ -258,7 +258,7 @@ def run(commit=False):
 		s2_state, first_state = _rev_state(v2.name), _rev_state(first.name)
 		check("SCV form links its revaluation ledger; a first version says why it has none",
 			s2_state.get("posted") is True and bool(s2_state.get("from_date"))
-			and first_state == {"posted": False, "reason": "first_version"},
+			and first_state == {"posted": False, "reason": "first_version", "events": 0},
 			f"{s2_state} / {first_state}")
 	finally:
 		ITEM = orig_item

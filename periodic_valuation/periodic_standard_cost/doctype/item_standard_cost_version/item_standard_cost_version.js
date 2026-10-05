@@ -20,6 +20,11 @@ frappe.ui.form.on("Item Standard Cost Version", {
 // the same View shortcuts lead to it — or the form says why nothing posted.
 function show_revaluation(frm) {
 	const rev = (frm.doc.__onload && frm.doc.__onload.revaluation) || {};
+	show_replaced_by(frm);
+	if (rev.events && !rev.posted) {
+		// STD-010: a change with nothing to revalue still logs a zero event
+		frm.add_custom_button(__("Revaluation Events"), () => route_to_events(frm), __("View"));
+	}
 	if (rev.posted) {
 		frm.add_custom_button(
 			__("Accounting Ledger"),
@@ -36,22 +41,41 @@ function show_revaluation(frm) {
 			},
 			__("View")
 		);
-		frm.add_custom_button(
-			__("Revaluation Events"),
-			() =>
-				frappe.set_route("List", "Inventory Valuation Event", {
-					source_doctype: frm.doc.doctype,
-					source_docname: frm.doc.name,
-				}),
-			__("View")
-		);
+		frm.add_custom_button(__("Revaluation Events"), () => route_to_events(frm), __("View"));
 		return;
 	}
 	const period = `${String(frm.doc.valid_from_month).padStart(2, "0")}-${frm.doc.valid_from_year}`;
+	const fmt = (d) => frappe.datetime.str_to_user(d);
 	const why = {
 		pending: __("Revaluation pending: it posts when {0} begins.", [period]),
+		// STD-011: Revaluation Posting Date = Last day of the period
+		switch_pending: __(
+			"Switches at period end: the current standard cost stays in force until {0}. The stock on hand on {0} is revalued on that day, and this cost applies from {1}.",
+			[fmt(rev.revaluation_date), fmt(rev.effective_from)]
+		),
 		first_version: __("No revaluation entry: this is the item's first standard cost, so there was no earlier cost to revalue from."),
-		nothing_to_revalue: __("No revaluation entry: the cost did not change, or no stock was on hand or moved in the period."),
+		nothing_to_revalue: rev.events
+			? __("Revaluation recorded with zero value: no stock was on hand or moved, so nothing was posted to the ledger.")
+			: __("No revaluation entry: the cost did not change, or no stock was on hand or moved in the period."),
 	}[rev.reason];
-	if (why) frm.dashboard.set_headline(why, rev.reason === "pending" ? "orange" : "blue");
+	const pending = ["pending", "switch_pending"].includes(rev.reason);
+	if (why) frm.dashboard.set_headline(why, pending ? "orange" : "blue");
+}
+
+function show_replaced_by(frm) {
+	const next = frm.doc.__onload && frm.doc.__onload.replaced_by;
+	if (!next) return;
+	const until = frappe.datetime.str_to_user(next.in_force_until);
+	const link = frappe.utils.get_form_link(frm.doc.doctype, next.name, true);
+	const text = next.switch_at_period_end && !next.revaluation_posted
+		? __("In force until {0}: replaced by {1} at period end.", [until, link])
+		: __("Replaced by {0} from {1}.", [link, frappe.datetime.str_to_user(next.effective_from)]);
+	frm.dashboard.add_comment(text, "blue", true);
+}
+
+function route_to_events(frm) {
+	frappe.set_route("List", "Inventory Valuation Event", {
+		source_doctype: frm.doc.doctype,
+		source_docname: frm.doc.name,
+	});
 }
