@@ -28,7 +28,10 @@ dated the release day (Rev Rel).
      (first-day boundary), with nothing posted at release
   F  two releases on the same day: the second revalues from the first
   G  re-stamp: a version released under the old "Last day of the period"
-     rule and still pending switches at its release and revalues now
+     rule and still pending switches at its release and revalues now;
+     cancelling a receipt entered between its release and the re-stamp
+     gives its revaluation back; a pending version for a later month goes
+     back to switching on day 1 of that month, nothing posted
   H  back on "First day of the period" the day-1 rule is unchanged
   I  YTD: a release in the previous month stays in the year's pool; the
      current month's settlement still shares it by the consumption since
@@ -279,7 +282,20 @@ def _scenarios(today):
 			"price_from_year": nxt.year, "price_from_month": nxt.month, "revaluation_date": last,
 			"effective_from": nxt, "released_on": f"{today} {frappe.utils.nowtime()}", "supersedes_version": vg0.name,
 		}, update_modified=False)
-		pack.make_pr(g, wh, 4, 30, posting_date=str(today))  # posted at the old cost before the re-stamp
+		pr_g = pack.make_pr(g, wh, 4, 30, posting_date=str(today))  # posted at the old cost before the re-stamp
+		g2 = pack.std_item("_STD-RELDAY-G2")
+		vg20 = pack.scv_release(g2, prev.year, prev.month, 20)
+		pack.make_pr(g2, wh, 6, 20, posting_date=str(early))
+		vg2 = frappe.get_doc({"doctype": SCV, "company": pack.COMPANY, "item_code": g2,
+			"valid_from_year": nxt.year, "valid_from_month": nxt.month,
+			"standard_cost": 30, "source_type": "MANUAL_OVERRIDE"}).insert(ignore_permissions=True)
+		nxt_last = get_last_day(nxt)
+		frappe.db.set_value(SCV, vg2.name, {
+			"status": "RELEASED", "switch_at_period_end": 1, "revaluation_posted": 0,
+			"price_from_year": add_days(nxt_last, 1).year, "price_from_month": add_days(nxt_last, 1).month,
+			"revaluation_date": nxt_last, "effective_from": add_days(nxt_last, 1),
+			"released_on": f"{today} {frappe.utils.nowtime()}", "supersedes_version": vg20.name,
+		}, update_modified=False)
 		restamp_period_end_switches()
 		vg.reload()
 		check("G: the pending version now switches at its release",
@@ -289,6 +305,16 @@ def _scenarios(today):
 			[(x.std_trans, flt(x.total_sc), getdate(x.posting_date)) for x in _events(vg.name)]
 			== [("Rev Rel", 70.0, today)], str(_events(vg.name)))
 		check("G: the item is carried at 35", _stock_value(g) == 14 * 35, str(_stock_value(g)))
+		cxl_g = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr_g.name))
+		cxl_g.submit()
+		check("G: cancelling the receipt entered before the re-stamp gives back its 4 x 5",
+			sorted((x.std_trans, flt(x.total_sc)) for x in _events(cxl_g.name)) == [("Rec", -120.0), ("Rev Rel", -20.0)]
+			and _stock_value(g) == 10 * 35, f"{_events(cxl_g.name)} {_stock_value(g)}")
+		vg2.reload()
+		check("G: a pending version for a later month switches on day 1 of it, nothing posted now",
+			not vg2.switch_at_period_end and not vg2.switch_on_release and not vg2.revaluation_posted
+			and getdate(vg2.effective_from) == nxt and not _events(vg2.name)
+			and _sc(g2, today) == 20 and _sc(g2, nxt) == 30, str(vg2.effective_from))
 
 		# ---- H: back on the first day ------------------------------------
 		_set("First day of the period")

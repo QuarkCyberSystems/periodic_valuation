@@ -381,31 +381,14 @@ class ItemStandardCostVersion(Document):
 			sc=self.standard_cost, ac=old_sc, t_sc_override=0, cost_version=self.name)
 
 	def _restate_period_balance(self, engine, today, delta, beg, in_qty, out_qty):
-		from periodic_valuation.periodic_moving_average.kernel import (
-			ScopeState,
-			ensure_physical_warehouse,
-			recompute_closing,
-			write_value_sle,
-		)
-		from periodic_valuation.shared.periods import get_period
+		"""The triplet's net stock effect lands in the reval bucket so GL ==
+		movement table holds across SC changes, and is mirrored into the
+		stock ledger (DR-02) - the triplet restates on-hand value at the new
+		SC with no SLE of its own."""
+		from periodic_valuation.periodic_standard_cost.kernel import book_revaluation
 
-		period = get_period(self.company, today)
-		if not period:
-			return
-		scope = ScopeState(self.company, self.item_code, self.warehouse)
-		ipb = scope.load(period)
-		net_stock_effect = r2(delta * (beg + in_qty - out_qty))
-		ipb.reval_value = flt(ipb.reval_value) + net_stock_effect
-		recompute_closing(ipb)
-		ipb.moving_avg_price = flt(self.standard_cost)
-		ipb.period_standard_cost = flt(self.standard_cost)
-		scope.save(ipb, source=(self.doctype, self.name))
-		# mirror the net stock effect into the stock ledger (DR-02): the
-		# revaluation triplet restates on-hand value at the new SC with no
-		# SLE of its own, so core stock reports kept the old valuation
-		write_value_sle(ensure_physical_warehouse(scope), ipb,
-			source=(self.doctype, self.name, None),
-			posting_date=today, value_delta=net_stock_effect)
+		book_revaluation(engine, today, r2(delta * (beg + in_qty - out_qty)), (self.doctype, self.name),
+			standard_cost=self.standard_cost)
 
 	def on_trash(self):
 		if self.status != "DRAFT":
@@ -428,6 +411,8 @@ def revaluation_posting_date(today=None):
 
 
 def _release_day_mode(company):
+	"""Also true on the pre-amendment value, so a release made between the
+	deploy and the migration patch already switches at release."""
 	return frappe.db.get_value(
 		"Periodic Standard Cost Settings", {"company": company}, "revaluation_posting_date"
 	) in (RELEASE_DAY, LEGACY_LAST_DAY)
@@ -503,12 +488,22 @@ def restamp_period_end_switches():
 		order_by="released_on asc",
 	):
 		day = getdate(row.released_on)
+		doc = frappe.get_doc("Item Standard Cost Version", row.name)
+		if (doc.valid_from_year, doc.valid_from_month) > (day.year, day.month):
+			# a change for a later month than its release: under the amended
+			# rule it switches on day 1 of that month (first-day boundary);
+			# materialize_pending_revaluations posts it when the month begins
+			doc.flags.via_release_flow = True
+			doc.switch_at_period_end = 0
+			doc.price_from_year = doc.price_from_month = None
+			doc.revaluation_date = None
+			doc.save(ignore_permissions=True)
+			continue
 		period = get_period(row.company, day)
 		if not period or period_refusal(period):
 			continue
 		frappe.db.savepoint("scv_restamp")
 		try:
-			doc = frappe.get_doc("Item Standard Cost Version", row.name)
 			doc.flags.via_release_flow = True
 			doc.switch_at_period_end = 0
 			doc.switch_on_release = 1
