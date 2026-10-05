@@ -28,6 +28,7 @@
   "cb3",
   "revaluation_posted",
   "switch_at_period_end",
+  "switch_on_release",
   "price_from_year",
   "price_from_month",
   "revaluation_date",
@@ -165,10 +166,20 @@
   {
    "fieldname": "switch_at_period_end",
    "fieldtype": "Check",
+   "depends_on": "switch_at_period_end",
    "label": "Switches at Period End",
    "read_only": 1,
    "no_copy": 1,
-   "description": "Set at release when Periodic Standard Cost Settings > Revaluation Posting Date is 'Last day of the period' (DR-50): the old cost prices the switch month, its closing stock is revalued on that month's last day, and this cost prices from the next month."
+   "description": "Set by the 'Last day of the period' rule before the DR-50 amendment (05/10/2026): the earlier cost priced the whole switch month and the closing stock was revalued on its last day. New releases no longer set it."
+  },
+  {
+   "default": "0",
+   "description": "Set at release when Periodic Standard Cost Settings > Revaluation Posting Date is 'Latest day of the period': movements dated before the release date keep the earlier cost, this cost applies from the release date (Effective From), and the stock on hand is revalued that day.",
+   "fieldname": "switch_on_release",
+   "fieldtype": "Check",
+   "label": "Switches at Release",
+   "no_copy": 1,
+   "read_only": 1
   },
   {
    "fieldname": "price_from_year",
@@ -203,7 +214,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-03 12:00:00.000000",
+ "modified": "2026-10-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Item Standard Cost Version",

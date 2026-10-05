@@ -1,16 +1,16 @@
 """A standard cost change with nothing to revalue still shows in the
-valuation log (client ticket STD-010), and the version form explains a
-switch at period end (STD-011). Run:
+valuation log (client ticket STD-010), and the version form names the
+version that replaces it (STD-011). Run:
 bench --site <site> execute periodic_valuation.tests.verify_std_zero_revaluation.run
 
   A  First day of the period: a change for an item with no stock and no
      movement records one Rev Beg of zero amount on day 1, linked to the
      version (old and new cost on it), with no GL and no stock-ledger row;
      the form says it was recorded with zero value and offers the events
-  B  Last day of the period: the same change records one zero Rev End on
-     the switch month's last day once the month has ended; before that the
-     form says when it switches, and the earlier version names its
-     successor and the last day it is in force (STD-011)
+  B  Latest day of the period (DR-50 as amended): the same change, backdated,
+     records one zero Rev Rel on the release day; the earlier version
+     stays RELEASED, names its successor and the last day it is in force
+     (the day before the release) (STD-011)
   C  an item's first cost records no event (there is no change to log);
      an unchanged cost records none either
   D  the zero events leave the period-close gates green (event / GL
@@ -23,10 +23,9 @@ Savepoint-rolled-back; run on the throwaway site.
 import traceback
 
 import frappe
-from frappe.utils import add_days, flt, get_first_day, get_last_day, getdate, nowdate
+from frappe.utils import add_days, flt, get_first_day, getdate, nowdate
 
 from periodic_valuation.tests import uat_std_pack as pack
-from periodic_valuation.tests.verify_std_reval_last_day import _Today
 
 CHECKS = []
 SCV = "Item Standard Cost Version"
@@ -69,9 +68,6 @@ def run():
 
 
 def _run():
-	from periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version import (
-		materialize_pending_revaluations,
-	)
 	from periodic_valuation.periodic_standard_cost.engine import StdEngine
 	from periodic_valuation.shared.period_close import (
 		assert_event_gl_identity,
@@ -80,9 +76,8 @@ def _run():
 	)
 
 	today = getdate(nowdate())
-	day1, last = get_first_day(today), get_last_day(today)
+	day1 = get_first_day(today)
 	prev = add_days(day1, -1)
-	nxt = add_days(last, 1)
 	frappe.db.savepoint("std_zero_reval")
 	try:
 		pack.ensure_company()
@@ -108,31 +103,27 @@ def _run():
 		check("A: the form reports a zero revaluation with its event",
 			rev.get("reason") == "nothing_to_revalue" and rev.get("events") == 1, str(rev))
 
-		# ---- B: last day, no stock, no movement ---------------------------
-		_set("Last day of the period")
+		# ---- B: date of release, no stock, no movement --------------------
+		_set("Latest day of the period")
 		b = pack.std_item("_STD-ZERO-B")
 		v_b_old = pack.scv_release(b, prev.year, prev.month, 150)
 		v_b = pack.scv_release(b, prev.year, prev.month, 180)  # backdated, as ISCV-2026-00096
 		v_b.reload()
-		check("B: nothing is recorded before the switch month ends", not _events(v_b.name))
-		rev = _onload(v_b.name).get("revaluation", {})
-		check("B: the form says the version switches at period end, with the dates",
-			rev.get("reason") == "switch_pending" and getdate(rev.get("revaluation_date")) == last
-			and getdate(rev.get("effective_from")) == nxt, str(rev))
-		nb = _onload(v_b_old.name).get("replaced_by") or {}
-		check("B: the earlier version names its successor and the last day it is in force",
-			nb.get("name") == v_b.name and getdate(nb.get("in_force_until")) == last
-			and nb.get("switch_at_period_end") and not nb.get("revaluation_posted"), str(nb))
-		check("B: the earlier version stays RELEASED (it prices the switch month)",
-			frappe.db.get_value(SCV, v_b_old.name, "status") == "RELEASED")
-		with _Today(nxt):
-			materialize_pending_revaluations()
 		ev = _events(v_b.name)
-		check("B: after the month ends one zero Rev End is recorded on its last day",
-			len(ev) == 1 and ev[0].std_trans == "Rev End" and flt(ev[0].total_sc) == 0
-			and getdate(ev[0].posting_date) == last and flt(ev[0].actual_cost) == 150
+		check("B: one zero Rev Rel on the release day, with the old and the new cost",
+			len(ev) == 1 and ev[0].std_trans == "Rev Rel" and flt(ev[0].total_sc) == 0
+			and getdate(ev[0].posting_date) == today and flt(ev[0].actual_cost) == 150
 			and flt(ev[0].standard_cost) == 180, str(ev))
 		check("B: no GL and no stock-ledger row", _ledger_rows(v_b.name) == (0, 0), str(_ledger_rows(v_b.name)))
+		rev = _onload(v_b.name).get("revaluation", {})
+		check("B: the form reports a zero revaluation with its event",
+			rev.get("reason") == "nothing_to_revalue" and rev.get("events") == 1, str(rev))
+		nb = _onload(v_b_old.name).get("replaced_by") or {}
+		check("B: the earlier version names its successor and the last day it is in force",
+			nb.get("name") == v_b.name and getdate(nb.get("in_force_until")) == add_days(today, -1)
+			and nb.get("switch_on_release"), str(nb))
+		check("B: the earlier version stays RELEASED (it prices the dates before the release)",
+			frappe.db.get_value(SCV, v_b_old.name, "status") == "RELEASED")
 
 		# ---- C: first cost, unchanged cost --------------------------------
 		_set("First day of the period")
