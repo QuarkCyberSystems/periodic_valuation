@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now_datetime
+from frappe.utils import flt, get_first_day, getdate, now_datetime
 
 from periodic_valuation.periodic_standard_cost.engine import StdEngine, price_from, r2, switch_order
 
@@ -209,10 +209,18 @@ class ItemStandardCostVersion(Document):
 			self.db_set("revaluation_posted", 1, update_modified=False)
 			return self.name
 		if self._prior_period_open(today):
-			# DR-54 (STD-003 / STD-004): the earlier month revalues, reverses on
-			# day 1 of the current month, and the current month revalues again
+			# DR-56 (client design §8.A / §4.3, Vivek 06/10/2026): the earlier
+			# month revalues and that revaluation carries into the current
+			# month's opening; the current month revalues only its own
+			# movements - no reversal, no second revaluation of the opening
 			self.post_prior_period_revaluation(prior_sc, today, latest)
-		self.post_revaluation_triplet(prior_sc, post_on=today if latest else None)
+			self.post_revaluation_triplet(prior_sc, post_on=today if latest else None, month_moves_only=True)
+			if not frappe.db.exists("Inventory Valuation Event", {"source_docname": self.name, "is_cancelled": 0}):
+				# nothing to revalue in either month: the change is still logged (DR-51)
+				self._record_zero_revaluation(StdEngine(self.company, self.item_code, self.warehouse),
+					"Rev Beg", today if latest else get_first_day(today), prior_sc)
+		else:
+			self.post_revaluation_triplet(prior_sc, post_on=today if latest else None)
 		return self.name
 
 	def _resolve_effective_prior(self):
@@ -284,47 +292,26 @@ class ItemStandardCostVersion(Document):
 		return not engine.is_period_locked(self.valid_from_year, self.valid_from_month)
 
 	def post_prior_period_revaluation(self, old_sc, today, latest=False):
-		"""DR-54 (client tickets STD-003 / STD-004, design §8.A, Vivek
-		06/10/2026; dates DR-55): a change valid from an earlier month that is
-		still open revalues THAT month with its triplet over the month, dated
-		its day 1 ("First day of the period") or its last day ("Latest day of
-		the period"). Its stock effect - the value the month's closing stock gained
-		or lost - reverses on day 1 of the current period (Rev Reverse,
-		Standard Cost Revaluation Reserve against Stock In Hand), and the
-		current period then revalues again under its own rule.
-		The current period's stock therefore ends exactly where a current-only
-		revaluation leaves it; the valid-from month's books, and its
-		settlement, carry the new cost."""
+		"""DR-56 (client design §8.A / §4.3; Vivek 06/10/2026, replacing
+		DR-54's reversal): a change valid from an earlier month that is still
+		open and not settled revalues THAT month with its triplet over the
+		month, dated its day 1 ("First day of the period") or its last day
+		("Latest day of the period"). The revalued stock carries into the
+		current month's opening balance (book_revaluation cascades it); the
+		current month then revalues only its own movements. Nothing reverses:
+		a day-1 reversal followed by a revaluation of the same opening stock
+		netted to nothing on the same day (client, 06/10: "added then
+		deducted")."""
 		from frappe.utils import get_first_day, get_last_day
 
-		from periodic_valuation.periodic_standard_cost.kernel import book_revaluation
 		from periodic_valuation.shared.periods import assert_posting_allowed
 
-		# the reversal and the current revaluation land in the current period:
-		# refuse before posting anything into the earlier month
+		# the current month's own revaluation follows: refuse before posting
+		# anything into the earlier month when the current one cannot take it
 		assert_posting_allowed(self.company, get_first_day(today))
 		month_end = get_last_day(f"{self.valid_from_year}-{self.valid_from_month:02d}-01")
-		engine = StdEngine(self.company, self.item_code, self.warehouse)
-		rev_amount, out_amount, net = self.post_revaluation_triplet(
-			old_sc, as_of=month_end, prior_period=True, post_on=month_end if latest else None)
-		# What reverses: MTD revalues the current month on its own month-to-date
-		# buckets, so only the stock the earlier month handed over comes back
-		# out - its consumption adjustment (REV out) stays in that month. YTD
-		# revalues the year to date again, the earlier month's consumption
-		# included, so the earlier triplet reverses in full or that consumption
-		# would be adjusted twice.
-		if engine.view == "YTD" and out_amount:
-			legs = (("Rev Reverse", -rev_amount), ("REV out Reverse", -out_amount))
-		else:
-			legs = (("Rev Reverse", -net),)
-		day1 = get_first_day(today)
-		source = (self.doctype, self.name)
-		for trans, amount in legs:
-			if r2(amount):
-				engine.post(trans=trans, posting_date=day1, source=source, sc=self.standard_cost,
-					ac=old_sc, t_sc_override=r2(amount), cost_version=self.name)
-		if r2(net):
-			book_revaluation(engine, day1, -r2(net), source)
+		self.post_revaluation_triplet(old_sc, as_of=month_end, prior_period=True,
+			post_on=month_end if latest else None)
 
 	def post_release_revaluation(self, old_sc):
 		"""DR-50 as amended (05/10/2026, "Latest day of the period"): the stock on hand
@@ -378,7 +365,8 @@ class ItemStandardCostVersion(Document):
 			self._record_zero_revaluation(engine, "Rev End", day, old_sc)
 		self.db_set("revaluation_posted", 1, update_modified=False)
 
-	def post_revaluation_triplet(self, old_sc, as_of=None, prior_period=False, post_on=None):
+	def post_revaluation_triplet(self, old_sc, as_of=None, prior_period=False, post_on=None,
+			month_moves_only=False):
 		"""The day-1 revaluation triplet (DR-12 / DR-49) of the month `as_of`
 		falls in - today's month by default, or a backdated version's
 		valid-from month (`prior_period`, DR-54) revalued over that whole
@@ -399,7 +387,14 @@ class ItemStandardCostVersion(Document):
 		assert_posting_allowed(self.company, post_date)
 		delta = flt(self.standard_cost) - old_sc
 
-		if engine.view == "MTD":
+		if month_moves_only:
+			# a backdated change already revalued the earlier month, and that
+			# value carried into this month's opening (DR-56): only this
+			# month's own movements, in either view
+			beg = 0.0
+			in_qty = engine.in_qty_mtd(today.year, today.month)
+			out_qty = -engine.out_qty_mtd(today.year, today.month)
+		elif engine.view == "MTD":
 			beg = engine.beg_qty_mtd(today.year, today.month)
 			in_qty = engine.in_qty_mtd(today.year, today.month)
 			out_qty = -engine.out_qty_mtd(today.year, today.month)
@@ -416,16 +411,16 @@ class ItemStandardCostVersion(Document):
 			if amount:
 				engine.post(trans=trans, posting_date=post_date, source=source,
 					sc=self.standard_cost, ac=old_sc, t_sc_override=amount,
-					cost_version=self.name, entry_date=today)
+					cost_version=self.name, entry_date=today, reval_month_only=month_moves_only)
 				posted = True
 		out_amount = r2(-(delta * out_qty))
 		rev_amount = r2(delta * beg) + r2(delta * in_qty)
 		if out_amount:
 			engine.post(trans="REV out", posting_date=post_date, source=source,
 				sc=self.standard_cost, ac=old_sc, t_sc_override=out_amount,
-				cost_version=self.name, entry_date=today)
+				cost_version=self.name, entry_date=today, reval_month_only=month_moves_only)
 			posted = True
-		if not posted and not prior_period:
+		if not posted and not prior_period and not month_moves_only:
 			self._record_zero_revaluation(engine, "Rev Beg", post_date, old_sc)
 
 		# restate the period balance: the triplet's net stock effect lands in

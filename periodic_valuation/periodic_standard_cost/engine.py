@@ -231,8 +231,10 @@ class StdEngine:
 	def post(self, *, trans, posting_date, qty=None, sc=None, ac=None, source,
 			entry_date=None, ref="", t_sc_override=None, t_ac_override=None,
 			cost_version=None, post_gl=True, qty_adj_override=None, reversal_of=None,
-			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0):
-		"""Append one STD event (and its GL unless Sett-family)."""
+			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0, reval_month_only=False):
+		"""Append one STD event (and its GL unless Sett-family).
+		`reval_month_only`: a revaluation leg measured on the month's own
+		movements in either view (a backdated change's current month, DR-56)."""
 		flags = flags_for(trans, self.view)
 		pst = getdate(posting_date)
 		ent = getdate(entry_date) if entry_date else getdate(frappe.utils.nowdate())
@@ -290,7 +292,8 @@ class StdEngine:
 
 		if trans in ("Rev Beg", "REV In", "REV out") and t_sc_override is not None \
 				and sc is not None and ac is not None:
-			expected_qty = self._reval_qty_at(trans, ent, sc_new=flt(sc), sc_old=flt(ac))
+			expected_qty = self._reval_qty_at(trans, ent, sc_new=flt(sc), sc_old=flt(ac),
+				month_only=reval_month_only)
 			# the out bucket can be net NEGATIVE (SC+ dominated) - compare magnitudes
 			expected = abs(abs(flt(sc) - flt(ac)) * expected_qty)
 			if abs(abs(total_sc) - expected) > 0.01:
@@ -639,8 +642,8 @@ class StdEngine:
 		return max(rows, key=lambda s: s.creation) if rows else None
 
 	# ---- reval qty categorization (drift guard, client-verified)
-	def _reval_qty_at(self, trans, ent, *, sc_new, sc_old):
-		if self.view == "MTD":
+	def _reval_qty_at(self, trans, ent, *, sc_new, sc_old, month_only=False):
+		if self.view == "MTD" or month_only:
 			# DR-12: MTD reval buckets are MONTH-scoped - Beg = prior month's
 			# end (+ any Beg openings), In/Out = month-to-date at the moment
 			beg = self.beg_qty_mtd(ent.year, ent.month)

@@ -1,28 +1,27 @@
-"""Backdated standard cost change: revalue the valid-from month, reverse on
-day 1 of the current period, revalue the current period again (DR-54;
-client tickets STD-003 / STD-004, design §8.A; Vivek 06/10/2026). Run:
-bench --site <site> execute periodic_valuation.tests.verify_std_backdated_reversal.run
+"""Backdated standard cost change: the valid-from month is revalued and that
+value carries into the current month; the current month revalues only its
+own movements - no reversal (DR-56; client design §8.A / §4.3; Vivek
+06/10/2026, replacing DR-54's day-1 reversal). Run:
+bench --site <site> execute periodic_valuation.tests.verify_std_backdated_change.run
 
 A change valid from the previous month (still open, not settled), released
 in the current month; the previous month received 1,000 at 300 and issued
 200, so 800 are on hand; 300 -> 400:
 
   A  MTD, "First day of the period": the previous month's triplet on its
-     day 1 (REV In 100,000 / REV out -20,000, net 80,000); Rev Reverse
-     -80,000 on day 1 of the current month; the current month's own Rev Beg
-     80,000 on its day 1. Previous month closes at 800 x 400, the current
-     month at 800 x 400; the consumption adjustment stays in the previous
+     day 1 (REV In 100,000 / REV out -20,000); nothing reverses; the
+     current month (no movements of its own) posts nothing; both months
+     close at 800 x 400; the consumption adjustment stays in the previous
      month; GL = valuation events in both months
-  B  MTD, "Latest day of the period" (DR-55): as A, dated the previous
-     month's last day and, for the current month, the release day
-  C  YTD, "First day": the reversal mirrors the whole previous triplet (Rev
-     Reverse -100,000, REV out Reverse +20,000), since the current YTD
-     triplet re-measures that consumption - COGS adjustment counted once
-  D  previous month already settled for the item: no posting into it; the
-     current month revalues forward as before (design §8.A)
-  E  nothing on hand and no movement: nothing posts in the previous month
-     and nothing reverses
-  F  a change for the current month posts no reversal
+  B  MTD, "Latest day of the period": the same, dated the previous month's
+     last day
+  C  YTD, "First day": the previous month's YTD triplet only - consumption
+     adjusted once (20,000)
+  D  previous month already settled for the item: nothing posts into it;
+     the current month revalues forward as before (design §8.A)
+  E  nothing on hand and no movement: one zero-value event in the current
+     month, nothing in the previous one
+  F  a change for the current month is unchanged (no previous-month entry)
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -83,7 +82,7 @@ def run():
 	failed = [c for c in CHECKS if not c[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if failed:
-		raise Exception("STD backdated reversal failures: " + "; ".join(c[0] for c in failed))
+		raise Exception("STD backdated change failures: " + "; ".join(c[0] for c in failed))
 
 
 def _run():
@@ -94,7 +93,7 @@ def _run():
 	day1 = get_first_day(today)
 	prev = add_days(day1, -1)
 	p1, p2, p3, plast = get_first_day(prev), add_days(get_first_day(prev), 1), add_days(get_first_day(prev), 2), get_last_day(prev)
-	frappe.db.savepoint("std_bd_rev")
+	frappe.db.savepoint("std_bd_chg")
 	try:
 		wh, _wh2 = pack.ensure_company()
 		prev_period = pack.make_period(prev.year, prev.month, "PREV_OPEN_UNSETTLED")
@@ -118,12 +117,8 @@ def _run():
 		a = setup("_STD-BDREV-A")
 		va = pack.scv_release(a, prev.year, prev.month, 400)
 		ev = _events(va.name)
-		check("A: previous month revalued on its day 1 (REV In 100,000 / REV out -20,000)",
-			("REV In", 100000.0, str(p1)) in ev and ("REV out", -20000.0, str(p1)) in ev, str(ev))
-		check("A: reversed on day 1 of the current month (Rev Reverse -80,000)",
-			("Rev Reverse", -80000.0, str(day1)) in ev, str(ev))
-		check("A: the current month revalues again on its day 1 (Rev Beg 80,000)",
-			("Rev Beg", 80000.0, str(day1)) in ev, str(ev))
+		check("A: previous month revalued on its day 1 (REV In 100,000 / REV out -20,000), nothing else",
+			sorted(ev) == sorted([("REV In", 100000.0, str(p1)), ("REV out", -20000.0, str(p1))]), str(ev))
 		check("A: previous month closes at 800 x 400 = 320,000; the current month too",
 			_closing(a, prev) == (800.0, 320000.0) and _closing(a, today) == (800.0, 320000.0),
 			f"{_closing(a, prev)} {_closing(a, today)}")
@@ -137,9 +132,8 @@ def _run():
 		b = setup("_STD-BDREV-B")
 		vb = pack.scv_release(b, prev.year, prev.month, 400)
 		ev = _events(vb.name)
-		check("B: previous month revalued on its last day, reversed on day 1, current month again today",
-			sorted(ev) == sorted([("REV In", 100000.0, str(plast)), ("REV out", -20000.0, str(plast)),
-				("Rev Reverse", -80000.0, str(day1)), ("Rev Beg", 80000.0, str(today))]), str(ev))
+		check("B: previous month revalued on its last day, nothing else",
+			sorted(ev) == sorted([("REV In", 100000.0, str(plast)), ("REV out", -20000.0, str(plast))]), str(ev))
 		check("B: both months close at 800 x 400; the previous month prices at 400",
 			_closing(b, prev) == (800.0, 320000.0) and _closing(b, today) == (800.0, 320000.0)
 			and _sc(b, p3) == 400, f"{_closing(b, prev)} {_closing(b, today)}")
@@ -151,8 +145,8 @@ def _run():
 			c = setup("_STD-BDREV-C", view="YTD")
 			vc = pack.scv_release(c, prev.year, prev.month, 400)
 			ev = _events(vc.name)
-			check("C: YTD reverses the whole previous triplet (Rev Reverse -100,000, REV out Reverse +20,000)",
-				("Rev Reverse", -100000.0, str(day1)) in ev and ("REV out Reverse", 20000.0, str(day1)) in ev, str(ev))
+			check("C: YTD - the previous month's triplet only, no reversal",
+				sorted(ev) == sorted([("REV In", 100000.0, str(p1)), ("REV out", -20000.0, str(p1))]), str(ev))
 			check("C: COGS adjustment counted once (20,000) and stock at 800 x 400",
 				_gl(c, acc.cogs_adj) == 20000 and _closing(c, today) == (800.0, 320000.0),
 				f"cogs {_gl(c, acc.cogs_adj)} closing {_closing(c, today)}")
@@ -174,13 +168,13 @@ def _run():
 		pack.scv_release(e, prev.year, prev.month, 300)
 		ve = pack.scv_release(e, prev.year, prev.month, 400)
 		ev = _events(ve.name)
-		check("E: nothing posts in the previous month and nothing reverses",
-			not [x for x in ev if x[2] < str(day1) or x[0] == "Rev Reverse"], str(ev))
+		check("E: one zero-value event in the current month, nothing in the previous one",
+			ev == [("Rev Beg", 0.0, str(day1))], str(ev))
 
 		# ---- F: current-month change ------------------------------------------
 		f = setup("_STD-BDREV-F")
 		vf = pack.scv_release(f, today.year, today.month, 400)
-		check("F: a change for the current month posts no reversal",
-			not [x for x in _events(vf.name) if x[0] == "Rev Reverse"], str(_events(vf.name)))
+		check("F: a change for the current month posts nothing in the previous month",
+			_events(vf.name) and all(x[2] >= str(day1) for x in _events(vf.name)), str(_events(vf.name)))
 	finally:
-		frappe.db.rollback(save_point="std_bd_rev")
+		frappe.db.rollback(save_point="std_bd_chg")
