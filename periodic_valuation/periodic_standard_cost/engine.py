@@ -152,7 +152,7 @@ def _derive_std_intent(trans, reversal_of=None):
 	if reversal_of:
 		return "EXACT_REVERSAL_WITH_REFERENCE"
 	if trans in SETT_FAMILY or trans.endswith("Rev") or trans.startswith("Rev") \
-			or trans in ("REV In", "REV out"):
+			or trans in ("REV In", "REV out", "REV out Reverse"):
 		return "SYSTEM_GENERATED"
 	if trans in ("PR", "SR"):
 		return "RETURN_WITH_REFERENCE"
@@ -374,9 +374,9 @@ class StdEngine:
 			return [(a.stock, s), (offset_override or a.stock_adj, -s)]
 		if trans == "SC-":
 			return [(offset_override or a.stock_adj, -s), (a.stock, s)]
-		if trans in ("Rev Beg", "REV In", "Rev End", "Rev Rel", "REC (BD) - Rev", "REC (BY) - Rev"):
+		if trans in ("Rev Beg", "REV In", "Rev End", "Rev Rel", "Rev Reverse", "REC (BD) - Rev", "REC (BY) - Rev"):
 			return [(a.stock, s), (a.reserve, -s)]
-		if trans == "REV out":
+		if trans in ("REV out", "REV out Reverse"):
 			# t_sc convention: -(delta x out_qty). SC increase (delta>0) -> s<0 ->
 			# Dr COGS Adjustment / Cr Stock; SC decrease flips both legs.
 			return [(a.cogs_adj, -s), (a.stock, s)]

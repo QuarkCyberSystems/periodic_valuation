@@ -245,9 +245,11 @@ def _scenarios(today):
 		check("C: a backdated change switches at its release; the previous month and the days before keep 10",
 			vc.switch_on_release and getdate(vc.effective_from) == today
 			and _sc(c, prev) == 10 and _sc(c, early) == 10 and _sc(c, today) == 12, str(vc.effective_from))
-		check("C: it revalues the 61 on hand by 122 on D",
-			[(e.std_trans, flt(e.total_sc), getdate(e.posting_date)) for e in _events(vc.name)]
-			== [("Rev Rel", 122.0, today)], str(_events(vc.name)))
+		check("C: the previous month revalues its closing 61 by 122 on its last day, reversed on day 1, "
+			"and the 61 on hand revalue by 122 on D (DR-54)",
+			sorted((e.std_trans, flt(e.total_sc), getdate(e.posting_date)) for e in _events(vc.name))
+			== sorted([("Rev End", 122.0, prev), ("Rev Reverse", -122.0, day1), ("Rev Rel", 122.0, today)]),
+			str(_events(vc.name)))
 		_settle(c, prev.year, prev.month)
 		sett_c = _settle(c, today.year, today.month)
 		check("C: nothing consumed since the switch: the settlement gives it wholly to ending stock",
