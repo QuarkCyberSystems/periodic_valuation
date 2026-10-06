@@ -7,12 +7,11 @@ bench --site <site> execute periodic_valuation.tests.verify_std_zero_revaluation
      movement records one Rev Beg of zero amount on day 1, linked to the
      version (old and new cost on it), with no GL and no stock-ledger row;
      the form says it was recorded with zero value and offers the events
-  B  Latest day of the period (DR-50 as amended): the same change, backdated,
-     records one zero Rev Rel on the release day; the earlier version
-     stays RELEASED, names its successor and the last day it is in force
-     (the day before the release) (STD-011)
-  C  an item's first cost records no event (there is no change to log);
-     an unchanged cost records none either
+  B  Latest day of the period (DR-55): the same change, backdated, records
+     one zero Rev Beg on the release day and nothing in the earlier month;
+     the same-month earlier version is replaced (SUPERSEDED)
+  C  an item's first cost records one zero-value event (client, 06/10/2026,
+     DR-55); an unchanged cost records none
   D  the zero events leave the period-close gates green (event / GL
      identity, orphan events, settlement gate) and the settlement treats
      the scope as having nothing to settle
@@ -110,26 +109,25 @@ def _run():
 		v_b = pack.scv_release(b, prev.year, prev.month, 180)  # backdated, as ISCV-2026-00096
 		v_b.reload()
 		ev = _events(v_b.name)
-		check("B: one zero Rev Rel on the release day, with the old and the new cost",
-			len(ev) == 1 and ev[0].std_trans == "Rev Rel" and flt(ev[0].total_sc) == 0
+		check("B: one zero Rev Beg on the release day, with the old and the new cost",
+			len(ev) == 1 and ev[0].std_trans == "Rev Beg" and flt(ev[0].total_sc) == 0
 			and getdate(ev[0].posting_date) == today and flt(ev[0].actual_cost) == 150
 			and flt(ev[0].standard_cost) == 180, str(ev))
 		check("B: no GL and no stock-ledger row", _ledger_rows(v_b.name) == (0, 0), str(_ledger_rows(v_b.name)))
 		rev = _onload(v_b.name).get("revaluation", {})
 		check("B: the form reports a zero revaluation with its event",
 			rev.get("reason") == "nothing_to_revalue" and rev.get("events") == 1, str(rev))
-		nb = _onload(v_b_old.name).get("replaced_by") or {}
-		check("B: the earlier version names its successor and the last day it is in force",
-			nb.get("name") == v_b.name and getdate(nb.get("in_force_until")) == add_days(today, -1)
-			and nb.get("switch_on_release"), str(nb))
-		check("B: the earlier version stays RELEASED (it prices the dates before the release)",
-			frappe.db.get_value(SCV, v_b_old.name, "status") == "RELEASED")
+		check("B: the same-month earlier version is replaced (SUPERSEDED)",
+			frappe.db.get_value(SCV, v_b_old.name, "status") == "SUPERSEDED")
 
 		# ---- C: first cost, unchanged cost --------------------------------
 		_set("First day of the period")
 		c = pack.std_item("_STD-ZERO-C")
 		v_c1 = pack.scv_release(c, today.year, today.month, 40)
-		check("C: an item's first cost records no event", not _events(v_c1.name))
+		ev = _events(v_c1.name)
+		check("C: an item's first cost records one zero-value event on day 1, no GL",
+			len(ev) == 1 and flt(ev[0].total_sc) == 0 and getdate(ev[0].posting_date) == day1
+			and _ledger_rows(v_c1.name) == (0, 0), str(ev))
 		d = pack.std_item("_STD-ZERO-D")
 		pack.scv_release(d, prev.year, prev.month, 60)
 		v_same = pack.scv_release(d, today.year, today.month, 60)

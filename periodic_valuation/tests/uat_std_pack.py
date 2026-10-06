@@ -139,12 +139,43 @@ def std_item(code, view="MTD"):
 	return code
 
 
+def release_or_pend(doc):
+	"""Release a cost version; one for a month that has not begun is stored
+	RELEASED and pending instead. The client ruled (06/10/2026, DR-55) that a
+	future-month version cannot be released, but versions released ahead
+	before that ruling exist and post their day-1 revaluation when their month
+	begins (materialize_pending_revaluations / the lazy backstop). The
+	workbook replays and design TCs that release ahead keep exercising that
+	path through this helper."""
+	from frappe.utils import getdate, now_datetime
+
+	today = getdate(frappe.utils.nowdate())   # replays move the clock
+	if (doc.valid_from_year, doc.valid_from_month) <= (today.year, today.month):
+		doc.release()
+		return doc
+	sibling = frappe.db.get_value("Item Standard Cost Version", {
+		"company": doc.company, "item_code": doc.item_code, "status": "RELEASED",
+		"warehouse": ("in", (doc.warehouse or "", None)),
+		"valid_from_year": doc.valid_from_year, "valid_from_month": doc.valid_from_month,
+		"name": ("!=", doc.name)})
+	if sibling:
+		frappe.db.set_value("Item Standard Cost Version", sibling, "status", "SUPERSEDED", update_modified=False)
+	prior, _sc = doc._resolve_effective_prior()
+	frappe.db.set_value("Item Standard Cost Version", doc.name, {
+		"status": "RELEASED", "released_on": now_datetime(), "released_by": frappe.session.user,
+		"supersedes_version": sibling or prior, "revaluation_posted": 0,
+		"effective_from": f"{doc.valid_from_year}-{doc.valid_from_month:02d}-01",
+	}, update_modified=False)
+	doc.reload()
+	return doc
+
+
 def scv_release(item, year, month, sc):
 	scv = frappe.get_doc({"doctype": "Item Standard Cost Version", "company": COMPANY,
 		"item_code": item, "valid_from_year": year, "valid_from_month": month,
 		"standard_cost": sc, "source_type": "MANUAL_OVERRIDE"})
 	scv.insert(ignore_permissions=True)
-	scv.release()
+	release_or_pend(scv)
 	return scv
 
 
@@ -441,7 +472,8 @@ def cost_change_current(wh, a, cy, cm, prev, today):
 	# TC08: clean boundary change 10 -> 12 with 100 on hand from last month
 	scv8 = scv_release("UAT-STD-TC08", cy, cm, 12)
 	materialize_pending_revaluations()
-	revs = ives(item_code="UAT-STD-TC08", std_trans=("in", ("Rev Beg", "REV In", "REV out")))
+	revs = ives(item_code="UAT-STD-TC08", source_docname=scv8.name,
+		std_trans=("in", ("Rev Beg", "REV In", "REV out")))
 	check(8, "boundary release posts one Rev Beg = 100 x 2 = 200",
 		len(revs) == 1 and revs[0].std_trans == "Rev Beg" and flt(revs[0].total_sc) == 200, str(revs))
 	g = gl_net(event=revs[0].name) if revs else {}

@@ -140,9 +140,21 @@ def _run():
 			and _gl_dates(v12.name) == {get_first_day(prev), day1},
 			f"{ev} / GL {_gl_dates(v12.name)}")
 
-		# ---- a future version posts nothing until its month ---------------
-		v_next = _version(company, s05, add_months(day1, 1), 95)
-		check("a next-month version stays pending, nothing posted",
+		# ---- a future version cannot be released (client, 06/10/2026, DR-55) --
+		nxt = add_months(day1, 1)
+		future = _version(company, s05, nxt, 95, release=False)
+		refused = False
+		try:
+			future.release()
+		except frappe.ValidationError:
+			frappe.clear_last_message()
+			refused = True
+		check("a next-month version cannot be released", refused)
+		# one released ahead before that ruling stays pending until its month
+		from periodic_valuation.tests.uat_std_pack import release_or_pend
+
+		v_next = release_or_pend(future)
+		check("a version released ahead earlier stays pending, nothing posted",
 			not v_next.revaluation_posted and not _triplet(v_next.name), str(_triplet(v_next.name)))
 
 		# ---- no open period for the month: refused / kept pending ----------

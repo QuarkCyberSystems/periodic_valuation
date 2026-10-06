@@ -154,7 +154,7 @@ def _post_opening_std(controller, sle):
 	period = assert_posting_allowed(company, posting_date)
 	engine = StdEngine(company, item_code, sle.get("warehouse"))
 
-	if engine.events():
+	if engine.has_history():
 		frappe.throw(
 			_(
 				"Stock Reconciliation for Periodic Standard Cost items is limited to the opening "

@@ -24,6 +24,8 @@ records the supersession. Rolled back unless commit=True.
 """
 
 import frappe
+
+from periodic_valuation.tests.uat_std_pack import release_or_pend
 from frappe.utils import add_days, flt, get_first_day, getdate, nowdate
 
 from periodic_valuation.tests.smoke_edges import make_dn, make_pr
@@ -60,7 +62,7 @@ def scv_release(company, item, year, month, sc):
 		"item_code": item, "valid_from_year": year, "valid_from_month": month,
 		"standard_cost": sc, "source_type": "MANUAL_OVERRIDE"})
 	scv.insert(ignore_permissions=True)
-	scv.release()
+	release_or_pend(scv)
 	return scv
 
 
@@ -260,10 +262,10 @@ def section_b(company, wh, today):
 	e8 = StdEngine(company, item8, wh)
 	src = ("Item", item8)
 	e8.post(trans="Rec", posting_date=prev.replace(day=10), qty=100, sc=10, ac=10, source=src)
-	scv_release(company, item8, today.year, today.month, 12)
+	scv8 = scv_release(company, item8, today.year, today.month, 12)
 	materialize_pending_revaluations()
 	a = accounts_for(company, item8, wh)
-	revs = one_ive(item_code=item8, std_trans=("in", ("Rev Beg", "REV In", "REV out")))
+	revs = one_ive(item_code=item8, source_docname=scv8.name, std_trans=("in", ("Rev Beg", "REV In", "REV out")))
 	tc(8, "boundary release posts a single Rev Beg 100 x 2 = 200",
 		len(revs) == 1 and revs[0].std_trans == "Rev Beg" and flt(revs[0].total_sc) == 200,
 		str(revs))

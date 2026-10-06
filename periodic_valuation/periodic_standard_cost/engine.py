@@ -121,14 +121,21 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 	return best
 
 
+# the zero-value event a cost version records when there is nothing to
+# revalue (DR-51) or it is the item's first cost (DR-55)
+NOT_ZERO_COST_EVENT = (
+	"NOT (source_doctype = 'Item Standard Cost Version' AND COALESCE(total_sc, 0) = 0 "
+	"AND COALESCE(qty_adj, 0) = 0)"
+)
+
+
 def switch_order(version):
-	"""Sort key of RELEASED versions by the moment each took over pricing: its
-	prices-from month, then its switch date within that month, then its
-	release."""
-	pf = price_from(version)
-	switch = getdate(version.effective_from) if version.get("switch_on_release") and version.get("effective_from") \
-		else getdate(f"{pf[0]}-{pf[1]:02d}-01")
-	return (*pf, switch, version.released_on or "")
+	"""Sort key of RELEASED versions: the latest prices-from month wins, then
+	the latest release. Versions that switched at their release under the
+	05/10 rule (switch_on_release) are excluded for dates before their
+	switch by the caller; among the versions that apply, the newer release
+	is the one in force (DR-55)."""
+	return (*price_from(version), version.released_on or "")
 
 
 def _materialize_if_pending(scv_name):
@@ -471,12 +478,27 @@ class StdEngine:
 			params,
 		)[0][0], 6)
 
+	def has_history(self):
+		"""Any valuation event that moved quantity or value. The zero-value
+		event a cost version records (first cost, or a change with nothing to
+		revalue - DR-51 / DR-55) is a log entry, not history: an opening
+		Stock Reconciliation still belongs to such a scope."""
+		wh_cond = " AND warehouse = %(warehouse)s" if self.include_warehouse else ""
+		return bool(frappe.db.sql(
+			f"""SELECT 1 FROM `tabInventory Valuation Event`
+			WHERE company = %(company)s AND item_code = %(item_code)s AND is_cancelled = 0
+				AND COALESCE(std_trans, '') != ''{wh_cond} AND {NOT_ZERO_COST_EVENT} LIMIT 1""",
+			{"company": self.company, "item_code": self.item_code, "warehouse": self.physical_warehouse},
+		))
+
 	def _periods_present(self):
+		# the zero-value cost-version events (DR-51 / DR-55) carry no quantity
+		# or value, so they never make a month one that holds something
 		wh_cond = " AND warehouse = %(warehouse)s" if self.include_warehouse else ""
 		rows = frappe.db.sql(
 			f"""SELECT DISTINCT period_year, period_month FROM `tabInventory Valuation Event`
 			WHERE company = %(company)s AND item_code = %(item_code)s AND is_cancelled = 0
-				AND COALESCE(std_trans, '') != ''{wh_cond}""",
+				AND COALESCE(std_trans, '') != ''{wh_cond} AND {NOT_ZERO_COST_EVENT}""",
 			{"company": self.company, "item_code": self.item_code,
 			 "warehouse": self.physical_warehouse},
 		)

@@ -13,9 +13,8 @@ in the current month; the previous month received 1,000 at 300 and issued
      80,000 on its day 1. Previous month closes at 800 x 400, the current
      month at 800 x 400; the consumption adjustment stays in the previous
      month; GL = valuation events in both months
-  B  MTD, "Latest day of the period" (the newest day - the release day): the
-     change switches at its release; nothing posts in the previous month and
-     nothing reverses; Rev Rel 80,000 on the release day
+  B  MTD, "Latest day of the period" (DR-55): as A, dated the previous
+     month's last day and, for the current month, the release day
   C  YTD, "First day": the reversal mirrors the whole previous triplet (Rev
      Reverse -100,000, REV out Reverse +20,000), since the current YTD
      triplet re-measures that consumption - COGS adjustment counted once
@@ -138,12 +137,12 @@ def _run():
 		b = setup("_STD-BDREV-B")
 		vb = pack.scv_release(b, prev.year, prev.month, 400)
 		ev = _events(vb.name)
-		check("B: only a Rev Rel of 80,000 on the release day - no previous-month entry, no reversal",
-			ev == [("Rev Rel", 80000.0, str(today))], str(ev))
-		check("B: the previous month's movements stay at 300 and it closes at 800 x 300",
-			_sc(b, p3) == 300 and _closing(b, prev) == (800.0, 240000.0), f"{_closing(b, prev)}")
-		check("B: the current month closes at 800 x 400; no consumption adjustment",
-			_closing(b, today) == (800.0, 320000.0) and _gl(b, acc.cogs_adj) == 0, f"{_closing(b, today)}")
+		check("B: previous month revalued on its last day, reversed on day 1, current month again today",
+			sorted(ev) == sorted([("REV In", 100000.0, str(plast)), ("REV out", -20000.0, str(plast)),
+				("Rev Reverse", -80000.0, str(day1)), ("Rev Beg", 80000.0, str(today))]), str(ev))
+		check("B: both months close at 800 x 400; the previous month prices at 400",
+			_closing(b, prev) == (800.0, 320000.0) and _closing(b, today) == (800.0, 320000.0)
+			and _sc(b, p3) == 400, f"{_closing(b, prev)} {_closing(b, today)}")
 		identity("B")
 
 		# ---- C: YTD, first day ---------------------------------------------

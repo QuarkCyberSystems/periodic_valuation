@@ -55,7 +55,9 @@ function show_revaluation(frm) {
 			"Switches at period end: the current standard cost stays in force until {0}. The stock on hand on {0} is revalued on that day, and this cost applies from {1}.",
 			[fmt(rev.revaluation_date), fmt(rev.effective_from)]
 		),
-		first_version: __("No revaluation entry: this is the item's first standard cost, so there was no earlier cost to revalue from."),
+		first_version: rev.events
+			? __("The item's first standard cost: recorded as a zero-value revaluation event, with no ledger entry.")
+			: __("No revaluation entry: this is the item's first standard cost, so there was no earlier cost to revalue from."),
 		nothing_to_revalue: rev.events
 			? __("Revaluation recorded with zero value: no stock was on hand or moved, so nothing was posted to the ledger.")
 			: __("No revaluation entry: the cost did not change, or no stock was on hand or moved in the period."),
