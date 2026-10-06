@@ -10,9 +10,9 @@ runs under "First day of the period" and "Latest day of the period":
      50): Rev Beg 80,000 / REV In 10,000 / REV out -5,000, dated day 1 or the
      release day; the whole month prices at 400
   2  backdated (previous month open): the previous month revalues (REV In
-     100,000 / REV out -20,000) on its day 1 or last day, Rev Reverse -80,000
-     on day 1 of the current month, the current month revalues again on day
-     1 or the release day
+     100,000 / REV out -20,000) on its day 1 or last day and carries into the
+     current month, which revalues only its own movements (REV In 10,000 /
+     REV out -5,000) on day 1 or the release day - no reversal (DR-56)
   3  previous month settled: nothing posts in it; the current month revalues
   4  valid-from month frozen: refused
   5  future month: refused
@@ -160,10 +160,9 @@ def _run():
 			# 2 backdated
 			it = setup(f"_STD-PDO2-{tag}")
 			v = pack.scv_release(it, prev.year, prev.month, 400)
-			check(f"{tag} 2: previous month revalued on {pd}, reversed on {day1}, current month again on {rd}",
+			check(f"{tag} 2: previous month revalued on {pd}; the current month revalues only its own movements on {rd}",
 				_events(v.name) == sorted([("REV In", 100000.0, pd), ("REV out", -20000.0, pd),
-					("Rev Reverse", -80000.0, str(day1)),
-					("Rev Beg", 80000.0, rd), ("REV In", 10000.0, rd), ("REV out", -5000.0, rd)]),
+					("REV In", 10000.0, rd), ("REV out", -5000.0, rd)]),
 				str(_events(v.name)))
 			check(f"{tag} 2: previous month 800 x 400, current 850 x 400; both price at 400",
 				_closing(it, prev) == (800.0, 320000.0) and _closing(it, today) == (850.0, 340000.0)
