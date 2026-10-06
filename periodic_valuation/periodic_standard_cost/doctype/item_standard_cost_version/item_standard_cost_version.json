@@ -15,6 +15,7 @@
   "valid_from_year",
   "valid_from_month",
   "effective_from",
+  "effective_to",
   "sec2",
   "standard_cost",
   "price_unit",
@@ -83,6 +84,15 @@
    "fieldname": "effective_from",
    "fieldtype": "Date",
    "label": "Effective From",
+   "read_only": 1
+  },
+  {
+   "depends_on": "effective_to",
+   "description": "Set when the version corrects an earlier month that was still open (DR-57): it applies to that month only. The month after keeps the standard cost in force there, and the correction's revaluation is reversed on its day 1.",
+   "fieldname": "effective_to",
+   "fieldtype": "Date",
+   "label": "Effective To",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -214,7 +224,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-05 12:00:00.000000",
+ "modified": "2026-10-06 23:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Item Standard Cost Version",

@@ -67,9 +67,24 @@ function show_revaluation(frm) {
 	else show_release_switch(frm);
 }
 
+// DR-57: a backdated change corrects its own month only - say so, and that
+// the month after keeps its own standard cost
+function show_correction(frm) {
+	if (!frm.doc.effective_to) return false;
+	const to = frappe.datetime.str_to_user(frm.doc.effective_to);
+	const next = frappe.datetime.str_to_user(frappe.datetime.add_days(frm.doc.effective_to, 1));
+	frm.dashboard.set_headline(
+		__("Corrects its month only (to {0}): the revaluation reverses on {1}, and the month from {1} keeps its own standard cost.",
+			[to, next]),
+		"blue"
+	);
+	return true;
+}
+
 // DR-50 as amended: say where the switch fell, so the client sees why a
 // movement dated earlier in the month still carries the earlier cost
 function show_release_switch(frm) {
+	if (show_correction(frm)) return;
 	if (!frm.doc.switch_on_release) return;
 	frm.dashboard.set_headline(
 		__("Switched at release on {0}: movements dated before it keep the earlier cost, and the stock on hand was revalued that day.",
