@@ -123,6 +123,7 @@ def _reverse_source_events(doc, original):
 		_cascade_value_carryover,
 		r2,
 		recompute_closing,
+		reverse_carry_revaluation,
 	)
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 	from periodic_valuation.shared.periods import assert_posting_allowed
@@ -131,11 +132,18 @@ def _reverse_source_events(doc, original):
 	originals = frappe.get_all("Inventory Valuation Event",
 		filters={"source_doctype": "Purchase Invoice", "source_docname": original,
 			"is_cancelled": 0}, fields=["*"])
+	# the next-period revaluation legs (DR-53) reverse after the events that
+	# carried them, so each primary mirror reads the state it left
+	originals.sort(key=lambda o: o.reason_code == "carry_revaluation")
 	for orig in originals:
 		if frappe.db.exists("Inventory Valuation Event",
 				{"reversal_of": orig.name, "is_cancelled": 0}):
 			frappe.throw(_("{0} is already reversed.").format(orig.name),
 				title=_("Double Reversal Blocked"))
+		if orig.reason_code == "carry_revaluation":
+			reverse_carry_revaluation(orig, source=("Purchase Invoice", doc.name),
+				posting_date=doc.posting_date, cost_center=cost_center)
+			continue
 		# DR-44 floor: never remove more value than the scope still carries;
 		# the uncovered share (consumed at the blended MAP since the original
 		# posted) credits PRD instead of stranding negative inventory.

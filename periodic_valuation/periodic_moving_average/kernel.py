@@ -21,7 +21,7 @@ from frappe.utils import flt, getdate, now_datetime
 
 from periodic_valuation.shared.accounts import get_inventory_account, get_offset_account
 from periodic_valuation.shared.immutable import KERNEL_FLAG
-from periodic_valuation.shared.periods import assert_posting_allowed, get_open_period
+from periodic_valuation.shared.periods import assert_posting_allowed, get_open_period, get_period
 from periodic_valuation.shared.settings import get_pma_setting, get_return_valuation
 
 R = 6  # internal precision
@@ -166,7 +166,8 @@ def recompute_closing(ipb):
 
 
 # ------------------------------------------------------------------- writers
-SYSTEM_REASONS = {"prd_split", "rounding_cleanup", "settlement", "settlement_reverse", "stranded_sweep"}
+SYSTEM_REASONS = {"prd_split", "rounding_cleanup", "settlement", "settlement_reverse", "stranded_sweep",
+	"carry_revaluation"}
 
 
 def _derive_intent(reason):
@@ -198,7 +199,7 @@ def _derive_expense_portion(reason, movement_type, value_delta, prd_amount):
 	"""
 	if reason in ("receipt", "receipt_neg", "receipt_cross_zero"):
 		return prd_amount                      # plain receipt: 0 (GR/IR)
-	if reason in ("issue", "count_diff", "revaluation", "rounding_cleanup", "prd_split"):
+	if reason in ("issue", "count_diff", "revaluation", "rounding_cleanup", "prd_split", "carry_revaluation"):
 		return -flt(value_delta)               # offset account is P&L
 	if reason in ("return_with_ref", "return_no_ref"):
 		# sales return credits COGS; purchase return offsets GR/IR
@@ -1669,7 +1670,7 @@ def _post_day1_absorb(controller, scope, ipb_cur, open_period, absorb, ive, map_
 # ------------------------------------------------------- value-only postings
 def post_value_event(company, item_code, warehouse, *, source, posting_date, reason,
 		value_delta, offset_account, qty_delta=0.0, movement_type=None,
-		expense_portion=None, fx_variance=0.0, offset_is_credit=True):
+		expense_portion=None, fx_variance=0.0, offset_is_credit=True, caused_by=None):
 	"""Shared writer for MR21 revaluation / stock count / LCV / invoice-diff
 	events posted by the transaction-layer doctypes."""
 	scope = ScopeState(company, item_code, warehouse)
@@ -1704,7 +1705,7 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		value_delta = r2(qty_delta * rate)
 		ipb.adjust_qty = r6(flt(ipb.adjust_qty) + qty_delta)
 		ipb.adjust_value = r6(flt(ipb.adjust_value) + value_delta)
-	elif reason in ("landed_cost", "invoice_diff", "fx_adjust"):
+	elif reason in ("landed_cost", "invoice_diff", "fx_adjust", "carry_revaluation"):
 		ipb.reval_value = r6(flt(ipb.reval_value) + value_delta)
 	else:
 		frappe.throw(_("Unsupported value event {0}").format(reason))
@@ -1723,8 +1724,13 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		expense_portion=expense_portion, fx_variance=fx_variance,
 		prd_amount=prd_excess,
 		affects_map=0 if reason == "count_diff" else 1,
+		caused_by=caused_by,
 	)
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
+
+	# Cost Adjustment tree, "in next period" (client v5, DR-53): judged on the
+	# next period's state BEFORE the carry reaches it
+	next_split = _next_period_split(scope, period, value_delta) if reason in COST_ADJUSTMENTS else None
 
 	# Backdated value event (e.g. a Stock Count dated in the previous period):
 	# the event lands in its own period correctly, but every LATER period's
@@ -1781,7 +1787,136 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 	ctl = _Ctl()
 	ctl.company = company
 	post_gl(ctl, posting_date, legs, ive)
+	if next_split:
+		_post_carry_revaluation(company, item_code, warehouse, source, ive, *next_split)
 	return ive
+
+
+# late costs the Cost Adjustment tree governs (DR-33 / DR-34; MR21 included)
+COST_ADJUSTMENTS = ("landed_cost", "invoice_diff", "fx_adjust", "revaluation")
+
+
+def _next_period_split(scope, period, carried):
+	"""Cost Adjustment tree, "in next period" (client v5, 06/10/2026; DR-53).
+	A cost adjustment dated in the previous period carries its inventory
+	portion into the next period's balance (_cascade_value_carryover). Only
+	the inventory portion travels - the expense and PRD legs stay where they
+	posted - and the next period keeps it only as far as its own stock can:
+
+	- no stock there (quantity zero or negative, value negative): the whole
+	  carried amount goes to revaluation and the period keeps its value -
+	  negative stock carries its frozen MAP and absorbs no late cost, as the
+	  tree's "closing qty <= 0" branch sends a same-period adjustment to
+	  expense;
+	- stock there, but the carry would take the value below zero: inventory
+	  lands on zero and the part below it goes to revaluation (the DR-34
+	  floor, measured in the next period);
+	- otherwise the carry stays in inventory.
+
+	Returns (next period, amount to revaluation) - the amount in the carry's
+	own sign - or None when nothing is revalued."""
+	if not flt(carried):
+		return None
+	later = frappe.get_all(
+		"Inventory Period Balance",
+		filters={"company": scope.company, "item_code": scope.item_code,
+			"warehouse": scope.warehouse or ""},
+		fields=["name", "period_year", "period_month", "closing_qty", "closing_value"],
+	)
+	later = sorted(
+		(x for x in later if (x.period_year, x.period_month) > (period.period_year, period.period_month)),
+		key=lambda x: (x.period_year, x.period_month),
+	)
+	if not later:
+		return None
+	nxt = later[0]
+	before_qty, before_value = flt(nxt.closing_qty), flt(nxt.closing_value)
+	if before_qty <= 0:
+		reval = flt(carried)
+	elif before_value + flt(carried) < 0:
+		reval = before_value + flt(carried)
+	else:
+		return None
+	reval = r2(reval)
+	if not reval:
+		return None
+	return get_period(scope.company, f"{nxt.period_year}-{nxt.period_month:02d}-01"), reval
+
+
+def _post_carry_revaluation(company, item_code, warehouse, source, carried_event, next_period, reval):
+	# carried_event: the name of the carried cost-adjustment event (write_events returns names)
+	"""Book the next period's revaluation leg of a carried cost adjustment:
+	inventory gives back `reval` against the revaluation account, dated day 1
+	of the next period (as the other current-period legs of a backdated
+	posting, DR-35). Linked to the carried event (caused_by) and posted under
+	the same source document, so its exact reversal travels with it."""
+	from frappe.utils import get_first_day
+
+	account = get_offset_account(company, item_code, warehouse, "revaluation")
+	if not account:
+		frappe.throw(
+			_("No revaluation account resolvable for {0}: set one on Periodic Moving Average Settings "
+				"or the item's defaults.").format(item_code),
+			title=_("Missing Account"),
+		)
+	post_value_event(
+		company, item_code, warehouse,
+		source=source,
+		posting_date=get_first_day(f"{next_period.period_year}-{next_period.period_month:02d}-01"),
+		reason="carry_revaluation",
+		value_delta=-reval,
+		offset_account=account,
+		caused_by=carried_event,
+	)
+
+
+def reverse_carry_revaluation(orig, *, source, posting_date, cost_center):
+	"""Exact reversal of a carry_revaluation event (cancellation of the cost
+	adjustment that carried it): mirror its GL, give its value back to the
+	period it posted in - or the reversal's own, if later - and carry that
+	forward, as every other mirror in the reversal paths. Never re-derived
+	from today's state."""
+	from erpnext.accounts.general_ledger import make_gl_entries
+
+	day = max(getdate(posting_date), getdate(orig.posting_date))
+	period = assert_posting_allowed(orig.company, day)
+	removal = -flt(orig.value_delta)
+	frappe.flags[KERNEL_FLAG] = True
+	try:
+		mirror = frappe.get_doc({
+			"doctype": "Inventory Valuation Event",
+			"company": orig.company, "item_code": orig.item_code, "warehouse": orig.warehouse,
+			"period_year": day.year, "period_month": day.month, "posting_date": day,
+			"entry_date": frappe.utils.now_datetime(),
+			"source_doctype": source[0], "source_docname": source[1],
+			"source_detail_name": orig.source_detail_name,
+			"reason_code": "cancellation", "qty_basis": 0,
+			"value_delta": removal, "inventory_portion": removal,
+			"reversal_of": orig.name, "caused_by_event_id": orig.caused_by_event_id,
+		}).insert(ignore_permissions=True)
+	finally:
+		frappe.flags[KERNEL_FLAG] = False
+	gl_map = [frappe._dict({
+		"account": g.account, "against": "",
+		"debit": flt(g.credit), "credit": flt(g.debit),
+		"debit_in_account_currency": flt(g.credit), "credit_in_account_currency": flt(g.debit),
+		"posting_date": day, "voucher_type": source[0], "voucher_no": source[1],
+		"company": orig.company, "cost_center": cost_center,
+		"remarks": _("Exact reversal of {0}").format(orig.name),
+		"valuation_event_id": mirror.name,
+	}) for g in frappe.get_all("GL Entry", filters={"valuation_event_id": orig.name, "is_cancelled": 0},
+		fields=["account", "debit", "credit"])]
+	if gl_map:
+		make_gl_entries(gl_map, merge_entries=False)
+	scope = ScopeState(orig.company, orig.item_code, orig.warehouse)
+	ipb = scope.load(period)
+	ipb.reval_value = r6(flt(ipb.reval_value) + removal)
+	recompute_closing(ipb)
+	scope.save(ipb, source=source[:2])
+	_cascade_value_carryover(scope, period, qty_delta=0.0, value_delta=removal, source=source[:2])
+	write_value_sle(scope, ipb, source=(source[0], source[1], orig.source_detail_name),
+		posting_date=day, value_delta=removal)
+	return mirror
 
 
 def get_coverage_ratio(company, item_code, warehouse, basis_qty, as_of=None):
