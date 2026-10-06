@@ -120,12 +120,20 @@ def _reverse_landed_cost(lcv):
 	if not originals:
 		frappe.throw(_("No valuation events found for {0} to reverse.").format(original))
 	cost_center = frappe.get_cached_value("Company", lcv.company, "cost_center")
+	from periodic_valuation.periodic_moving_average.kernel import reverse_carry_revaluation
 
+	# the next-period revaluation legs (DR-53) reverse after the events that
+	# carried them, so each primary mirror reads the state it left
+	originals.sort(key=lambda o: o.reason_code == "carry_revaluation")
 	for orig in originals:
 		if frappe.db.exists("Inventory Valuation Event",
 				{"reversal_of": orig.name, "is_cancelled": 0}):
 			frappe.throw(_("{0} is already reversed.").format(orig.name),
 				title=_("Double Reversal Blocked"))
+		if orig.reason_code == "carry_revaluation":
+			reverse_carry_revaluation(orig, source=("Landed Cost Voucher", lcv.name),
+				posting_date=lcv.posting_date, cost_center=cost_center)
+			continue
 		# DR-44 floor: the reversal removes the landed cost from inventory, but
 		# never more than the scope still carries - consumption since the
 		# original posting took part of the charge out at the blended MAP. The
