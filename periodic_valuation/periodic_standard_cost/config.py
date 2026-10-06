@@ -46,6 +46,13 @@ TRANS_FLAGS = {
 	# shared at settlement between ending stock and consumption after the
 	# switch (StdEngine._switch_revaluations)
 	"Rev Rel":            Flags("In",  1, 0, 0, 0, 1),
+	# DR-54: day-1 reversal, in the current period, of the stock effect of a
+	# backdated change's revaluation of its (still open) valid-from month;
+	# the current period then revalues again (Rev Beg / Rev Rel)
+	"Rev Reverse":        Flags("In",  1, 0, 0, 0, 1),
+	# YTD only: the earlier month's REV out, reversed with the rest of its
+	# triplet (the current YTD triplet re-measures that consumption)
+	"REV out Reverse":    Flags("Out", 0, 1, 0, 0, 0),
 	"Sett":               Flags("",    0, 0, 1, 0, 0),
 	"Sett - Rev":         Flags("",    0, 0, 1, 0, 0),
 	"Sett - Reverse":     Flags("",    0, 0, 1, 0, 0),

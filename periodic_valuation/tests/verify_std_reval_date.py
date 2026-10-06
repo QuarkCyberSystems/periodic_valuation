@@ -6,7 +6,10 @@ The figures are the client's own UAT tests on badiav16 (Badia Cement):
   S05  ISCV-2026-00041  MTD, valid the current month, 70 -> 90, 150 received
        and 40 issued in the month: REV In 3,000 / REV out -800
   S12  ISCV-2026-00064  MTD, backdated (valid the previous month), 10 -> 12,
-       61 on hand at the start of the month: Rev Beg 122
+       61 received in the previous month: that month revalues on its day 1
+       (REV In 122), the revaluation reverses on day 1 of the current month
+       (Rev Reverse -122) and the current month revalues again (Rev Beg 122)
+       - DR-54, STD-003 / STD-004
 Both posted on the release day on UAT; the rule is day 1 of the month the
 revaluation posts in. A future version stays pending; a month whose period
 cannot take the posting refuses the release and keeps an overnight
@@ -127,12 +130,15 @@ def _run():
 		e12.post(trans="Rec", qty=61, sc=10, ac=10, posting_date=str(add_days(day1, -1)),
 			source=("Item Standard Cost Version", v10.name))
 		v12 = _version(company, s12, prev, 12, on=mid)
-		t = _triplet(v12.name)
-		check("S12 (client ISCV-2026-00064): backdated version, Rev Beg 122",
-			t.get("Rev Beg", (None,))[0] == 122.00, str(t))
-		check("S12: a backdated version posts on day 1 of the current period (STD-004 wins)",
-			{d for _, d in t.values()} == {day1} and _gl_dates(v12.name) == {day1},
-			f"{t} / GL {_gl_dates(v12.name)}")
+		ev = sorted((e.std_trans, flt(e.total_sc, 2), getdate(e.posting_date)) for e in frappe.get_all(
+			"Inventory Valuation Event", filters={"source_docname": v12.name, "is_cancelled": 0},
+			fields=["std_trans", "total_sc", "posting_date"]))
+		check("S12 (client ISCV-2026-00064): the previous month revalues on its day 1 (REV In 122)",
+			("REV In", 122.0, get_first_day(prev)) in ev, str(ev))
+		check("S12: reversed on day 1 of the current period, which revalues again (STD-004)",
+			("Rev Reverse", -122.0, day1) in ev and ("Rev Beg", 122.0, day1) in ev
+			and _gl_dates(v12.name) == {get_first_day(prev), day1},
+			f"{ev} / GL {_gl_dates(v12.name)}")
 
 		# ---- a future version posts nothing until its month ---------------
 		v_next = _version(company, s05, add_months(day1, 1), 95)
