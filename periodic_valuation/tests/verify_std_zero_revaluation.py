@@ -7,9 +7,9 @@ bench --site <site> execute periodic_valuation.tests.verify_std_zero_revaluation
      movement records one Rev Beg of zero amount on day 1, linked to the
      version (old and new cost on it), with no GL and no stock-ledger row;
      the form says it was recorded with zero value and offers the events
-  B  Latest day of the period (DR-55): the same change, backdated, records
-     one zero Rev Beg on the release day and nothing in the earlier month;
-     the same-month earlier version is replaced (SUPERSEDED)
+  B  Latest day of the period: the same change, backdated (a correction of
+     that month, DR-57), records one zero Rev Beg on that month's last day
+     and no reversal; the earlier version stays RELEASED
   C  an item's first cost records one zero-value event (client, 06/10/2026,
      DR-55); an unchanged cost records none
   D  the zero events leave the period-close gates green (event / GL
@@ -109,16 +109,16 @@ def _run():
 		v_b = pack.scv_release(b, prev.year, prev.month, 180)  # backdated, as ISCV-2026-00096
 		v_b.reload()
 		ev = _events(v_b.name)
-		check("B: one zero Rev Beg on the release day, with the old and the new cost",
+		check("B: one zero Rev Beg on the corrected month's last day, with the old and the new cost",
 			len(ev) == 1 and ev[0].std_trans == "Rev Beg" and flt(ev[0].total_sc) == 0
-			and getdate(ev[0].posting_date) == today and flt(ev[0].actual_cost) == 150
+			and getdate(ev[0].posting_date) == prev and flt(ev[0].actual_cost) == 150
 			and flt(ev[0].standard_cost) == 180, str(ev))
 		check("B: no GL and no stock-ledger row", _ledger_rows(v_b.name) == (0, 0), str(_ledger_rows(v_b.name)))
 		rev = _onload(v_b.name).get("revaluation", {})
 		check("B: the form reports a zero revaluation with its event",
 			rev.get("reason") == "nothing_to_revalue" and rev.get("events") == 1, str(rev))
-		check("B: the same-month earlier version is replaced (SUPERSEDED)",
-			frappe.db.get_value(SCV, v_b_old.name, "status") == "SUPERSEDED")
+		check("B: the earlier version stays RELEASED (it prices the current month)",
+			frappe.db.get_value(SCV, v_b_old.name, "status") == "RELEASED")
 
 		# ---- C: first cost, unchanged cost --------------------------------
 		_set("First day of the period")

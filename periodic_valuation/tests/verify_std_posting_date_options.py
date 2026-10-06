@@ -9,17 +9,18 @@ runs under "First day of the period" and "Latest day of the period":
   1  current-month change 300 -> 400 (opening 800, October in 100 / out
      50): Rev Beg 80,000 / REV In 10,000 / REV out -5,000, dated day 1 or the
      release day; the whole month prices at 400
-  2  backdated (previous month open): the previous month revalues (REV In
-     100,000 / REV out -20,000) on its day 1 or last day and carries into the
-     current month, which revalues only its own movements (REV In 10,000 /
-     REV out -5,000) on day 1 or the release day - no reversal (DR-56)
+  2  backdated (previous month open) = a correction of that month only
+     (DR-57): it revalues (REV In 100,000 / REV out -20,000) on its day 1 or
+     last day, Rev Reverse -80,000 on day 1 of the current month, which keeps
+     its own standard (300)
   3  previous month settled: nothing posts in it; the current month revalues
   4  valid-from month frozen: refused
   5  future month: refused
   6  the item's first cost: one zero-value event, no GL
   7  no stock and no movement: one zero-value event, no GL
   8  late entry dated in the current month before the release: 400
-  9  late entry dated in the previous month after the release: 400
+  9  late entry dated in the previous month after the release: 400, bridged
+     to the current month's 300
   10 the month's settlement is the same under both options
   L  a version released under the 05/10 switch-at-release rule keeps pricing
      from its switch and bridges a late entry; a new version released after
@@ -160,19 +161,19 @@ def _run():
 			# 2 backdated
 			it = setup(f"_STD-PDO2-{tag}")
 			v = pack.scv_release(it, prev.year, prev.month, 400)
-			check(f"{tag} 2: previous month revalued on {pd}; the current month revalues only its own movements on {rd}",
+			check(f"{tag} 2: previous month revalued on {pd}, reversed on {day1}; the current month keeps its standard",
 				_events(v.name) == sorted([("REV In", 100000.0, pd), ("REV out", -20000.0, pd),
-					("REV In", 10000.0, rd), ("REV out", -5000.0, rd)]),
+					("Rev Reverse", -80000.0, str(day1))]),
 				str(_events(v.name)))
-			check(f"{tag} 2: previous month 800 x 400, current 850 x 400; both price at 400",
-				_closing(it, prev) == (800.0, 320000.0) and _closing(it, today) == (850.0, 340000.0)
-				and _sc(it, p3) == 400 and _sc(it, day1) == 400, f"{_closing(it, prev)} {_closing(it, today)}")
+			check(f"{tag} 2: previous month 800 x 400 and prices at 400; current 850 x 300 and keeps 300",
+				_closing(it, prev) == (800.0, 320000.0) and _closing(it, today) == (850.0, 255000.0)
+				and _sc(it, p3) == 400 and _sc(it, day1) == 300, f"{_closing(it, prev)} {_closing(it, today)}")
 			check(f"{tag} 2: GL equals the valuation events", identity())
 			# 9 late entry into the previous month
 			late = pack.make_pr(it, wh, 10, 300, posting_date=str(p3))
 			ev = _events(late.name)
-			check(f"{tag} 9: a late receipt into the previous month is valued at 400 (zero backdate bridge)",
-				("REC (BD)", 4000.0, str(p3)) in ev and all(x[1] == 0 for x in ev if x[0] == "REC (BD) - Rev"), str(ev))
+			check(f"{tag} 9: a late receipt into the previous month is valued at 400, bridged to the current 300",
+				("REC (BD)", 4000.0, str(p3)) in ev and ("REC (BD) - Rev", -1000.0, str(today)) in ev, str(ev))
 
 			# 3 previous month settled
 			it = setup(f"_STD-PDO3-{tag}")

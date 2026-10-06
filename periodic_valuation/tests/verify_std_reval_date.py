@@ -7,7 +7,8 @@ The figures are the client's own UAT tests on badiav16 (Badia Cement):
        and 40 issued in the month: REV In 3,000 / REV out -800
   S12  ISCV-2026-00064  MTD, backdated (valid the previous month), 10 -> 12,
        61 received in the previous month: that month revalues on its day 1
-       (REV In 122) and the value carries into the current month - DR-56
+       (REV In 122) and the revaluation reverses on day 1 of the current
+       month, which keeps its standard - DR-57
 Both posted on the release day on UAT; the rule is day 1 of the month the
 revaluation posts in. A future version stays pending; a month whose period
 cannot take the posting refuses the release and keeps an overnight
@@ -133,8 +134,9 @@ def _run():
 			fields=["std_trans", "total_sc", "posting_date"]))
 		check("S12 (client ISCV-2026-00064): the previous month revalues on its day 1 (REV In 122)",
 			("REV In", 122.0, get_first_day(prev)) in ev, str(ev))
-		check("S12: nothing reverses; the revalued stock carries into the current period (DR-56)",
-			ev == [("REV In", 122.0, get_first_day(prev))] and _gl_dates(v12.name) == {get_first_day(prev)},
+		check("S12: reversed on day 1 of the current period, which keeps its standard (DR-57)",
+			ev == sorted([("REV In", 122.0, get_first_day(prev)), ("Rev Reverse", -122.0, day1)])
+			and _gl_dates(v12.name) == {get_first_day(prev), day1},
 			f"{ev} / GL {_gl_dates(v12.name)}")
 
 		# ---- a future version cannot be released (client, 06/10/2026, DR-55) --
