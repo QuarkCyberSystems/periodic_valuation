@@ -13,9 +13,9 @@ in the current month; the previous month received 1,000 at 300 and issued
      80,000 on its day 1. Previous month closes at 800 x 400, the current
      month at 800 x 400; the consumption adjustment stays in the previous
      month; GL = valuation events in both months
-  B  MTD, "Latest day of the period": Rev End 80,000 on the previous month's
-     last day (its movements stay at 300); Rev Reverse -80,000 on day 1;
-     Rev Rel 80,000 on the release day
+  B  MTD, "Latest day of the period" (the newest day - the release day): the
+     change switches at its release; nothing posts in the previous month and
+     nothing reverses; Rev Rel 80,000 on the release day
   C  YTD, "First day": the reversal mirrors the whole previous triplet (Rev
      Reverse -100,000, REV out Reverse +20,000), since the current YTD
      triplet re-measures that consumption - COGS adjustment counted once
@@ -138,12 +138,10 @@ def _run():
 		b = setup("_STD-BDREV-B")
 		vb = pack.scv_release(b, prev.year, prev.month, 400)
 		ev = _events(vb.name)
-		check("B: Rev End 80,000 on the previous month's last day; Rev Reverse -80,000 on day 1; Rev Rel 80,000 today",
-			ev == [("Rev End", 80000.0, str(plast)), ("Rev Reverse", -80000.0, str(day1)), ("Rev Rel", 80000.0, str(today))]
-			or sorted(ev) == sorted([("Rev End", 80000.0, str(plast)), ("Rev Reverse", -80000.0, str(day1)),
-				("Rev Rel", 80000.0, str(today))]), str(ev))
-		check("B: the previous month's movements stay at 300; it closes at 800 x 400 via Rev End",
-			_sc(b, p3) == 300 and _closing(b, prev) == (800.0, 320000.0), f"{_closing(b, prev)}")
+		check("B: only a Rev Rel of 80,000 on the release day - no previous-month entry, no reversal",
+			ev == [("Rev Rel", 80000.0, str(today))], str(ev))
+		check("B: the previous month's movements stay at 300 and it closes at 800 x 300",
+			_sc(b, p3) == 300 and _closing(b, prev) == (800.0, 240000.0), f"{_closing(b, prev)}")
 		check("B: the current month closes at 800 x 400; no consumption adjustment",
 			_closing(b, today) == (800.0, 320000.0) and _gl(b, acc.cogs_adj) == 0, f"{_closing(b, today)}")
 		identity("B")
