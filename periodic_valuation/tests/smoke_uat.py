@@ -9,6 +9,8 @@ STD: STD UAT Test Script v1 (TC-A1..TC-G)
 """
 
 import frappe
+
+from periodic_valuation.tests.uat_std_pack import release_or_pend
 from frappe.utils import add_months, flt, get_first_day, getdate, nowdate
 
 from periodic_valuation.tests.smoke_edges import ipb, ipb_period, make_dn, make_item, make_pr
@@ -434,7 +436,7 @@ def run_std(company, wh):
 			"valid_from_month": month or today.month, "standard_cost": sc,
 			"source_type": "MANUAL_OVERRIDE"})
 		scv.insert(ignore_permissions=True)
-		scv.release()
+		release_or_pend(scv)
 		return scv
 
 	a = std_item("UAT-STD-A")
@@ -443,8 +445,10 @@ def run_std(company, wh):
 
 	# --- A2 release first version, no reval
 	scv1 = release_scv(a, 10)
+	# the first cost is logged as one zero-value event with no GL (DR-55)
 	tc("STD TC-A2", scv1.status == "RELEASED" and not frappe.db.exists(
-		"Inventory Valuation Event", {"item_code": a, "std_trans": "Rev Beg"}))
+		"Inventory Valuation Event", {"item_code": a, "std_trans": "Rev Beg", "total_sc": ("!=", 0)})
+		and not frappe.db.exists("GL Entry", {"voucher_no": scv1.name}))
 
 	# --- A3 released version immutable
 	def edit_released():

@@ -20,6 +20,8 @@ Rolled back unless commit=True.
 """
 
 import frappe
+
+from periodic_valuation.tests.uat_std_pack import release_or_pend
 from frappe.utils import flt
 
 CHECKS = []
@@ -182,7 +184,7 @@ class Co:
 			"item_code": self.item, "valid_from_year": year, "valid_from_month": month,
 			"standard_cost": sc, "source_type": "MANUAL_OVERRIDE"})
 		doc.insert(ignore_permissions=True)
-		doc.release()
+		release_or_pend(doc)
 		return doc
 
 	def settle(self, year, month):
@@ -214,10 +216,13 @@ class Co:
 		return doc
 
 	def events(self):
-		return frappe.get_all("Inventory Valuation Event",
+		# the workbook has no row for the zero-value event a first cost
+		# records (DR-55); it moves no quantity or value
+		return [r for r in frappe.get_all("Inventory Valuation Event",
 			filters={"company": self.name, "item_code": self.item, "is_cancelled": 0},
-			fields=["std_trans", "period_month", "total_sc", "total_ac"],
+			fields=["std_trans", "period_month", "total_sc", "total_ac", "qty_adj", "source_doctype"],
 			order_by="creation asc")
+			if not (r.source_doctype == "Item Standard Cost Version" and not flt(r.total_sc) and not flt(r.qty_adj))]
 
 	def sett_row(self, year, month):
 		rows = frappe.get_all("Inventory Period Settlement",

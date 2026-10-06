@@ -6,6 +6,8 @@ plus GL invariants. Rolled back unless commit=True.
 """
 
 import frappe
+
+from periodic_valuation.tests.uat_std_pack import release_or_pend
 from frappe.utils import flt
 
 from periodic_valuation.tests.smoke_kernel import ensure_masters, get_company
@@ -221,15 +223,16 @@ def run(commit=False):
 		today = getdate(nowdate())
 		prev_y, prev_m = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
 		v1 = make_scv(company, prev_y, prev_m, 10)
-		v1.release()
+		release_or_pend(v1)
 		e2 = StdEngine(company, item2)
 		s2 = ("Item Standard Cost Version", v1.name)
 		e2.post(trans="Rec", qty=100, sc=10, ac=10, posting_date=str(today), source=s2)
 		e2.post(trans="Iss", qty=30, sc=10, posting_date=str(today), source=s2)
 		v2 = make_scv(company, today.year, today.month, 12)
-		v2.release()
+		release_or_pend(v2)
 		trips = frappe.get_all("Inventory Valuation Event",
-			filters={"item_code": item2, "std_trans": ("in", ["Rev Beg", "REV In", "REV out"])},
+			filters={"item_code": item2, "source_docname": v2.name,
+				"std_trans": ("in", ["Rev Beg", "REV In", "REV out"])},
 			fields=["std_trans", "total_sc"])
 		by = {t.std_trans: flt(t.total_sc, 2) for t in trips}
 		check("SCV release triplet (In +200, out -60)",
@@ -253,12 +256,13 @@ def run(commit=False):
 				"settlement_view": "MTD"}).insert(ignore_permissions=True)
 		ITEM = item3
 		first = make_scv(company, today.year, today.month, 7)
-		first.release()
+		release_or_pend(first)
 		ITEM = item2
 		s2_state, first_state = _rev_state(v2.name), _rev_state(first.name)
-		check("SCV form links its revaluation ledger; a first version says why it has none",
+		# the first cost is logged as one zero-value event (DR-55)
+		check("SCV form links its revaluation ledger; a first version says it is the first cost",
 			s2_state.get("posted") is True and bool(s2_state.get("from_date"))
-			and first_state == {"posted": False, "reason": "first_version", "events": 0},
+			and first_state == {"posted": False, "reason": "first_version", "events": 1},
 			f"{s2_state} / {first_state}")
 	finally:
 		ITEM = orig_item

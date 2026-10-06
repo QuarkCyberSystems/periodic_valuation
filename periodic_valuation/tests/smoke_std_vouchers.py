@@ -6,6 +6,8 @@ Rolled back unless commit=True.
 """
 
 import frappe
+
+from periodic_valuation.tests.uat_std_pack import release_or_pend
 from frappe.utils import flt, get_first_day, getdate, nowdate
 
 from periodic_valuation.tests.smoke_edges import make_dn, make_pr
@@ -42,7 +44,7 @@ def run(commit=False):
 		"source_type": "MANUAL_OVERRIDE",
 	})
 	scv.insert(ignore_permissions=True)
-	scv.release()
+	release_or_pend(scv)
 
 	# ---- PR 100 @ AC 12 -> Rec at SC 10, PPV 200
 	pr = make_pr(ITEM, wh, 100, 12)
@@ -171,7 +173,7 @@ def run_reversals(company, wh):
 		"item_code": item, "valid_from_year": today.year, "valid_from_month": today.month,
 		"standard_cost": 10, "source_type": "MANUAL_OVERRIDE"})
 	scv.insert(ignore_permissions=True)
-	scv.release()
+	release_or_pend(scv)
 
 	# --- open-period reversal via Create Cancellation (PR at AC 12, PPV 200)
 	pr = make_pr(item, wh, 100, 12)
@@ -247,7 +249,7 @@ def run_sce_isvc(company):
 		"item_code": comp, "valid_from_year": today.year, "valid_from_month": today.month,
 		"standard_cost": 4, "source_type": "MANUAL_OVERRIDE"})
 	scv_c.insert(ignore_permissions=True)
-	scv_c.release()
+	release_or_pend(scv_c)
 
 	sce = frappe.get_doc({"doctype": "Standard Cost Estimate", "company": company,
 		"item_code": fg, "valid_from_year": today.year, "valid_from_month": today.month,
@@ -305,7 +307,7 @@ def run_boundary_scv(company, wh):
 		"item_code": item, "valid_from_year": today.year, "valid_from_month": today.month,
 		"standard_cost": 10, "source_type": "MANUAL_OVERRIDE"})
 	scv1.insert(ignore_permissions=True)
-	scv1.release()
+	release_or_pend(scv1)
 	make_pr(item, wh, 50, 10)
 
 	nxt = today + relativedelta(months=1)
@@ -313,10 +315,11 @@ def run_boundary_scv(company, wh):
 		"item_code": item, "valid_from_year": nxt.year, "valid_from_month": nxt.month,
 		"standard_cost": 12, "source_type": "MANUAL_OVERRIDE"})
 	scv2.insert(ignore_permissions=True)
-	scv2.release()
+	release_or_pend(scv2)
 
 	revs = frappe.get_all("Inventory Valuation Event",
-		filters={"item_code": item, "std_trans": ("in", ("Rev Beg", "REV In", "REV out"))})
+		filters={"item_code": item, "source_docname": scv2.name,
+			"std_trans": ("in", ("Rev Beg", "REV In", "REV out"))})
 	check("future-effective release posts no triplet at release",
 		not revs and not frappe.db.get_value(
 			"Item Standard Cost Version", scv2.name, "revaluation_posted"), str(revs))
@@ -382,7 +385,7 @@ def run_year_end(company, wh):
 		"item_code": item, "valid_from_year": today.year, "valid_from_month": today.month,
 		"standard_cost": 12, "source_type": "MANUAL_OVERRIDE"})
 	scv.insert(ignore_permissions=True)
-	scv.release()
+	release_or_pend(scv)
 
 	tsa = frappe.get_all("Account", filters={"company": company, "is_group": 0,
 		"account_type": "Temporary"}, limit=1, pluck="name")
@@ -440,7 +443,7 @@ def run_year_end(company, wh):
 		"item_code": item2, "valid_from_year": 2025, "valid_from_month": 12,
 		"standard_cost": 12, "source_type": "MANUAL_OVERRIDE"})
 	scv2.insert(ignore_permissions=True)
-	scv2.release()
+	release_or_pend(scv2)
 	e2 = StdEngine(company, item2, wh)
 	e2.post(trans="Rec", posting_date="2025-12-10", qty=100, sc=12, ac=15,
 		source=("Stock Reconciliation", sr.name))
