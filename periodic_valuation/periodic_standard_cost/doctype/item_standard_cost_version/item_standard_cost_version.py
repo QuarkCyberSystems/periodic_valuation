@@ -215,10 +215,13 @@ class ItemStandardCostVersion(Document):
 		if prior_sc is None or (effective_now and flt(self.standard_cost) == prior_sc):
 			self.db_set("revaluation_posted", 1, update_modified=False)
 			return self.name
-		if self._prior_period_open(today):
-			# DR-54 (STD-003 / STD-004): a backdated change revalues its
-			# valid-from month, and that revaluation reverses on day 1 of the
-			# current period before the current period revalues again
+		if not self.switch_on_release and self._prior_period_open(today):
+			# DR-54 (STD-003 / STD-004), "First day of the period": a backdated
+			# change revalues its valid-from month, and that revaluation
+			# reverses on day 1 of the current period before the current period
+			# revalues again. "Latest day of the period" means the newest day -
+			# the release day - so a backdated change there switches at its
+			# release like any other (DR-50) and touches no earlier month.
 			self.post_prior_period_revaluation(prior_sc, today)
 		if self.switch_on_release:
 			self.post_release_revaluation(prior_sc)
@@ -299,14 +302,12 @@ class ItemStandardCostVersion(Document):
 
 	def post_prior_period_revaluation(self, old_sc, today):
 		"""DR-54 (client tickets STD-003 / STD-004, design §8.A, Vivek
-		06/10/2026): a change valid from an earlier month that is still open
-		revalues THAT month, dated per the company's option on the valid-from
-		month - day 1 with the month's triplet ("First day of the period"),
-		or the month's last day on its closing stock ("Latest day of the
-		period", Rev End). Its stock effect - the value the month's closing
-		stock gained or lost - reverses on day 1 of the current period
-		(Rev Reverse, Standard Cost Revaluation Reserve against Stock In
-		Hand), and the current period then revalues again under its own rule.
+		06/10/2026), "First day of the period" only: a change valid from an
+		earlier month that is still open revalues THAT month with its day-1
+		triplet. Its stock effect - the value the month's closing stock gained
+		or lost - reverses on day 1 of the current period (Rev Reverse,
+		Standard Cost Revaluation Reserve against Stock In Hand), and the
+		current period then revalues again under its own rule.
 		The current period's stock therefore ends exactly where a current-only
 		revaluation leaves it; the valid-from month's books, and its
 		settlement, carry the new cost."""
@@ -320,12 +321,8 @@ class ItemStandardCostVersion(Document):
 		assert_posting_allowed(self.company, get_first_day(today))
 		month_end = get_last_day(f"{self.valid_from_year}-{self.valid_from_month:02d}-01")
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
-		if self.switch_on_release:
-			rev_amount = net = r2(self.post_period_end_revaluation(old_sc, day=month_end))
-			out_amount = 0.0
-		else:
-			rev_amount, out_amount, net = self.post_revaluation_triplet(
-				old_sc, as_of=month_end, prior_period=True)
+		rev_amount, out_amount, net = self.post_revaluation_triplet(
+			old_sc, as_of=month_end, prior_period=True)
 		# What reverses: MTD revalues the current month on its own month-to-date
 		# buckets, so only the stock the earlier month handed over comes back
 		# out - its consumption adjustment (REV out) stays in that month. YTD
@@ -372,7 +369,7 @@ class ItemStandardCostVersion(Document):
 			self._record_zero_revaluation(engine, "Rev Rel", day, old_sc)
 		self.db_set("revaluation_posted", 1, update_modified=False)
 
-	def post_period_end_revaluation(self, old_sc, day=None):
+	def post_period_end_revaluation(self, old_sc):
 		"""DR-50 before its 05/10/2026 amendment ("Last day of the period"):
 		only the quantity still on hand at the end of the switch month is
 		revalued - closing qty x (new - old), dated the month's last day
@@ -383,8 +380,7 @@ class ItemStandardCostVersion(Document):
 		from periodic_valuation.shared.periods import assert_posting_allowed
 
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
-		prior_period = day is not None
-		day = getdate(day or self.revaluation_date)
+		day = getdate(self.revaluation_date)
 		assert_posting_allowed(self.company, day)
 		closing = engine.end_qty_mtd(day.year, day.month) if engine.view == "MTD" \
 			else engine.end_qty_ytd(day.year, day.month)
@@ -394,11 +390,9 @@ class ItemStandardCostVersion(Document):
 			engine.post(trans="Rev End", posting_date=day, source=source, sc=self.standard_cost,
 				ac=old_sc, t_sc_override=amount, cost_version=self.name)
 			book_revaluation(engine, day, amount, source)
-		elif not prior_period:
+		else:
 			self._record_zero_revaluation(engine, "Rev End", day, old_sc)
-		if not prior_period:
-			self.db_set("revaluation_posted", 1, update_modified=False)
-		return amount
+		self.db_set("revaluation_posted", 1, update_modified=False)
 
 	def post_revaluation_triplet(self, old_sc, as_of=None, prior_period=False):
 		"""The day-1 revaluation triplet (DR-12 / DR-49) of the month `as_of`
