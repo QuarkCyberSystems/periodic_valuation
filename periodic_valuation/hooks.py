@@ -61,6 +61,8 @@ doc_events = {
 	},
 	"Purchase Invoice": {
 		"on_submit": "periodic_valuation.periodic_moving_average.invoice_diff.on_purchase_invoice_submit",
+		# the draft Accounting Ledger preview shows the final GL, ours included
+		"before_gl_preview": "periodic_valuation.periodic_moving_average.invoice_diff.preview_invoice_diff",
 	},
 	# defaults-as-templates: blank STD items get the group default stamped on save
 	"Item": {

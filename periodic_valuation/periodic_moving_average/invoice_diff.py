@@ -102,6 +102,22 @@ def on_purchase_invoice_submit(doc, method=None):
 		)
 
 
+def preview_invoice_diff(doc, method=None):
+	"""`before_gl_preview` (client, 06/10/2026: the draft invoice's ledger
+	preview showed a simulation, not the final GL). ERPNext's draft
+	Accounting Ledger preview runs only the invoice's own make_gl_entries and
+	then rolls the transaction back; the invoice difference posts from
+	on_submit, so the preview left out every leg this module adds - the
+	Stock In Hand / Price Difference / PRD / FX split and a backdated
+	invoice's next-period revaluation (DR-53). Post it here, inside the
+	preview's transaction: every leg posts under this invoice's number, so the
+	preview reads it back with the rest, and the preview's rollback discards
+	it with everything else."""
+	if doc.docstatus != 0 or doc.is_new():
+		return
+	on_purchase_invoice_submit(doc)
+
+
 def _reverse_invoice_diff(doc):
 	"""Cancellation PI: mirror the original PI's invoice-diff events."""
 	original = doc.get("cancellation_against")
