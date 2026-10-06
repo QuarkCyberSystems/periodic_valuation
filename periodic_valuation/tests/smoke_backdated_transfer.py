@@ -134,6 +134,29 @@ def run(commit=False):
 	bad = [x for x in cont["detail"] if x.startswith("_SMK-BTRF")]
 	check("continuity gate: no transfer item breaks the carry chain", not bad, str(bad))
 
+	# ============ E: a month's missing row seeds from the closing before it,
+	# even when a LATER month's row already exists (MH #46 on UAT: August 2,
+	# October 2, September loaded at 0)
+	from periodic_valuation.periodic_moving_average.kernel import ScopeState
+	from periodic_valuation.shared.immutable import KERNEL_FLAG
+
+	it_e = make_item("_SMK-BTRF-E", include_warehouse=1)
+	py, pm = (cy - 1, 12) if cm == 1 else (cy, cm - 1)
+	ey, em = (py - 1, 12) if pm == 1 else (py, pm - 1)
+	frappe.flags[KERNEL_FLAG] = True
+	try:
+		for (y, m, q) in ((ey, em, 2), (cy, cm, 2)):
+			frappe.get_doc({"doctype": "Inventory Period Balance", "company": COMPANY, "item_code": it_e,
+				"warehouse": wh2, "period_year": y, "period_month": m, "opening_qty": q,
+				"opening_value": 7, "closing_qty": q, "closing_value": 7, "moving_avg_price": 3.5,
+				}).insert(ignore_permissions=True)
+	finally:
+		frappe.flags[KERNEL_FLAG] = False
+	seeded = ScopeState(COMPANY, it_e, wh2).load(frappe._dict(period_year=py, period_month=pm))
+	check("E a missing previous-month row seeds from the month before it (2 / 7), not zero",
+		(flt(seeded.opening_qty), flt(seeded.opening_value, 2)) == (2, 7)
+		and flt(seeded.moving_avg_price) == 3.5, f"{seeded.opening_qty} {seeded.opening_value}")
+
 	failed = [x for x in CHECKS if not x[1]]
 	print(f"\n{len(CHECKS) - len(failed)}/{len(CHECKS)} checks passed")
 	if commit and not failed:

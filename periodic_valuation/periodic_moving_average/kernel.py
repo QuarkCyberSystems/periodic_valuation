@@ -87,24 +87,26 @@ class ScopeState:
 		return frappe.get_doc("Inventory Period Balance", name)
 
 	def _previous_closing(self, period):
-		row = frappe.get_all(
-			"Inventory Period Balance",
-			filters={
-				"company": self.company,
-				"item_code": self.item_code,
-				"warehouse": self.warehouse or "",
+		# the latest row BEFORE `period`: a later month's row may already exist
+		# (rows are created on a scope's first posting in a month), so the
+		# period bound belongs in the query - filtering a limit-1 latest row
+		# seeded a backdated month's missing row at zero
+		row = frappe.db.sql(
+			"""
+			select closing_qty, closing_value, moving_avg_price,
+				total_received_since_zero, is_negative, frozen_map
+			from `tabInventory Period Balance`
+			where company = %(company)s and item_code = %(item_code)s and warehouse = %(warehouse)s
+				and (period_year < %(year)s or (period_year = %(year)s and period_month < %(month)s))
+			order by period_year desc, period_month desc
+			limit 1
+			""",
+			{
+				"company": self.company, "item_code": self.item_code, "warehouse": self.warehouse or "",
+				"year": period.period_year, "month": period.period_month,
 			},
-			fields=[
-				"period_year", "period_month", "closing_qty", "closing_value",
-				"moving_avg_price", "total_received_since_zero", "is_negative", "frozen_map",
-			],
-			order_by="period_year desc, period_month desc",
-			limit=1,
+			as_dict=True,
 		)
-		row = [
-			x for x in row
-			if (x.period_year, x.period_month) < (period.period_year, period.period_month)
-		]
 		if not row:
 			return {"qty": 0, "value": 0, "map": 0, "counter": 0, "is_negative": 0, "frozen_map": 0}
 		x = row[0]
