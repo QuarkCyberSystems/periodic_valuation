@@ -305,7 +305,8 @@ class ItemStandardCostVersion(Document):
 		month only (effective_to = its last day). The month is revalued with
 		its triplet, dated its day 1 ("First day of the period") or its last
 		day ("Latest day of the period"); on day 1 of the current month the
-		stock it handed over is revalued back (Rev Reverse - Standard Cost
+		stock it handed over is revalued back (Rev Reverse, dated day 1 or the
+		release day per the option - DR-59 - Standard Cost
 		Revaluation Reserve against Stock In Hand), because the current month
 		keeps the standard in force there and its stock must stand at that
 		standard. The corrected month's consumption adjustment (REV out) stays
@@ -315,9 +316,12 @@ class ItemStandardCostVersion(Document):
 		from periodic_valuation.periodic_standard_cost.kernel import book_revaluation
 		from periodic_valuation.shared.periods import assert_posting_allowed
 
-		day1 = get_first_day(today)
-		# the reversal lands in the current month: refuse before posting
-		# anything into the earlier month when the current one cannot take it
+		from periodic_valuation.periodic_standard_cost.engine import backdate_entry_date
+
+		# the reversal lands in the current month, dated by the Revaluation
+		# Posting Date option (STD-004, DR-59): refuse before posting anything
+		# into the earlier month when the current one cannot take it
+		day1 = backdate_entry_date(self.company, today)
 		assert_posting_allowed(self.company, day1)
 		month_end = get_last_day(f"{self.valid_from_year}-{self.valid_from_month:02d}-01")
 		post_on = month_end if latest else None
