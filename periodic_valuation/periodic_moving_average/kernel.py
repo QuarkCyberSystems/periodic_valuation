@@ -825,19 +825,15 @@ def _post_transfer(controller, out_sle, in_sle):
 		prd_amount=result["prd"], affects_map=1, stock_uom=in_sle.get("stock_uom"),
 	)
 	in_scope.save(ipb_in, caused_by=ive_in, movement_event=sme_in, source=source)
+	# the in-leg is a receipt at the source's unit cost: into negative stock
+	# it carries a price difference like any other receipt (DR-60)
+	post_gl(controller, posting_date, _receipt_legs(in_scope, result, in_account, out_account), ive_in)
 	if backdated:
 		absorb_in = _carry_receipt_into_open(controller, in_scope, cur_in, open_period, qty, rate, result,
 			in_was_negative, ive_in, in_account, source)
 		write_sle(controller, in_sle, in_scope, cur_in, result["net_to_inventory"] + absorb_in)
 	else:
 		write_sle(controller, in_sle, in_scope, ipb_in, result["net_to_inventory"])
-
-	if out_account != in_account:
-		post_gl(
-			controller, posting_date,
-			[(in_account, value, out_account), (out_account, -value, in_account)],
-			ive_in,
-		)
 
 	if not backdated:
 		maybe_rounding_cleanup(controller, out_scope, ipb_out, source, posting_date, qty_scale=qty)
@@ -980,16 +976,25 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=qty)
 
 
-def _receipt_legs(scope, result, inventory_account, srbnb):
+def _receipt_legs(scope, result, inventory_account, offset_account):
 	"""GL legs of a receipt: inventory at the net amount, the price difference
 	of a receipt into negative stock to PRD, the offset at the gross amount -
-	one entry, inventory never moved twice (MAP-002, DR-60)."""
-	legs = [(inventory_account, result["net_to_inventory"], srbnb)]
+	one entry, inventory never moved twice (MAP-002, DR-60). The offset is
+	GR/IR for a purchase and the source inventory for a warehouse transfer;
+	legs on the same account are combined, so a transfer between warehouses
+	sharing one inventory account posts only its price difference."""
+	legs = [(inventory_account, result["net_to_inventory"], offset_account)]
 	if result["prd"]:
 		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
-		legs.append((prd_account, result["prd"], srbnb))
-	legs.append((srbnb, -result["receipt_value"], inventory_account))
-	return legs
+		legs.append((prd_account, result["prd"], offset_account))
+	legs.append((offset_account, -result["receipt_value"], inventory_account))
+	combined = {}
+	for account, amount, __ in legs:
+		combined[account] = r2(combined.get(account, 0.0) + amount)
+	return [
+		(account, amount, ", ".join(a for a, x in combined.items() if x * amount < 0))
+		for account, amount in combined.items()
+	]
 
 
 def _apply_receipt(ipb, qty, rate):
