@@ -60,6 +60,22 @@ def get_std_setting(company, key):
 	return frappe.db.get_value("Periodic Standard Cost Settings", name, key)
 
 
+def backdate_entry_date(company, today=None):
+	"""Posting date of the current-period entries a backdated transaction
+	generates - the reversal of a backdated cost change's revaluation and the
+	(BD)/(BY) bridging companions of backdated receipts and issues (client
+	ticket STD-004, 07/10/2026, DR-59): set by Periodic Standard Cost
+	Settings > Revaluation Posting Date - day 1 of the current period ("First
+	day of the period") or the day it is entered ("Latest day of the
+	period")."""
+	from frappe.utils import get_first_day
+
+	today = getdate(today or frappe.utils.nowdate())
+	latest = get_std_setting(company, "revaluation_posting_date") in (
+		"Latest day of the period", "Last day of the period")
+	return today if latest else getdate(get_first_day(today))
+
+
 def get_settlement_view(company, item_code):
 	"""The item's own field is the single operative config. Group/company
 	defaults are TEMPLATES: the first time a blank item resolves through one,

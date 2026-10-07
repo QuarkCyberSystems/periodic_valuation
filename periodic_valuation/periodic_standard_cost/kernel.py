@@ -24,6 +24,7 @@ from frappe.utils import flt, getdate
 
 from periodic_valuation.periodic_standard_cost.engine import (
 	StdEngine,
+	backdate_entry_date,
 	get_active_standard_cost,
 	get_std_setting,
 	r2,
@@ -309,9 +310,11 @@ def _post_companion_if_needed(engine, controller, sle, trans, qty, sc_original, 
 	if trans.startswith("Issue"):
 		companion_value = -companion_value
 	# zero-delta companions still post (simulators' zero-bridging rows): the
-	# audit chain must show the bridge was evaluated, not skipped
+	# audit chain must show the bridge was evaluated, not skipped. Dated by
+	# the Revaluation Posting Date option (STD-004, DR-59)
+	on = backdate_entry_date(engine.company, today)
 	engine.post(
-		trans=f"{trans} - Rev", posting_date=today, qty=qty,
+		trans=f"{trans} - Rev", posting_date=on, qty=qty,
 		sc=current.standard_cost, source=source, ref=source[1],
 		t_sc_override=companion_value, cost_version=current.name,
 	)
@@ -321,7 +324,7 @@ def _post_companion_if_needed(engine, controller, sle, trans, qty, sc_original, 
 		# mirrored into the stock ledger (DR-02) - without it core stock
 		# reports drifted by exactly this amount (UAT: ABC Item - STD YTD
 		# Test - MH S03, 20,000)
-		book_revaluation(engine, today, companion_value, source, stock_uom=sle.get("stock_uom"))
+		book_revaluation(engine, on, companion_value, source, stock_uom=sle.get("stock_uom"))
 
 
 def _bridge_release_switch(engine, posting_date, qty, sc_posted, source, today):

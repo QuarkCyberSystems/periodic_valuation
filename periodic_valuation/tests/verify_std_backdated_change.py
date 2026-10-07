@@ -14,7 +14,7 @@ in the current month; the previous month received 1,000 at 300 and issued
      the consumption adjustment stays in the previous month; the earlier
      version stays RELEASED; GL = valuation events in both months
   B  MTD, "Latest day of the period": the same, the triplet dated the
-     previous month's last day
+     previous month's last day and the reversal the release day (DR-59)
   C  YTD, "First day": the previous month's YTD triplet, then the stock
      reversed on day 1 - consumption adjusted once (20,000)
   D  previous month already settled for the item: nothing posts into it;
@@ -23,7 +23,8 @@ in the current month; the previous month received 1,000 at 300 and issued
      revaluation would be; no reversal
   F  a change for the current month is unchanged
   G  a late receipt into the corrected month is valued at 400 and bridged
-     back to the current month's 300 (DR-09 companion)
+     back to the current month's 300 (DR-09 companion), dated day 1 under
+     "First day of the period" (DR-59)
   H  a new version for the current month measures its delta from the
      current month's standard (300), not from the correction
 
@@ -138,8 +139,8 @@ def _run():
 
 		# ---- G: late receipt into the corrected month -------------------------
 		late = pack.make_pr(a, wh, 10, 300, posting_date=str(p3))
-		check("G: a late receipt into the corrected month is at 400 and bridged back to 300 today",
-			_events(late.name) == sorted([("REC (BD)", 4000.0, str(p3)), ("REC (BD) - Rev", -1000.0, str(today))])
+		check("G: a late receipt into the corrected month is at 400, bridged back to 300 on day 1 (First day, DR-59)",
+			_events(late.name) == sorted([("REC (BD)", 4000.0, str(p3)), ("REC (BD) - Rev", -1000.0, str(day1))])
 			and _closing(a, today) == (810.0, 243000.0), f"{_events(late.name)} {_closing(a, today)}")
 
 		# ---- H: a new version for the current month ------------------------------
@@ -152,9 +153,9 @@ def _run():
 		_set("Latest day of the period")
 		b, _b0 = setup("_STD-BDCOR-B")
 		vb = pack.scv_release(b, prev.year, prev.month, 400)
-		check("B: previous month revalued on its last day, reversed on day 1 of the current month",
+		check("B: previous month revalued on its last day, reversed on the release day (Latest day, DR-59)",
 			_events(vb.name) == sorted([("REV In", 100000.0, str(plast)), ("REV out", -20000.0, str(plast)),
-				("Rev Reverse", -80000.0, str(day1))]), str(_events(vb.name)))
+				("Rev Reverse", -80000.0, str(today))]), str(_events(vb.name)))
 		check("B: previous month 800 x 400, current month 800 x 300",
 			_closing(b, prev) == (800.0, 320000.0) and _closing(b, today) == (800.0, 240000.0),
 			f"{_closing(b, prev)} {_closing(b, today)}")
