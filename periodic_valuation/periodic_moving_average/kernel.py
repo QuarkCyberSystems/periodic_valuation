@@ -877,14 +877,7 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 			prd_amount=result["prd"], affects_map=1, stock_uom=sle.get("stock_uom"),
 			exchange_rate_at_receipt=_receipt_fx(controller),
 		)
-		legs = [
-			(inventory_account, result["receipt_value"], srbnb),
-			(srbnb, -result["receipt_value"], inventory_account),
-		]
-		if result["prd"]:
-			prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
-			legs += [(prd_account, result["prd"], inventory_account),
-				(inventory_account, -result["prd"], prd_account)]
+		legs = _receipt_legs(scope, result, inventory_account, srbnb)
 		scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
 		write_sle(controller, sle, scope, ipb, result["net_to_inventory"])
 		post_gl(controller, posting_date, legs, ive)
@@ -987,6 +980,18 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=qty)
 
 
+def _receipt_legs(scope, result, inventory_account, srbnb):
+	"""GL legs of a receipt: inventory at the net amount, the price difference
+	of a receipt into negative stock to PRD, the offset at the gross amount -
+	one entry, inventory never moved twice (MAP-002, DR-60)."""
+	legs = [(inventory_account, result["net_to_inventory"], srbnb)]
+	if result["prd"]:
+		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
+		legs.append((prd_account, result["prd"], srbnb))
+	legs.append((srbnb, -result["receipt_value"], inventory_account))
+	return legs
+
+
 def _apply_receipt(ipb, qty, rate):
 	"""Receipt math on the IPB row - mirrors reference kernel receipt()."""
 	receipt_value = r2(qty * rate)
@@ -1002,7 +1007,7 @@ def _apply_receipt(ipb, qty, rate):
 	frozen = flt(ipb.frozen_map)
 	if closing + qty <= 0:
 		prd = r2((rate - frozen) * qty)
-		net = r2(qty * frozen)
+		net = r2(receipt_value - prd)  # = qty x frozen; exact against the one GL entry
 		ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
 		ipb.receipt_value = r6(flt(ipb.receipt_value) + receipt_value)
 		ipb.prd_value = r6(flt(ipb.prd_value) - prd)
@@ -1018,7 +1023,7 @@ def _apply_receipt(ipb, qty, rate):
 	clearing = r6(-closing)
 	excess = r6(qty - clearing)
 	prd = r2((rate - frozen) * clearing)
-	net = r2(clearing * frozen + excess * rate)
+	net = r2(receipt_value - prd)  # = clearing x frozen + excess x rate
 	ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
 	ipb.receipt_value = r6(flt(ipb.receipt_value) + receipt_value)
 	ipb.prd_value = r6(flt(ipb.prd_value) - prd)
@@ -1099,11 +1104,14 @@ def _freeze_check(ipb):
 	if flt(ipb.closing_qty) < 0 and not ipb.is_negative:
 		ipb.is_negative = 1
 		ipb.frozen_map = flt(ipb.moving_avg_price)
-	elif flt(ipb.closing_qty) >= 0 and ipb.is_negative:
+	elif flt(ipb.closing_qty) >= 0:
 		ipb.is_negative = 0
 		ipb.frozen_map = 0
 	if flt(ipb.closing_qty) == 0:
 		ipb.total_received_since_zero = 0
+		# a scope at zero keeps its MAP, and Frozen MAP shows it (MAP-003, DR-61);
+		# pricing reads frozen_map only while is_negative, so this is display
+		ipb.frozen_map = flt(ipb.moving_avg_price)
 
 
 def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=0):
@@ -1524,15 +1532,7 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 	)
 	scope.save(ipb_prior, caused_by=ive, movement_event=sme, source=source)
 
-	legs = [
-		(inventory_account, result["receipt_value"], srbnb),
-		(srbnb, -result["receipt_value"], inventory_account),
-	]
-	if result["prd"]:
-		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
-		legs += [(prd_account, result["prd"], inventory_account),
-			(inventory_account, -result["prd"], prd_account)]
-	post_gl(controller, posting_date, legs, ive)
+	post_gl(controller, posting_date, _receipt_legs(scope, result, inventory_account, srbnb), ive)
 
 	absorb = _carry_receipt_into_open(controller, scope, ipb_cur, open_period, qty, rate, result,
 		prior_was_negative, ive, inventory_account, source)

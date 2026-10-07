@@ -239,6 +239,8 @@ def run(commit=False):
 	check("ISSZERO current: 0 / 0.00, MAP retained at 16.6667",
 		flt(c.closing_qty) == 0 and flt(c.closing_value, 2) == 0 and flt(c.moving_avg_price, 4) == 16.6667,
 		f"{c.closing_qty}/{c.closing_value}/{c.moving_avg_price}")
+	check("ISSZERO Frozen MAP shows the retained MAP 16.6667, not 0 (MAP-003)",
+		flt(c.frozen_map, 4) == 16.6667 and not c.is_negative, f"{c.frozen_map} neg {c.is_negative}")
 	check("ISSZERO GL: residual 25 -> Dr PRD 25 / Cr Inventory 25 on day 1",
 		gl_net(dn.name, stock, first_of_cur) == -25 and gl_net(dn.name, prd, first_of_cur) == 25,
 		f"stock {gl_net(dn.name, stock, first_of_cur)} prd {gl_net(dn.name, prd, first_of_cur)}")
