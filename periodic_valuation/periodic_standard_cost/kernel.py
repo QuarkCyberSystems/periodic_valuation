@@ -245,6 +245,7 @@ def _post_cancellation_std(controller, engine, sle, period):
 		ipb.reval_value = r2(flt(ipb.reval_value) + value)
 	recompute_closing(ipb)
 	scope.save(ipb, source=(controller.doctype, controller.name))
+	engine.refresh_ipb_pools(ipb.period_year, ipb.period_month)  # STD-013: pools stay current
 	mirrored = dict(sle)
 	mirrored["actual_qty"] = qty
 	mirrored["posting_date"] = mirror.posting_date
@@ -407,6 +408,7 @@ def book_revaluation(engine, day, amount, source, standard_cost=None, stock_uom=
 	if flt(ipb.period_standard_cost):
 		ipb.closing_reference_value = r2(flt(ipb.closing_qty) * flt(ipb.period_standard_cost))
 	scope.save(ipb, source=source[:2])
+	engine.refresh_ipb_pools(ipb.period_year, ipb.period_month)  # STD-013: pools stay current
 	if not amount:
 		return
 	_cascade_backdated_ipb(scope, period, 0, amount, source=source[:2])
@@ -451,6 +453,7 @@ def _write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_na
 	ipb.active_cost_version = scv_name
 	ipb.closing_reference_value = r2(flt(ipb.closing_qty) * flt(sc))
 	scope.save(ipb, source=(controller.doctype, controller.name))
+	engine.refresh_ipb_pools(ipb.period_year, ipb.period_month)  # STD-013: pools stay current
 	_cascade_backdated_ipb(scope, period, qty, value, source=(controller.doctype, controller.name))
 	# stamp the quantity this posting actually moved: a Stock Reconciliation's
 	# routed row carries an ABSOLUTE target with actual_qty unset, so passing it
