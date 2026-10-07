@@ -344,7 +344,26 @@ class StdEngine:
 
 		if post_gl and trans not in SETT_FAMILY:
 			self._post_gl(ive, trans, total_sc, total_ac)
+		self.refresh_ipb_pools(pst.year, pst.month)
 		return ive
+
+	def refresh_ipb_pools(self, year, month):
+		"""Client ticket STD-013 (06/10/2026, DR-58): the period balance shows
+		the PPV and revaluation pools as they stand after every valuation
+		event, not only as stamped at settlement. They are the pools DR-13
+		defines - Σ(AC - SC) over the period's PPV rows and Σ over its Rev
+		rows, plus the carry from the prior settlement - read through the same
+		pool_ppv / pool_rev the settlement uses, so at close they equal the
+		settled pools. Display only: nothing reads them back."""
+		name = frappe.db.get_value("Inventory Period Balance", {
+			"company": self.company, "item_code": self.item_code,
+			"warehouse": self.warehouse or "", "period_year": year, "period_month": month,
+		})
+		if name:
+			frappe.db.set_value("Inventory Period Balance", name, {
+				"ppv_pool": r2(self.pool_ppv(year, month)),
+				"rev_pool": r2(self.pool_rev(year, month)),
+			}, update_modified=False)
 
 	# -------------------------------------------------------------- GL legs
 	def accounts(self):

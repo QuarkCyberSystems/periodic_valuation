@@ -305,7 +305,7 @@
    "read_only": 1
   },
   {
-   "description": "Snapshot at last settlement of this period.",
+   "description": "PPV pool of this period as it stands now: the price variances posted in it plus the share carried in from the previous settlement. Updated as each valuation event posts; at settlement it is the pool the settlement splits.",
    "fieldname": "ppv_pool",
    "fieldtype": "Currency",
    "label": "PPV Pool",
@@ -316,6 +316,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "Revaluation pool of this period as it stands now: the standard cost revaluations posted in it plus the share carried in from the previous settlement. Updated as each valuation event posts; at settlement it is the pool the settlement splits.",
    "fieldname": "rev_pool",
    "fieldtype": "Currency",
    "label": "Reval Pool",
@@ -370,7 +371,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-09-30 12:00:00.000000",
+ "modified": "2026-10-07 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period Balance",
