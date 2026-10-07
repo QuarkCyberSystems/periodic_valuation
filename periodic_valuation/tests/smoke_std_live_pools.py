@@ -10,7 +10,10 @@ bench --site <site> execute periodic_valuation.tests.smoke_std_live_pools.run
   5  at settlement the period balance's pools equal the settled pools
   6  the next month's balance carries the settlement's ending-stock share
      as soon as the settlement posts (MTD carry)
-  7  YTD: the pools follow the same events
+  7  YTD: the pools follow the same events and accumulate across the year
+     (client, 07/10/2026): an unsettled previous month's pools count in the
+     current month; a backdated PPV moves both months; once the months
+     settle the current month shows the settled YTD pool
   8  every value equals what the settlement engine would read at that moment
 
 Savepoint-rolled-back; run on the throwaway site.
@@ -110,5 +113,30 @@ def _run():
 		check("6: the current month's balance carries the ending-stock share at once (200 x 50/100 = 100)",
 			before == (0.0, 0.0) and _pools(it, today) == (flt(sett.ppv_es, 2), 0.0) == (100.0, 0.0),
 			f"before {before} after {_pools(it, today)} es {sett.ppv_es}")
+		# ---- 7: YTD accumulates across the year ------------------------------
+		if prev.year == today.year:
+			it = pack.std_item("_STD-LIVEPOOL-YTDACC", view="YTD")
+			pack.scv_release(it, prev.year, prev.month, 10)
+			pack.make_pr(it, wh, 100, 12, posting_date=str(p2))     # previous month PPV 200
+			pack.make_pr(it, wh, 50, 11)                              # current month PPV 50
+			check("7: YTD - the current month shows the year to date (200 + 50), the previous month its own 200",
+				_pools(it, prev) == (200.0, 0.0) and _pools(it, today) == (250.0, 0.0),
+				f"{_pools(it, prev)} {_pools(it, today)}")
+			pack.make_pr(it, wh, 20, 13, posting_date=str(p3))      # backdated PPV 60
+			check("7: YTD - a backdated PPV moves the previous month and every later month (260 / 310)",
+				_pools(it, prev) == (260.0, 0.0) and _pools(it, today) == (310.0, 0.0),
+				f"{_pools(it, prev)} {_pools(it, today)}")
+			pack.scv_release(it, today.year, today.month, 11)       # YTD triplet: REV In 170 x 1
+			check("7: YTD - a cost change adds its revaluation to the year to date (-170)",
+				_pools(it, today) == (310.0, -170.0), str(_pools(it, today)))
+			StdEngine(pack.COMPANY, it).close_period(year=prev.year, month=prev.month, sc=10,
+				source=("Inventory Period", prev_period))
+			sett = StdEngine(pack.COMPANY, it).close_period(year=today.year, month=today.month, sc=11,
+				source=("Inventory Period", cur_period))
+			check("7: YTD - once both months settle the current month shows the settled YTD pools",
+				_pools(it, today) == (flt(sett.ppv_pool, 2), flt(sett.rev_pool, 2)) == (310.0, -170.0),
+				f"{_pools(it, today)} vs {sett.ppv_pool}/{sett.rev_pool}")
+		else:
+			print("SKIP 7: the previous month is in the prior fiscal year")
 	finally:
 		frappe.db.rollback(save_point="std_live_pools")

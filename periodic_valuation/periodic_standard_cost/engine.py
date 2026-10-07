@@ -364,22 +364,41 @@ class StdEngine:
 		return ive
 
 	def refresh_ipb_pools(self, year, month):
-		"""Client ticket STD-013 (06/10/2026, DR-58): the period balance shows
-		the PPV and revaluation pools as they stand after every valuation
-		event, not only as stamped at settlement. They are the pools DR-13
-		defines - Σ(AC - SC) over the period's PPV rows and Σ over its Rev
-		rows, plus the carry from the prior settlement - read through the same
-		pool_ppv / pool_rev the settlement uses, so at close they equal the
-		settled pools. Display only: nothing reads them back."""
-		name = frappe.db.get_value("Inventory Period Balance", {
+		"""Client ticket STD-013 (DR-58): the period balance shows the PPV and
+		revaluation pools as they stand after every valuation event, not only
+		as stamped at settlement. Display only: nothing reads them back.
+
+		MTD: the month's pools as the settlement reads them (pool_ppv /
+		pool_rev - the month's own rows plus the previous month's settled
+		carry). YTD (client, 07/10/2026: "should be accumulated across the
+		Year"): the year-opening carry plus every PPV / revaluation row of the
+		year up to the month, whether or not the months in between have
+		settled - once they have, the same figure the YTD settlement reads. A
+		posting moves every later month's year-to-date figure, so YTD
+		refreshes the rest of the year too."""
+		filters = {
 			"company": self.company, "item_code": self.item_code,
-			"warehouse": self.warehouse or "", "period_year": year, "period_month": month,
-		})
-		if name:
-			frappe.db.set_value("Inventory Period Balance", name, {
-				"ppv_pool": r2(self.pool_ppv(year, month)),
-				"rev_pool": r2(self.pool_rev(year, month)),
-			}, update_modified=False)
+			"warehouse": self.warehouse or "", "period_year": year,
+			"period_month": month if self.view != "YTD" else (">=", month),
+		}
+		for row in frappe.get_all("Inventory Period Balance", filters=filters, fields=["name", "period_month"]):
+			ppv, rev = self._display_pools(year, row.period_month)
+			frappe.db.set_value("Inventory Period Balance", row.name,
+				{"ppv_pool": r2(ppv), "rev_pool": r2(rev)}, update_modified=False)
+
+	def _display_pools(self, year, month):
+		if self.view != "YTD":
+			return self.pool_ppv(year, month), self.pool_rev(year, month)
+		cond = "period_year = %(y)s AND period_month <= %(m)s AND {} = 1"
+		ppv = self._sum("total_ac - total_sc", cond.format("ppv_without_sett"), {"y": year, "m": month})
+		rev = self._sum("total_ac - total_sc", cond.format("rev_flag"), {"y": year, "m": month})
+		opening = self._last_live_settlement_in_year(year - 1)
+		if opening:
+			# the prior year's December inventory share opens this year's pools
+			# (DR-16 carry; zero under FULL_SETTLE_AT_YEAR_END)
+			ppv += flt(opening.ppv_es)
+			rev += flt(opening.rev_es)
+		return ppv, rev
 
 	# -------------------------------------------------------------- GL legs
 	def accounts(self):
