@@ -39,6 +39,16 @@ def make_pr(wh, qty, rate, posting_date=None):
 	return pr
 
 
+def receipt_gl(voucher):
+	"""(sorted debits, sorted credits, no account on both sides) of a receipt's GL."""
+	rows = frappe.get_all("GL Entry", filters={"voucher_no": voucher, "is_cancelled": 0},
+		fields=["account", "debit", "credit"])
+	dr = {r.account for r in rows if flt(r.debit)}
+	cr = {r.account for r in rows if flt(r.credit)}
+	return (sorted(flt(r.debit, 2) for r in rows if flt(r.debit)),
+		sorted(flt(r.credit, 2) for r in rows if flt(r.credit)), not (dr & cr))
+
+
 def make_dn(wh, qty):
 	dn = frappe.get_doc({
 		"doctype": "Delivery Note", "company": COMPANY, "customer": "_SMK Customer",
@@ -147,6 +157,8 @@ def run(commit=False):
 	ive = frappe.get_all("Inventory Valuation Event", filters={"source_docname": pr_neg.name},
 		fields=["reason_code", "prd_amount"])[0]
 	check("receipt_neg PRD = 6", ive.reason_code == "receipt_neg" and flt(ive.prd_amount, 2) == 6.00, str(ive))
+	check("receipt_neg GL: one entry, inventory at net 40 (MAP-002)",
+		receipt_gl(pr_neg.name) == ([6.0, 40.0], [46.0], True), str(receipt_gl(pr_neg.name)))
 
 	pr_cross = make_pr(wh, 13, frozen + 1)  # crosses -8 -> +5
 	ive = frappe.get_all("Inventory Valuation Event", filters={"source_docname": pr_cross.name},
@@ -157,6 +169,8 @@ def run(commit=False):
 		and flt(b.moving_avg_price, 4) == flt(frozen + 1, 4) and b.is_negative == 0,
 		f"{ive} MAP {b.moving_avg_price}")
 	check("counter = excess 5", flt(b.total_received_since_zero) == 5, str(b.total_received_since_zero))
+	check("cross-zero GL: one entry, inventory at net 265 (MAP-002)",
+		receipt_gl(pr_cross.name) == ([8.0, 265.0], [273.0], True), str(receipt_gl(pr_cross.name)))
 
 	# ---- Create Cancellation of pr_neg (mirror events, own date)
 	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
