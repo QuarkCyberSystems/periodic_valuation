@@ -139,7 +139,7 @@ class ItemStandardCostVersion(Document):
 	def release(self):
 		"""Release, then retire any version no date resolves to any more
 		(client, 08/10/2026: "two released Standard Costs for the same
-		period" - DR-60)."""
+		period" - DR-62)."""
 		name = self._release()
 		supersede_shadowed_versions(self.company, self.item_code, self.warehouse)
 		return name
@@ -238,7 +238,7 @@ class ItemStandardCostVersion(Document):
 		return self.name
 
 	def _hand_over_following_months(self):
-		"""DR-60: the version a correction replaces for its month keeps only
+		"""DR-62: the version a correction replaces for its month keeps only
 		the months after it - its prices-from moves to the month after, so
 		one RELEASED version covers each month and the list shows it."""
 		y, m = _next_month(self.valid_from_year, self.valid_from_month)
@@ -663,7 +663,7 @@ def _in_force(version, day):
 
 
 def supersede_shadowed_versions(company, item_code, warehouse):
-	"""DR-60 (client, 08/10/2026): a RELEASED version that no date resolves
+	"""DR-62 (client, 08/10/2026): a RELEASED version that no date resolves
 	to any more - every month it could price is taken by a later release -
 	is set to SUPERSEDED, so the list shows one RELEASED version per month.
 	The cost lookup is unchanged: it already skipped such a version.
