@@ -134,10 +134,19 @@ def _run():
 		check("6: YTD section - Receipts 25 after the return, Issues 0",
 			(r.ytd_receipt_qty, r.ytd_issue_qty) == (25, 0), str(r))
 
+		# a backdated receipt whose companion carries value, cancelled this month
+		x = pack.std_item("_STD-BUCKETS-BDCX")
+		pack.scv_release(x, prev.year, prev.month, 10)
+		pack.make_pr(x, wh, 30, 10, posting_date=str(add_days(prev, 2)))
+		pack.scv_release(x, today.year, today.month, 11)
+		bd = pack.make_pr(x, wh, 8, 10, posting_date=str(add_days(prev, 4)))   # companion 8 x 1
+		pack.make_pr(x, wh, 2, 11, posting_date=str(o2))
+		_cancel(bd)
+
 		# ---- 5: the repair patch ---------------------------------------------------
 		from periodic_valuation.patches.v1_0 import std_balance_buckets_and_carryover as patch
 
-		good = {n: _row(n, today) for n in (it, "_STD-CARRY-MTD", "_STD-CARRY-YTD")}
+		good = {n: _row(n, today) for n in (it, "_STD-CARRY-MTD", "_STD-CARRY-YTD", x)}
 		# write them back the old way: returns/cancellations by sign, carry in opening
 		frappe.db.set_value("Inventory Period Balance", good[it].name, {
 			"receipt_qty": 122, "receipt_value": 1220, "issue_qty": 62, "issue_value": 620}, update_modified=False)

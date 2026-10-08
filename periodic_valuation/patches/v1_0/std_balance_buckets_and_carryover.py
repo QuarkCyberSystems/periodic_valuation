@@ -28,7 +28,9 @@ def execute():
 	fixed, skipped = 0, []
 	for s in scopes:
 		engine = StdEngine(s.company, s.item_code, s.warehouse or None)
-		events = engine.events()
+		events = frappe.get_all("Inventory Valuation Event",
+			filters={**engine._scope_filters(), "std_trans": ("!=", "")},
+			fields=["std_trans", "period_year", "period_month", "qty_adj", "total_sc", "reversal_of", "creation"])
 		for row in frappe.get_all("Inventory Period Balance", filters={"company": s.company,
 				"item_code": s.item_code, "warehouse": s.warehouse or ""}, fields=["name"]):
 			ipb = frappe.get_doc("Inventory Period Balance", row.name)
@@ -39,6 +41,15 @@ def execute():
 				if (e.period_year, e.period_month) != key:
 					continue
 				b = bucket_of(e.std_trans)
+				if b is None and e.reversal_of and e.std_trans.endswith(" - Rev"):
+					# a cancellation books its companion's reversal with the
+					# movement it belongs to (kernel._post_cancellation_std)
+					b = bucket_of(e.std_trans[: -len(" - Rev")])
+					if b == "receipt":
+						rv += flt(e.total_sc)
+					elif b == "issue":
+						iv -= flt(e.total_sc)
+					continue
 				if b == "receipt":
 					rq += flt(e.qty_adj); rv += flt(e.total_sc)
 				elif b == "issue":
