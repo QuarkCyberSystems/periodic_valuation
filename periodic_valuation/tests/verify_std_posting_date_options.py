@@ -151,7 +151,10 @@ def _run():
 			late = pack.make_pr(it, wh, 20, 300, posting_date=str(o2))
 			check(f"{tag} 8: a late receipt dated {o2} is valued at 400, no extra entry",
 				[(x[0], x[1]) for x in _events(late.name)] == [("Rec", 8000.0)], str(_events(late.name)))
-			# 10 settlement - the same under both options (proportional)
+			# 10 settlement - the same under both options (proportional); months
+			# settle in order (STD-016), so the previous month first
+			StdEngine(pack.COMPANY, it).close_period(year=prev.year, month=prev.month, sc=300,
+				source=("Inventory Period", prev_period))
 			sett = StdEngine(pack.COMPANY, it).close_period(year=today.year, month=today.month, sc=400,
 				source=("Inventory Period", cur_period))
 			expected = flt(sett.rev_pool) * flt(sett.es_qty) / (flt(sett.beg_qty) + flt(sett.in_qty))
