@@ -402,8 +402,37 @@ class StdEngine:
 		}
 		for row in frappe.get_all("Inventory Period Balance", filters=filters, fields=["name", "period_month"]):
 			ppv, rev = self._display_pools(year, row.period_month)
-			frappe.db.set_value("Inventory Period Balance", row.name,
-				{"ppv_pool": r2(ppv), "rev_pool": r2(rev)}, update_modified=False)
+			values = {"ppv_pool": r2(ppv), "rev_pool": r2(rev)}
+			if self.view == "YTD":
+				values.update(self._ytd_balance(year, row.period_month))
+			frappe.db.set_value("Inventory Period Balance", row.name, values, update_modified=False)
+
+	YTD_SUMS = ("receipt_qty", "receipt_value", "issue_qty", "issue_value",
+		"adjust_qty", "adjust_value", "reval_value")
+
+	def _ytd_balance(self, year, month):
+		"""Client ticket STD-013, reopened 08/10/2026 ("all fields in the period
+		balance should be accumulated in STD YTD"): the balance's Year to Date
+		section - the year's opening (its first month's), every movement field
+		summed over the year's months up to this one, and this month's closing.
+		The monthly fields stay as they are: the period-close gates and the
+		next month's opening read them. Display only."""
+		rows = frappe.get_all("Inventory Period Balance",
+			filters={"company": self.company, "item_code": self.item_code,
+				"warehouse": self.warehouse or "", "period_year": year, "period_month": ("<=", month)},
+			fields=["period_month", "opening_qty", "opening_value", "closing_qty", "closing_value",
+				*self.YTD_SUMS],
+			order_by="period_month asc")
+		if not rows:
+			return {}
+		first, last = rows[0], rows[-1]
+		out = {"resolved_settlement_view": "YTD",
+			"ytd_opening_qty": flt(first.opening_qty), "ytd_opening_value": r2(first.opening_value),
+			"ytd_closing_qty": flt(last.closing_qty), "ytd_closing_value": r2(last.closing_value)}
+		for f in self.YTD_SUMS:
+			total = sum(flt(r.get(f)) for r in rows)
+			out[f"ytd_{f}"] = r2(total) if f.endswith("value") else total
+		return out
 
 	def _display_pools(self, year, month):
 		if self.view != "YTD":

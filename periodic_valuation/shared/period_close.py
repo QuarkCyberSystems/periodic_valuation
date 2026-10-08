@@ -407,9 +407,21 @@ def open_next_period(period):
 					"frozen_map": row.frozen_map,
 				}
 			).insert(ignore_permissions=True)
+			_refresh_std_display(period.company, row, next_year, next_month)
 	finally:
 		frappe.flags[KERNEL_FLAG] = False
 	return frappe.get_doc("Inventory Period", {"company": period.company, "period_year": next_year, "period_month": next_month})
+
+
+def _refresh_std_display(company, row, year, month):
+	"""A standard-cost balance seeded at the roll shows its pools and, on the
+	YTD view, its Year to Date section at once (STD-013), not only after the
+	month's first posting."""
+	if frappe.get_cached_value("Item", row.item_code, "valuation_method") != "Periodic Standard Cost":
+		return
+	from periodic_valuation.periodic_standard_cost.engine import StdEngine
+
+	StdEngine(company, row.item_code, row.warehouse or None).refresh_ipb_pools(year, month)
 
 
 def seed_next_period_openings(period):

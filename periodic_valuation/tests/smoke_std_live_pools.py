@@ -15,6 +15,8 @@ bench --site <site> execute periodic_valuation.tests.smoke_std_live_pools.run
      current month; a backdated PPV moves both months; once the months
      settle the current month shows the settled YTD pool
   8  every value equals what the settlement engine would read at that moment
+  9  YTD: the Year to Date section adds every balance field across the
+     year's months (client, reopened 08/10/2026); MTD balances leave it empty
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -85,6 +87,10 @@ def _run():
 			pack.make_pr(it, wh, 50, 9)
 			check(f"{view} 2: a receipt below standard takes it to 150",
 				_pools(it, today) == (150.0, 0.0), str(_pools(it, today)))
+			ytd_rec = flt(frappe.db.get_value("Inventory Period Balance", {"company": pack.COMPANY, "item_code": it,
+				"period_year": today.year, "period_month": today.month}, "ytd_receipt_qty"))
+			check(f"{view} 9: the Year to Date section is {'filled' if view == 'YTD' else 'left empty'}",
+				ytd_rec == (150.0 if view == "YTD" else 0.0), str(ytd_rec))
 			pack.make_dn(it, wh, 30)
 			check(f"{view} 3: an issue leaves both pools unchanged",
 				_pools(it, today) == (150.0, 0.0), str(_pools(it, today)))
@@ -129,6 +135,21 @@ def _run():
 			pack.scv_release(it, today.year, today.month, 11)       # YTD triplet: REV In 170 x 1
 			check("7: YTD - a cost change adds its revaluation to the year to date (-170)",
 				_pools(it, today) == (310.0, -170.0), str(_pools(it, today)))
+			# every balance field accumulates for YTD (client, reopened 08/10/2026)
+			cur = frappe.get_all("Inventory Period Balance", filters={"company": pack.COMPANY, "item_code": it,
+				"period_year": today.year, "period_month": today.month}, fields=["*"])[0]
+			prv = frappe.get_all("Inventory Period Balance", filters={"company": pack.COMPANY, "item_code": it,
+				"period_year": prev.year, "period_month": prev.month}, fields=["*"])[0]
+			check("9: YTD - the Year to Date section adds the year's months: receipts 120 + 50, value from both months",
+				flt(cur.ytd_receipt_qty) == 170 and flt(cur.ytd_receipt_value, 2) == flt(flt(prv.receipt_value) + flt(cur.receipt_value), 2)
+				and flt(cur.ytd_reval_value, 2) == flt(flt(prv.reval_value) + flt(cur.reval_value), 2)
+				and flt(cur.receipt_qty) == 50 and cur.resolved_settlement_view == "YTD",
+				f"ytd {cur.ytd_receipt_qty}/{cur.ytd_receipt_value} month {cur.receipt_qty}")
+			check("9: YTD - opening is the year's first month's, closing this month's",
+				flt(cur.ytd_opening_qty) == flt(prv.ytd_opening_qty) == flt(prv.opening_qty)
+				and flt(cur.ytd_closing_qty) == flt(cur.closing_qty)
+				and flt(cur.ytd_closing_value, 2) == flt(cur.closing_value, 2),
+				f"{cur.ytd_opening_qty}/{prv.opening_qty} {cur.ytd_closing_qty}/{cur.closing_qty}")
 			StdEngine(pack.COMPANY, it).close_period(year=prev.year, month=prev.month, sc=10,
 				source=("Inventory Period", prev_period))
 			sett = StdEngine(pack.COMPANY, it).close_period(year=today.year, month=today.month, sc=11,
