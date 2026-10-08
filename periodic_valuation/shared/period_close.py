@@ -410,6 +410,13 @@ def open_next_period(period):
 			_refresh_std_display(period.company, row, next_year, next_month)
 	finally:
 		frappe.flags[KERNEL_FLAG] = False
+	# the new month inherits each standard cost in force at its start as its
+	# own version (DR-65)
+	from periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version import (
+		inherit_costs_for_period,
+	)
+
+	inherit_costs_for_period(period.company, next_year, next_month)
 	return frappe.get_doc("Inventory Period", {"company": period.company, "period_year": next_year, "period_month": next_month})
 
 

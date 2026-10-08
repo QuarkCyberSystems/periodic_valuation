@@ -143,6 +143,7 @@ class ItemStandardCostVersion(Document):
 		overlap."""
 		name = self._release()
 		normalize_cost_windows(self.company, self.item_code, self.warehouse)
+		inherit_into_open_periods(self.company, self.item_code, self.warehouse)
 		return name
 
 	def _release(self):
@@ -239,9 +240,25 @@ class ItemStandardCostVersion(Document):
 			# STD-004): revalue the corrected month, reverse it on day 1 of the
 			# current month; the current month keeps its own standard
 			self.post_prior_period_revaluation(prior_sc, today, latest)
+			self._warn_later_periods_keep_cost(today)
 		else:
 			self.post_revaluation_triplet(prior_sc, post_on=today if latest else None)
 		return self.name
+
+	def _warn_later_periods_keep_cost(self, today):
+		"""DR-65: a backdated correction changes its own month only. Say so,
+		in case the new cost was meant to apply from the current period too."""
+		from periodic_valuation.periodic_standard_cost.engine import get_active_standard_cost
+
+		current = get_active_standard_cost(self.company, self.item_code, self.warehouse, today)
+		if not current or flt(current.standard_cost) == flt(self.standard_cost):
+			return
+		frappe.msgprint(
+			_("{0}-{1:02d} keeps its standard cost of {2}. If {3} also applies from {0}-{1:02d}, release a cost version for {0}-{1:02d}.").format(
+				today.year, today.month, frappe.format(current.standard_cost, "Currency"),
+				frappe.format(self.standard_cost, "Currency")),
+			title=_("Later Periods Keep Their Cost"), indicator="orange",
+		)
 
 	def _resolve_effective_prior(self):
 		"""The version whose standard cost is in force just before this one
@@ -730,6 +747,72 @@ def _continue_version(version, start, end):
 	if end:
 		doc.db_set("effective_to", end, update_modified=False)
 	return doc.name
+
+
+def inherit_period_cost(company, item_code, warehouse, year, month):
+	"""DR-65 (client, 08/10/2026, "Clarification of Standard Cost Version"):
+	a period that opens inherits the standard cost in force at its start as
+	its own version - same cost, source INHERITED, nothing to revalue - so
+	each month carries a record of its standard, and a correction of the
+	month before (DR-57) changes that month only. Never created when the
+	month already has a RELEASED version of its own, nor when no cost runs
+	into it (a cost is never inherited backwards, scenario 3). Returns the
+	new version's name or None."""
+	from periodic_valuation.periodic_standard_cost.engine import resolve_version
+
+	rows = frappe.get_all("Item Standard Cost Version", filters={
+		"company": company, "item_code": item_code,
+		"warehouse": ("in", (warehouse or "", None)), "status": "RELEASED"}, fields=WINDOW_FIELDS)
+	if any((x.valid_from_year, x.valid_from_month) == (year, month) for x in rows):
+		return None
+	day1 = getdate(f"{year}-{month:02d}-01")
+	source = resolve_version(rows, day1)
+	if not source:
+		return None
+	doc = frappe.get_doc({
+		"doctype": "Item Standard Cost Version", "company": company,
+		"item_code": item_code, "warehouse": source.warehouse,
+		"valid_from_year": year, "valid_from_month": month,
+		"standard_cost": source.standard_cost, "price_unit": source.price_unit,
+		"source_type": "INHERITED", "status": "RELEASED",
+		"supersedes_version": source.name, "released_on": now_datetime(),
+		"released_by": frappe.session.user, "revaluation_posted": 1,
+		"remarks": _("Inherited from {0} when {1}-{2:02d} opened.").format(source.name, year, month),
+	})
+	doc.flags.via_release_flow = True
+	doc.insert(ignore_permissions=True)
+	normalize_cost_windows(company, item_code, warehouse)
+	return doc.name
+
+
+def inherit_into_open_periods(company, item_code, warehouse):
+	"""Every postable month after the cost was set gets its inherited
+	version: a cost released for the previous period while the current one
+	is already open (client scenario 2) is inherited by the current one at
+	once (DR-65)."""
+	made = []
+	for p in frappe.get_all("Inventory Period", filters={"company": company,
+			"status": ("in", ("PREV_OPEN_UNSETTLED", "OPEN"))},
+			fields=["period_year", "period_month"], order_by="period_year asc, period_month asc"):
+		name = inherit_period_cost(company, item_code, warehouse, p.period_year, p.period_month)
+		if name:
+			made.append(name)
+	return made
+
+
+def inherit_costs_for_period(company, year, month):
+	"""A period that opens: every standard-cost scope of the company whose
+	cost runs into it inherits it (DR-65). Called from the period roll."""
+	made = []
+	scopes = frappe.db.sql("""SELECT DISTINCT v.item_code, IFNULL(v.warehouse, '') AS warehouse
+		FROM `tabItem Standard Cost Version` v JOIN `tabItem` i ON i.name = v.item_code
+		WHERE v.company = %s AND v.status = 'RELEASED' AND i.disabled = 0
+			AND i.valuation_method = 'Periodic Standard Cost'""", company, as_dict=True)
+	for s in scopes:
+		name = inherit_period_cost(company, s.item_code, s.warehouse or None, year, month)
+		if name:
+			made.append(name)
+	return made
 
 
 def assert_no_overlap(company, item_code, warehouse):

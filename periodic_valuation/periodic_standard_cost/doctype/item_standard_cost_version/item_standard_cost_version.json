@@ -135,7 +135,7 @@
    "fieldname": "source_type",
    "fieldtype": "Select",
    "label": "Source Type",
-   "options": "MANUAL_OVERRIDE\nSCE\nMIGRATION_OPENING\nCORRECTION_CONTINUATION",
+   "options": "MANUAL_OVERRIDE\nSCE\nMIGRATION_OPENING\nCORRECTION_CONTINUATION\nINHERITED",
    "reqd": 1
   },
   {
@@ -235,7 +235,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-08 14:00:00.000000",
+ "modified": "2026-10-08 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Item Standard Cost Version",
