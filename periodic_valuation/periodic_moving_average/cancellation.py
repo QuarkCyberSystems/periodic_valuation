@@ -55,7 +55,9 @@ def make_cancellation(doctype, name):
 
 	_block_if_has_dependents(doctype, name, original)
 
-	if doctype in RETURN_SHAPED:
+	if doctype in RETURN_SHAPED and not original.get("is_return"):
+		# (a return is itself cancelled by a copy - ERPNext has no return of
+		# a return; is_return_shaped tells the two apart)
 		# A PI/SI reversal is a debit/credit note: this reverses the party
 		# accounting (creditor/debtor, SRBNB/GRIR) and nets the receipt's
 		# billing status natively, so the receipt returns to 'To Bill' and can
@@ -83,6 +85,14 @@ def make_cancellation(doctype, name):
 	cancellation.flags.ignore_permissions = False
 	cancellation.insert()
 	return cancellation.name
+
+
+def is_return_shaped(doc):
+	"""A cancellation built as the native return of its original: its
+	quantities already carry the reversed sign. A copied cancellation (of a
+	Stock Entry, or of a return) carries the original's."""
+	return bool(doc.get("is_cancellation") and doc.get("is_return")
+		and doc.get("return_against") == doc.get("cancellation_against"))
 
 
 def _retype_reversal(cancellation):
@@ -219,8 +229,8 @@ def validate_cancellation_date(doc, method=None):
 		return
 	from frappe.utils import get_datetime
 
-	original = frappe.db.get_value(doc.doctype, doc.cancellation_against,
-		["posting_date", "posting_time"], as_dict=True)
+	fields = ["posting_date"] + (["posting_time"] if doc.meta.has_field("posting_time") else [])
+	original = frappe.db.get_value(doc.doctype, doc.cancellation_against, fields, as_dict=True)
 	if not original or not original.posting_date:
 		return
 
