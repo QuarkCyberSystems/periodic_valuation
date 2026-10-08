@@ -107,6 +107,15 @@ def _run():
 	mid = add_days(day1, 14)  # the release "happens" on the 15th
 	frappe.db.savepoint("std_reval_date")
 	try:
+		# the two open months: S12's backdated change needs the previous one
+		for when, status in ((prev, "PREV_OPEN_UNSETTLED"), (day1, "OPEN")):
+			name = frappe.db.get_value("Inventory Period",
+				{"company": company, "period_year": when.year, "period_month": when.month})
+			if not name:
+				doc = frappe.get_doc({"doctype": "Inventory Period", "company": company, "start_date": str(when)})
+				doc.flags.ignore_validate = True
+				name = doc.insert(ignore_permissions=True).name
+			frappe.db.set_value("Inventory Period", name, "status", status, update_modified=False)
 		# ---- S05: current month, 70 -> 90, 150 in / 40 out ----------------
 		s05 = _item("_STD-S05-REVDATE")
 		v70 = _version(company, s05, prev, 70)

@@ -596,7 +596,10 @@ def run_std(company, wh):
 	mirror = frappe.get_all("Inventory Valuation Event",
 		filters={"source_docname": cxl.name},
 		fields=["std_trans", "total_sc", "total_ac", "reversal_of"])
-	tc("STD TC-F1", mirror and mirror[0].std_trans == "Rec"
+	mirror = [x for x in mirror if not x.std_trans.endswith(" - Rev")]
+	# C1 rolled the machine: today's month is now PREV_OPEN_UNSETTLED, so the
+	# receipt is a Backdate Transaction (DR-64) and posted REC (BD) + companion
+	tc("STD TC-F1", mirror and mirror[0].std_trans in ("Rec", "REC (BD)")
 		and flt(mirror[0].total_sc) == -1000 and flt(mirror[0].total_ac) == -1200
 		and mirror[0].reversal_of, str(mirror))
 
