@@ -51,12 +51,19 @@ class InventoryPeriodSettlementRun(Document):
 		# per-scope failure isolation (m3): one scope's error must not abort
 		# the whole monthly run - its writes roll back to a savepoint and the
 		# remaining scopes still settle; failures land in Remarks.
+		visited = set()
 		for i, s in enumerate(scopes):
-			key = f"{s.item_code}" + (f" @ {s.warehouse}" if s.warehouse else "")
+			# an item valued at company level has one scope however many
+			# warehouses its events name: visit (and report) it once
+			engine = StdEngine(self.company, s.item_code, s.warehouse)
+			scope_key = (s.item_code, engine.warehouse or "")
+			if scope_key in visited:
+				continue
+			visited.add(scope_key)
+			key = f"{s.item_code}" + (f" @ {engine.warehouse}" if engine.warehouse else "")
 			sp = f"sett_run_{i}"
 			frappe.db.savepoint(sp)
 			try:
-				engine = StdEngine(self.company, s.item_code, s.warehouse)
 				if engine.is_period_locked(self.period_year, self.period_month):
 					continue
 				scv = get_active_standard_cost(

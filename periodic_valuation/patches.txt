@@ -18,3 +18,4 @@ periodic_valuation.patches.v1_0.std_ytd_balance_fields
 periodic_valuation.patches.v1_0.inherit_period_costs
 periodic_valuation.patches.v1_0.std_balance_buckets_and_carryover
 periodic_valuation.patches.v1_0.std_balance_buckets_and_carryover #companions
+periodic_valuation.patches.v1_0.std_event_reasons_and_settlement_detail

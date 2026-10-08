@@ -168,8 +168,8 @@ def recompute_closing(ipb):
 
 
 # ------------------------------------------------------------------- writers
-SYSTEM_REASONS = {"prd_split", "rounding_cleanup", "settlement", "settlement_reverse", "stranded_sweep",
-	"carry_revaluation"}
+SYSTEM_REASONS = {"prd_split", "rounding_cleanup", "settlement", "settlement_reverse", "settlement_carry",
+	"stranded_sweep", "carry_revaluation"}
 
 
 def _derive_intent(reason):

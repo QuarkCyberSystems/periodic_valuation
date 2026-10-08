@@ -66,6 +66,8 @@
   "resolved_settlement_view",
   "settlement_inventory_total",
   "settlement_consumption_total",
+  "actual_value_after_settlement",
+  "actual_unit_cost_after_settlement",
   "closing_reference_value"
  ],
  "fields": [
@@ -235,7 +237,8 @@
    "fieldname": "prd_value",
    "fieldtype": "Currency",
    "label": "PRD Value",
-   "read_only": 1
+   "read_only": 1,
+   "depends_on": "eval:!(doc.valuation_method == \"Periodic Standard Cost\")"
   },
   {
    "fieldname": "sec_closing",
@@ -268,7 +271,8 @@
    "label": "Unit Value",
    "precision": "6",
    "read_only": 1,
-   "description": "Moving average price for Periodic Moving Average items; the active standard cost for Periodic Standard Cost items."
+   "description": "Moving average price for Periodic Moving Average items; the active standard cost for Periodic Standard Cost items.",
+   "depends_on": "eval:!(doc.valuation_method == \"Periodic Standard Cost\")"
   },
   {
    "fieldname": "sec_ytd",
@@ -390,10 +394,10 @@
    "read_only": 1
   },
   {
-   "collapsible": 1,
+   "collapsible": 0,
    "fieldname": "sec_std",
    "fieldtype": "Section Break",
-   "label": "STD State",
+   "label": "Standard Cost",
    "depends_on": "eval:doc.valuation_method == \"Periodic Standard Cost\""
   },
   {
@@ -458,6 +462,20 @@
    "read_only": 1
   },
   {
+   "fieldname": "actual_value_after_settlement",
+   "fieldtype": "Currency",
+   "label": "Closing Value at Actual (after settlement)",
+   "read_only": 1,
+   "description": "Closing stock at standard cost plus its settled share of the variance. Set when the period is settled."
+  },
+  {
+   "fieldname": "actual_unit_cost_after_settlement",
+   "fieldtype": "Currency",
+   "label": "Actual Cost per Unit (after settlement)",
+   "read_only": 1,
+   "description": "Closing Value at Actual divided by the closing quantity."
+  },
+  {
    "description": "closing_qty x period standard cost (STD scopes)",
    "fieldname": "closing_reference_value",
    "fieldtype": "Currency",
@@ -471,7 +489,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-08 18:00:00.000000",
+ "modified": "2026-10-08 22:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period Balance",
