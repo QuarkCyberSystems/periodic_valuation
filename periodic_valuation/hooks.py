@@ -55,11 +55,21 @@ scheduler_events = {
 # effect hooks stay here.
 doc_events = {
 	"Stock Entry": {
-		# a reversal shows the ORIGINAL rate, not the valuation at reversal time
-		# (WA-0003-01 item 5)
-		"validate": "periodic_valuation.overrides.reversal_rate.restore_original_rates",
+		"validate": [
+			# a reversal shows the ORIGINAL rate, not the valuation at reversal time
+			# (WA-0003-01 item 5)
+			"periodic_valuation.overrides.reversal_rate.restore_original_rates",
+			# a cancellation is never dated before the original (STD-014)
+			"periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date",
+		],
 	},
+	"Purchase Receipt": {"validate": "periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date"},
+	"Delivery Note": {"validate": "periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date"},
+	"Sales Invoice": {"validate": "periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date"},
+	"Subcontracting Receipt": {"validate": "periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date"},
+	"Landed Cost Voucher": {"validate": "periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date"},
 	"Purchase Invoice": {
+		"validate": "periodic_valuation.periodic_moving_average.cancellation.validate_cancellation_date",
 		"on_submit": "periodic_valuation.periodic_moving_average.invoice_diff.on_purchase_invoice_submit",
 		# the draft Accounting Ledger preview shows the final GL, ours included
 		"before_gl_preview": "periodic_valuation.periodic_moving_average.invoice_diff.preview_invoice_diff",

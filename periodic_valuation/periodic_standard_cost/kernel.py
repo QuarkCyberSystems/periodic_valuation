@@ -207,12 +207,13 @@ def _post_cancellation_std(controller, engine, sle, period):
 	source = (controller.doctype, controller.name, detail)
 	mirror = None
 	for name in originals:
-		# Let reverse_event apply its own dating rule - into the original period
-		# while that period is still open, current-dated once it is settled.
-		# Forcing the cancellation document's own date here overrode that rule, so
-		# a reversal of a still-open prior period landed in the current period
-		# instead (STD Cancellation Matrix row 3 expects the prior period).
-		mirror = engine.reverse_event(name, source=source)
+		# the reversal posts on the cancellation's own date, as Moving Average
+		# does (client ticket STD-014, 08/10/2026; Apr-22 decision 8: a
+		# cancellation never copies the original's posting date). That date is
+		# in an open period (asserted above) and never before the original
+		# (cancellation.validate_cancellation_date). Replaces the Cancellation
+		# Matrix row 3 reading, which dated it into the original's period.
+		mirror = engine.reverse_event(name, source=source, posting_date=getdate(sle.get("posting_date")))
 
 	# SLE-compatible row + state at the ORIGINAL standard cost.
 	# Aggregate over EVERY event the original document produced, not just the
