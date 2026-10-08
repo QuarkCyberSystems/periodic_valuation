@@ -67,7 +67,6 @@
   {
    "fieldname": "valid_from_year",
    "fieldtype": "Int",
-   "in_list_view": 1,
    "label": "Valid From Year",
    "reqd": 1
   },
@@ -84,7 +83,8 @@
    "fieldname": "effective_from",
    "fieldtype": "Date",
    "label": "Effective From",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "depends_on": "effective_to",
@@ -93,7 +93,8 @@
    "fieldtype": "Date",
    "label": "Effective To",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "sec2",
@@ -224,7 +225,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-06 23:00:00.000000",
+ "modified": "2026-10-08 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Item Standard Cost Version",

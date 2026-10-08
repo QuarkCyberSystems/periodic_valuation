@@ -137,6 +137,14 @@ class ItemStandardCostVersion(Document):
 
 	@frappe.whitelist()
 	def release(self):
+		"""Release, then retire any version no date resolves to any more
+		(client, 08/10/2026: "two released Standard Costs for the same
+		period" - DR-60)."""
+		name = self._release()
+		supersede_shadowed_versions(self.company, self.item_code, self.warehouse)
+		return name
+
+	def _release(self):
 		"""Release this version (DR-55, client answers 06/10/2026).
 
 		Both settings price from the valid-from month and revalue with the
@@ -224,9 +232,31 @@ class ItemStandardCostVersion(Document):
 			# STD-004): revalue the corrected month, reverse it on day 1 of the
 			# current month; the current month keeps its own standard
 			self.post_prior_period_revaluation(prior_sc, today, latest)
+			self._hand_over_following_months()
 		else:
 			self.post_revaluation_triplet(prior_sc, post_on=today if latest else None)
 		return self.name
+
+	def _hand_over_following_months(self):
+		"""DR-60: the version a correction replaces for its month keeps only
+		the months after it - its prices-from moves to the month after, so
+		one RELEASED version covers each month and the list shows it."""
+		y, m = _next_month(self.valid_from_year, self.valid_from_month)
+		for name in frappe.get_all("Item Standard Cost Version", filters={
+				"company": self.company, "item_code": self.item_code,
+				"warehouse": ("in", (self.warehouse or "", None)), "status": "RELEASED",
+				"name": ("!=", self.name), "effective_to": ("is", "not set"),
+				"switch_on_release": 0, "released_on": ("<", self.released_on)}, pluck="name"):
+			other = frappe.get_doc("Item Standard Cost Version", name)
+			# only the version actually in force for the month after: one a later
+			# release already outranks there prices nothing and is retired below
+			if price_from(other) == (self.valid_from_year, self.valid_from_month) \
+					and _in_force(self, f"{y}-{m:02d}-01") == other.name:
+				other.db_set({"price_from_year": y, "price_from_month": m,
+					"effective_from": f"{y}-{m:02d}-01"}, update_modified=False)
+				other.add_comment("Info", _(
+					"From {0}-{1:02d}: {2} corrects {3}-{4:02d}, so this version applies from {0}-{1:02d}."
+				).format(y, m, self.name, self.valid_from_year, self.valid_from_month))
 
 	def _resolve_effective_prior(self):
 		"""The version whose standard cost is in force just before this one
@@ -619,3 +649,45 @@ def restamp_period_end_switches():
 			frappe.log_error(title=f"DR-50 re-stamp failed: {row.name}")
 			outcome["failed"].append(row.name)
 	return outcome
+
+
+def _in_force(version, day):
+	"""The RELEASED version the cost lookup resolves for `day`, or None."""
+	from periodic_valuation.periodic_standard_cost.engine import get_active_standard_cost
+
+	try:
+		return get_active_standard_cost(version.company, version.item_code, version.warehouse, day).name
+	except frappe.ValidationError:
+		frappe.clear_last_message()
+		return None
+
+
+def supersede_shadowed_versions(company, item_code, warehouse):
+	"""DR-60 (client, 08/10/2026): a RELEASED version that no date resolves
+	to any more - every month it could price is taken by a later release -
+	is set to SUPERSEDED, so the list shows one RELEASED version per month.
+	The cost lookup is unchanged: it already skipped such a version.
+	Versions released under the 05/10 switch-at-release rule (legacy, mid-
+	month switch) are left alone."""
+	rows = frappe.get_all("Item Standard Cost Version", filters={
+		"company": company, "item_code": item_code,
+		"warehouse": ("in", (warehouse or "", None)), "status": "RELEASED", "switch_on_release": 0},
+		fields=["name", "valid_from_year", "valid_from_month", "price_from_year", "price_from_month",
+			"effective_to", "released_on", "switch_on_release", "effective_from"])
+	retired = []
+	for x in rows:
+		later = [y for y in rows if y.name != x.name and switch_order(y) > switch_order(x)]
+		month = price_from(x)
+		if x.effective_to:
+			# a correction prices its own month only
+			covered = any(price_from(y) <= month and (not y.effective_to or price_from(y) == month) for y in later)
+		else:
+			corrected = {price_from(y) for y in later if y.effective_to}
+			while month in corrected:
+				month = _next_month(*month)
+			covered = any(not y.effective_to and price_from(y) <= month for y in later)
+		if covered:
+			retired.append(x.name)
+	for name in retired:
+		frappe.db.set_value("Item Standard Cost Version", name, "status", "SUPERSEDED", update_modified=False)
+	return retired
