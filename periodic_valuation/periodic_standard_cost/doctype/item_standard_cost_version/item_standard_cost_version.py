@@ -137,11 +137,12 @@ class ItemStandardCostVersion(Document):
 
 	@frappe.whitelist()
 	def release(self):
-		"""Release, then retire any version no date resolves to any more
-		(client, 08/10/2026: "two released Standard Costs for the same
-		period" - DR-62)."""
+		"""Release, then give every RELEASED version of the item its window -
+		Effective From to Effective To, never overlapping (client design
+		§3 / §4.1 / §4.5; DR-63) - and refuse the release if two would
+		overlap."""
 		name = self._release()
-		supersede_shadowed_versions(self.company, self.item_code, self.warehouse)
+		normalize_cost_windows(self.company, self.item_code, self.warehouse)
 		return name
 
 	def _release(self):
@@ -207,6 +208,7 @@ class ItemStandardCostVersion(Document):
 			from frappe.utils import get_last_day
 
 			self.effective_to = get_last_day(f"{self.valid_from_year}-{self.valid_from_month:02d}-01")
+			self.is_correction = 1
 
 		self.flags.via_release_flow = True
 		self.status = "RELEASED"
@@ -232,31 +234,9 @@ class ItemStandardCostVersion(Document):
 			# STD-004): revalue the corrected month, reverse it on day 1 of the
 			# current month; the current month keeps its own standard
 			self.post_prior_period_revaluation(prior_sc, today, latest)
-			self._hand_over_following_months()
 		else:
 			self.post_revaluation_triplet(prior_sc, post_on=today if latest else None)
 		return self.name
-
-	def _hand_over_following_months(self):
-		"""DR-62: the version a correction replaces for its month keeps only
-		the months after it - its prices-from moves to the month after, so
-		one RELEASED version covers each month and the list shows it."""
-		y, m = _next_month(self.valid_from_year, self.valid_from_month)
-		for name in frappe.get_all("Item Standard Cost Version", filters={
-				"company": self.company, "item_code": self.item_code,
-				"warehouse": ("in", (self.warehouse or "", None)), "status": "RELEASED",
-				"name": ("!=", self.name), "effective_to": ("is", "not set"),
-				"switch_on_release": 0, "released_on": ("<", self.released_on)}, pluck="name"):
-			other = frappe.get_doc("Item Standard Cost Version", name)
-			# only the version actually in force for the month after: one a later
-			# release already outranks there prices nothing and is retired below
-			if price_from(other) == (self.valid_from_year, self.valid_from_month) \
-					and _in_force(self, f"{y}-{m:02d}-01") == other.name:
-				other.db_set({"price_from_year": y, "price_from_month": m,
-					"effective_from": f"{y}-{m:02d}-01"}, update_modified=False)
-				other.add_comment("Info", _(
-					"From {0}-{1:02d}: {2} corrects {3}-{4:02d}, so this version applies from {0}-{1:02d}."
-				).format(y, m, self.name, self.valid_from_year, self.valid_from_month))
 
 	def _resolve_effective_prior(self):
 		"""The version whose standard cost is in force just before this one
@@ -651,43 +631,118 @@ def restamp_period_end_switches():
 	return outcome
 
 
-def _in_force(version, day):
-	"""The RELEASED version the cost lookup resolves for `day`, or None."""
-	from periodic_valuation.periodic_standard_cost.engine import get_active_standard_cost
+WINDOW_FIELDS = ["name", "company", "item_code", "warehouse", "standard_cost", "price_unit",
+	"valid_from_year", "valid_from_month", "price_from_year", "price_from_month",
+	"effective_from", "effective_to", "released_on", "switch_on_release"]
 
-	try:
-		return get_active_standard_cost(version.company, version.item_code, version.warehouse, day).name
-	except frappe.ValidationError:
-		frappe.clear_last_message()
-		return None
+
+def normalize_cost_windows(company, item_code, warehouse):
+	"""Client design §3 / §4.1 / §4.5 (DR-63): every RELEASED version holds a
+	window - Effective From to Effective To (open for the last) - and no two
+	windows overlap; several versions may share a month. The windows are
+	read off the cost lookup itself (engine.resolve_version), day by day, so
+	they can never disagree with the cost any date resolves to:
+	- the days a version resolves become its window;
+	- a version that resolves no day any more is SUPERSEDED (DR-62);
+	- a version whose days break into two runs - a backdated correction
+	  took a month out of its middle (DR-57) - keeps the first run, and a
+	  continuation version at the same cost takes each later run
+	  (source "Correction Continuation", nothing to revalue).
+	Then the windows are checked: an overlap refuses the release."""
+	from datetime import timedelta
+
+	from periodic_valuation.periodic_standard_cost.engine import resolve_version
+
+	filters = {"company": company, "item_code": item_code,
+		"warehouse": ("in", (warehouse or "", None)), "status": "RELEASED"}
+	rows = frappe.get_all("Item Standard Cost Version", filters=filters, fields=WINDOW_FIELDS)
+	if not rows:
+		return {}
+	today = getdate(frappe.utils.nowdate())
+
+	def month_start(x):
+		y, m = price_from(x)
+		return getdate(f"{y}-{m:02d}-01")
+
+	start = min(month_start(x) for x in rows)
+	horizon = max([today] + [month_start(x) for x in rows]) + timedelta(days=62)
+	runs = {x.name: [] for x in rows}
+	day = start
+	while day <= horizon:
+		v = resolve_version(rows, day)
+		if v:
+			r = runs[v.name]
+			if r and r[-1][1] == day - timedelta(days=1):
+				r[-1][1] = day
+			else:
+				r.append([day, day])
+		day += timedelta(days=1)
+
+	outcome = {"superseded": [], "continued": [], "windows": 0}
+	for x in rows:
+		r = runs[x.name]
+		if not r:
+			frappe.db.set_value("Item Standard Cost Version", x.name, "status", "SUPERSEDED", update_modified=False)
+			outcome["superseded"].append(x.name)
+			continue
+		for i, (s_, e_) in enumerate(r):
+			is_open = i == len(r) - 1 and e_ == horizon
+			to = None if is_open else e_
+			if i == 0:
+				values = {"effective_from": s_, "effective_to": to}
+				if s_.day == 1 and (s_.year, s_.month) > price_from(x) and not x.switch_on_release:
+					values.update(price_from_year=s_.year, price_from_month=s_.month)
+				if (getdate(x.effective_from) if x.effective_from else None) != s_ \
+						or (getdate(x.effective_to) if x.effective_to else None) != to \
+						or "price_from_year" in values:
+					frappe.db.set_value("Item Standard Cost Version", x.name, values, update_modified=False)
+					outcome["windows"] += 1
+			else:
+				outcome["continued"].append(_continue_version(x, s_, to))
+	assert_no_overlap(company, item_code, warehouse)
+	return outcome
+
+
+def _continue_version(version, start, end):
+	"""A continuation of `version` from `start` (a month's day 1): same cost,
+	nothing to revalue - it carries the version on after a correction took a
+	month out of its window (DR-63)."""
+	if start.day != 1:
+		frappe.throw(_("{0} cannot continue from {1}: a continuation starts on the first day of a month.").format(
+			version.name, frappe.format(start, "Date")))
+	doc = frappe.get_doc({
+		"doctype": "Item Standard Cost Version", "company": version.company,
+		"item_code": version.item_code, "warehouse": version.warehouse,
+		"valid_from_year": start.year, "valid_from_month": start.month,
+		"standard_cost": version.standard_cost, "price_unit": version.price_unit,
+		"source_type": "CORRECTION_CONTINUATION", "status": "RELEASED",
+		"supersedes_version": version.name, "released_on": now_datetime(),
+		"released_by": frappe.session.user, "revaluation_posted": 1,
+		"remarks": _("Continues {0} after a correction of an earlier month.").format(version.name),
+	})
+	doc.flags.via_release_flow = True
+	doc.insert(ignore_permissions=True)
+	if end:
+		doc.db_set("effective_to", end, update_modified=False)
+	return doc.name
+
+
+def assert_no_overlap(company, item_code, warehouse):
+	"""Design §4.1 rule 5: no two RELEASED versions may price the same day."""
+	rows = frappe.get_all("Item Standard Cost Version", filters={
+		"company": company, "item_code": item_code,
+		"warehouse": ("in", (warehouse or "", None)), "status": "RELEASED"},
+		fields=["name", "effective_from", "effective_to"], order_by="effective_from asc, released_on asc")
+	for prev, nxt in zip(rows, rows[1:]):
+		if not prev.effective_to or getdate(prev.effective_to) >= getdate(nxt.effective_from):
+			frappe.throw(
+				_("Standard cost windows overlap for {0}: {1} ({2} to {3}) and {4} (from {5}).").format(
+					item_code, prev.name, prev.effective_from, prev.effective_to or _("open"),
+					nxt.name, nxt.effective_from),
+				title=_("Overlapping Standard Costs"),
+			)
 
 
 def supersede_shadowed_versions(company, item_code, warehouse):
-	"""DR-62 (client, 08/10/2026): a RELEASED version that no date resolves
-	to any more - every month it could price is taken by a later release -
-	is set to SUPERSEDED, so the list shows one RELEASED version per month.
-	The cost lookup is unchanged: it already skipped such a version.
-	Versions released under the 05/10 switch-at-release rule (legacy, mid-
-	month switch) are left alone."""
-	rows = frappe.get_all("Item Standard Cost Version", filters={
-		"company": company, "item_code": item_code,
-		"warehouse": ("in", (warehouse or "", None)), "status": "RELEASED", "switch_on_release": 0},
-		fields=["name", "valid_from_year", "valid_from_month", "price_from_year", "price_from_month",
-			"effective_to", "released_on", "switch_on_release", "effective_from"])
-	retired = []
-	for x in rows:
-		later = [y for y in rows if y.name != x.name and switch_order(y) > switch_order(x)]
-		month = price_from(x)
-		if x.effective_to:
-			# a correction prices its own month only
-			covered = any(price_from(y) <= month and (not y.effective_to or price_from(y) == month) for y in later)
-		else:
-			corrected = {price_from(y) for y in later if y.effective_to}
-			while month in corrected:
-				month = _next_month(*month)
-			covered = any(not y.effective_to and price_from(y) <= month for y in later)
-		if covered:
-			retired.append(x.name)
-	for name in retired:
-		frappe.db.set_value("Item Standard Cost Version", name, "status", "SUPERSEDED", update_modified=False)
-	return retired
+	"""Kept for the DR-62 patch already applied on deployed sites."""
+	return normalize_cost_windows(company, item_code, warehouse).get("superseded", [])
