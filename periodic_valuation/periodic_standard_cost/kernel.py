@@ -130,16 +130,19 @@ def _post_entry(controller, sle, is_return):
 			row = next((x for x in controller.get("items") or []
 				if x.name == sle.get("voucher_detail_no")), None)
 			ac = flt(row.base_net_rate) if row else 0.0
-		engine.post(trans="PR", posting_date=posting_date, qty=-qty, sc=sc, ac=ac,
+		trans = "PR"
+		engine.post(trans=trans, posting_date=posting_date, qty=-qty, sc=sc, ac=ac,
 			source=source, cost_version=scv.name)
 		value = r2(qty * sc)
 	else:
 		# sales return (SR intent): new movement at posting-date STD (phase-1 rule)
-		engine.post(trans="SR", posting_date=posting_date, qty=qty, sc=sc, ac=sc,
+		trans = "SR"
+		engine.post(trans=trans, posting_date=posting_date, qty=qty, sc=sc, ac=sc,
 			source=source, cost_version=scv.name)
 		value = r2(qty * sc)
 
-	_write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_name=scv.name)
+	_write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_name=scv.name,
+		bucket=bucket_of(trans))
 	if not cross_month:
 		_bridge_release_switch(engine, posting_date, qty, sc, source, today)
 
@@ -180,7 +183,8 @@ def _post_opening_std(controller, sle):
 	source = (controller.doctype, controller.name, sle.get("voucher_detail_no"))
 	engine.post(trans="Beg", posting_date=posting_date, qty=target_qty, sc=sc, ac=ac,
 		source=source, cost_version=scv.name)
-	_write_sle_and_state(controller, engine, sle, period, target_qty, sc, r2(target_qty * sc), scv_name=scv.name)
+	_write_sle_and_state(controller, engine, sle, period, target_qty, sc, r2(target_qty * sc), scv_name=scv.name,
+		bucket="receipt")
 
 
 def _post_cancellation_std(controller, engine, sle, period):
@@ -238,12 +242,12 @@ def _post_cancellation_std(controller, engine, sle, period):
 	mirror_period = get_period(engine.company, mirror.posting_date) or period
 	scope = ScopeState(engine.company, engine.item_code, sle.get("warehouse"))
 	ipb = scope.load(mirror_period)
-	if qty > 0:
-		ipb.receipt_qty = flt(ipb.receipt_qty) + qty
-		ipb.receipt_value = r2(flt(ipb.receipt_value) + value)
-	elif qty < 0:
-		ipb.issue_qty = flt(ipb.issue_qty) - qty
-		ipb.issue_value = r2(flt(ipb.issue_value) - value)
+	# a cancellation nets the bucket its ORIGINAL filled (DR-31, as MAP):
+	# cancelling an issue reduces Issues, cancelling a purchase return puts
+	# Receipts back (client ticket STD-013, 08/10/2026)
+	primary = next((r.std_trans for r in orig_rows if bucket_of(r.std_trans)), None)
+	if qty:
+		_book_bucket(ipb, bucket_of(primary), qty, value)
 	else:
 		ipb.reval_value = r2(flt(ipb.reval_value) + value)
 	recompute_closing(ipb)
@@ -443,18 +447,40 @@ def _assert_stock_available(engine, qty_needed):
 		)
 
 
-def _write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_name=None):
-	"""SLE-compatible row + Bin + Inventory Period Balance at standard cost."""
-	from periodic_valuation.periodic_moving_average.kernel import ScopeState, recompute_closing, write_sle
+RECEIPT_FAMILY = ("Beg", "Rec", "REC (BD)", "REC (BY)", "PR")
+ISSUE_FAMILY = ("Iss", "Issue (BD)", "Issue (BY)", "SR")
 
-	scope = ScopeState(engine.company, engine.item_code, sle.get("warehouse"))
-	ipb = scope.load(period)
-	if qty > 0:
+
+def bucket_of(trans):
+	"""The period balance bucket a movement belongs to, by its transaction -
+	not by the direction of its quantity (client ticket STD-013, 08/10/2026:
+	"the purchase return should affect the receipt value and cancelling the
+	issue should affect the issue value, like in MAP" - DR-31): a purchase
+	return nets Receipts, a sales return nets Issues."""
+	if trans in RECEIPT_FAMILY:
+		return "receipt"
+	if trans in ISSUE_FAMILY:
+		return "issue"
+	return None
+
+
+def _book_bucket(ipb, bucket, qty, value):
+	"""qty / value are the signed stock movement (+ in, - out)."""
+	if bucket == "receipt" or (bucket is None and qty > 0):
 		ipb.receipt_qty = flt(ipb.receipt_qty) + qty
 		ipb.receipt_value = r2(flt(ipb.receipt_value) + value)
 	else:
 		ipb.issue_qty = flt(ipb.issue_qty) - qty
 		ipb.issue_value = r2(flt(ipb.issue_value) - value)
+
+
+def _write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_name=None, bucket=None):
+	"""SLE-compatible row + Bin + Inventory Period Balance at standard cost."""
+	from periodic_valuation.periodic_moving_average.kernel import ScopeState, recompute_closing, write_sle
+
+	scope = ScopeState(engine.company, engine.item_code, sle.get("warehouse"))
+	ipb = scope.load(period)
+	_book_bucket(ipb, bucket, qty, value)
 	recompute_closing(ipb)
 	ipb.moving_avg_price = sc  # for STD scopes this column carries the active SC
 	ipb.period_standard_cost = sc
@@ -514,8 +540,10 @@ def std_scopes(company, *, item_code=None, warehouse=None, item_group=None, peri
 
 def _cascade_backdated_ipb(scope, period, qty, value, source):
 	"""A backdated posting lands in ITS period's balance row; every later
-	period's opening (and thus closing) must shift by the same delta or the
-	materialized chain goes stale (workbook period grid restates Beg)."""
+	period's closing must shift by the same delta or the materialized chain
+	goes stale. The shift goes to Carryover - the opening is fixed when the
+	period is created and never modified (client ticket STD-015, 08/10/2026;
+	as MAP)."""
 	from periodic_valuation.periodic_moving_average.kernel import recompute_closing
 
 	later = frappe.get_all(
@@ -531,8 +559,8 @@ def _cascade_backdated_ipb(scope, period, qty, value, source):
 	)
 	for row in later:
 		ipb = frappe.get_doc("Inventory Period Balance", row.name)
-		ipb.opening_qty = flt(ipb.opening_qty) + qty
-		ipb.opening_value = r2(flt(ipb.opening_value) + value)
+		ipb.carryover_qty = flt(ipb.carryover_qty) + qty
+		ipb.carryover_value = r2(flt(ipb.carryover_value) + value)
 		recompute_closing(ipb)
 		if flt(ipb.period_standard_cost):
 			ipb.closing_reference_value = r2(flt(ipb.closing_qty) * flt(ipb.period_standard_cost))
