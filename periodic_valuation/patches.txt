@@ -12,3 +12,4 @@ periodic_valuation.patches.v1_0.switch_cost_changes_at_release
 periodic_valuation.patches.v1_0.refresh_std_period_pools
 periodic_valuation.patches.v1_0.accumulate_std_ytd_pools
 periodic_valuation.patches.v1_0.show_retained_map_at_zero
+periodic_valuation.patches.v1_0.one_released_cost_per_month
