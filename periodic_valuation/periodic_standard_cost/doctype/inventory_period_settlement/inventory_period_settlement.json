@@ -32,6 +32,8 @@
   "es_var",
   "ppv_es",
   "rev_es",
+  "es_actual_value",
+  "es_actual_unit_cost",
   "cb3",
   "out_qty",
   "out_var",
@@ -202,6 +204,20 @@
    "read_only": 1
   },
   {
+   "fieldname": "es_actual_value",
+   "fieldtype": "Currency",
+   "label": "Ending Stock at Actual",
+   "read_only": 1,
+   "description": "Ending stock at standard cost plus its share of the variance."
+  },
+  {
+   "fieldname": "es_actual_unit_cost",
+   "fieldtype": "Currency",
+   "label": "Actual Cost per Unit",
+   "read_only": 1,
+   "description": "Ending Stock at Actual divided by the ending quantity."
+  },
+  {
    "fieldname": "cb3",
    "fieldtype": "Column Break"
   },
@@ -283,7 +299,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-09 12:00:00.000000",
+ "modified": "2026-10-08 22:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Standard Cost",
  "name": "Inventory Period Settlement",

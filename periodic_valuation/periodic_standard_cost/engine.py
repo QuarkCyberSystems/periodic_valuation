@@ -187,6 +187,51 @@ def _materialize_if_pending(scv_name):
 	frappe.get_doc("Item Standard Cost Version", scv_name).materialize_boundary()
 
 
+def std_reason_code(trans, reversal_of=None):
+	"""The valuation event's reason, named after the movement (client ticket
+	STD-006: every standard-cost event read "std_event")."""
+	if trans in ("Sett", "Sett - Delta"):
+		return "settlement"
+	if trans == "Sett - Rev":
+		return "settlement_carry"
+	if trans in ("Sett - Reverse", "Sett - Rev - Reverse"):
+		return "settlement_reverse"
+	if reversal_of:
+		return "cancellation"
+	if trans.endswith(" - Rev"):
+		return "backdate_bridge"
+	return {
+		"Beg": "opening", "Rec": "receipt", "REC (BD)": "receipt", "REC (BY)": "receipt",
+		"Iss": "issue", "Issue (BD)": "issue", "Issue (BY)": "issue",
+		"PR": "purchase_return", "SR": "sales_return", "LC": "landed_cost",
+		"SC+": "count_diff", "SC-": "count_diff",
+		"Rev Beg": "revaluation", "REV In": "revaluation", "REV out": "revaluation",
+		"Rev Rel": "revaluation", "Rev End": "revaluation",
+		"Rev Reverse": "revaluation_reverse", "REV out Reverse": "revaluation_reverse",
+	}.get(trans, "std_event")
+
+
+def settlement_split(sett, carry=False, sign=1):
+	"""The PPV / revaluation split a settlement row stands for (client ticket
+	STD-007). The settlement row carries the ending-stock and consumption
+	shares; its carry into the next month (Sett - Rev) the ending-stock share
+	with the opposite sign; a Sett-Reverse row the negation of the row it
+	reverses."""
+	if carry:
+		return {"sett_ppv_es": -sign * flt(sett.ppv_es), "sett_rev_es": -sign * flt(sett.rev_es),
+			"sett_ppv_cons": 0, "sett_rev_cons": 0}
+	return {"sett_ppv_es": sign * flt(sett.ppv_es), "sett_rev_es": sign * flt(sett.rev_es),
+		"sett_ppv_cons": sign * flt(sett.ppv_cons), "sett_rev_cons": sign * flt(sett.rev_cons)}
+
+
+def ending_stock_at_actual(es_qty, sc, es_var):
+	"""Ending stock at actual after settlement: at standard cost plus its share
+	of the variance, and per unit (client ticket STD-008)."""
+	value = r2(flt(es_qty) * flt(sc) + flt(es_var))
+	return {"es_actual_value": value,
+		"es_actual_unit_cost": flt(value / flt(es_qty), 6) if flt(es_qty) else 0}
+
+
 def _derive_std_intent(trans, reversal_of=None):
 	if reversal_of:
 		return "EXACT_REVERSAL_WITH_REFERENCE"
@@ -263,7 +308,7 @@ class StdEngine:
 	def post(self, *, trans, posting_date, qty=None, sc=None, ac=None, source,
 			entry_date=None, ref="", t_sc_override=None, t_ac_override=None,
 			cost_version=None, post_gl=True, qty_adj_override=None, reversal_of=None,
-			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0):
+			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0, extra=None):
 		"""Append one STD event (and its GL unless Sett-family)."""
 		flags = flags_for(trans, self.view)
 		pst = getdate(posting_date)
@@ -351,8 +396,7 @@ class StdEngine:
 				"source_doctype": source[0],
 				"source_docname": source[1],
 				"source_detail_name": source[2] if len(source) > 2 else None,
-				"reason_code": ("settlement_reverse" if "Rev" in trans else "settlement")
-					if trans in SETT_FAMILY else "std_event",
+				"reason_code": std_reason_code(trans, reversal_of),
 				"posting_intent": posting_intent or _derive_std_intent(trans, reversal_of),
 				"std_trans": trans,
 				"qty_adj": qty_adj,
@@ -373,6 +417,7 @@ class StdEngine:
 				"exchange_rate_at_receipt": exchange_rate_at_receipt,
 				"fx_variance": r2(fx_variance) if fx_variance else 0,
 				"rounding_residual": rounding_residual,
+				**(extra or {}),
 			}).insert(ignore_permissions=True)
 		finally:
 			frappe.flags[KERNEL_FLAG] = False
@@ -944,6 +989,7 @@ class StdEngine:
 				"out_qty": out_qty, "out_var": out_var,
 				"ppv_cons": r2(ppv * cons_share), "rev_cons": r2((rev - held) * cons_share + held - held_es),
 				"es_qty_override": es_qty_override,
+				**ending_stock_at_actual(end_qty, sc, es_var),
 			}).insert(ignore_permissions=True)
 		finally:
 			frappe.flags[KERNEL_FLAG] = False
@@ -952,13 +998,15 @@ class StdEngine:
 		next_day = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
 		ref_str = ref or sett.name
 
+		split = settlement_split(sett)
 		sett_event = self.post(trans="Sett", posting_date=last_day, source=source,
-			entry_date=entry_date, ref=ref_str, t_sc_override=es_var, post_gl=False)
+			entry_date=entry_date, ref=ref_str, t_sc_override=es_var, post_gl=False, extra=split)
 		self._post_gl(sett_event, "Sett", es_var, 0, settlement=sett, posting_date=last_day)
 		sett_rev_event = None
 		if not full_settle:
 			sett_rev_event = self.post(trans="Sett - Rev", posting_date=next_day, source=source,
-				entry_date=entry_date, ref=ref_str, t_sc_override=-es_var, post_gl=False)
+				entry_date=entry_date, ref=ref_str, t_sc_override=-es_var, post_gl=False,
+				extra=settlement_split(sett, carry=True))
 			self._post_gl(sett_rev_event, "Sett - Rev", -es_var, 0, settlement=sett,
 				posting_date=next_day)
 
@@ -1085,6 +1133,8 @@ class StdEngine:
 				"settlement_inventory_total": r2(sett.es_var),
 				"settlement_consumption_total": r2(sett.out_var),
 				"closing_reference_value": r2(closing_qty * flt(sc)),
+				"actual_value_after_settlement": flt(sett.es_actual_value),
+				"actual_unit_cost_after_settlement": flt(sett.es_actual_unit_cost),
 			}, update_modified=False)
 
 	# --------------------------------------------------------- sett reverse
@@ -1120,12 +1170,13 @@ class StdEngine:
 		next_day = date(ty + 1, 1, 1) if tm == 12 else date(ty, tm + 1, 1)
 
 		reverse_event = self.post(trans="Sett - Reverse", posting_date=last_day, source=source,
-			entry_date=entry_date, ref=sett.name, t_sc_override=-flt(sett.es_var), post_gl=False)
+			entry_date=entry_date, ref=sett.name, t_sc_override=-flt(sett.es_var), post_gl=False,
+			extra=settlement_split(sett, sign=-1))
 		self._post_gl(reverse_event, "Sett - Reverse", 0, 0, settlement=sett,
 			posting_date=last_day)
 		rev_reverse_event = self.post(trans="Sett - Rev - Reverse", posting_date=next_day,
 			source=source, entry_date=entry_date, ref=sett.name,
-			t_sc_override=flt(sett.es_var), post_gl=False)
+			t_sc_override=flt(sett.es_var), post_gl=False, extra=settlement_split(sett, carry=True, sign=-1))
 		self._post_gl(rev_reverse_event, "Sett - Rev - Reverse", 0, 0, settlement=sett,
 			posting_date=next_day)
 
@@ -1143,6 +1194,7 @@ class StdEngine:
 		if ipb_name:
 			frappe.db.set_value("Inventory Period Balance", ipb_name, {
 				"settlement": None, "settlement_inventory_total": 0, "settlement_consumption_total": 0,
+				"actual_value_after_settlement": 0, "actual_unit_cost_after_settlement": 0,
 			}, update_modified=False)
 		self._absorb_settlement_value(sett, ty, tm, flt(sett.es_var), sign=-1)
 		return reverse_event, rev_reverse_event

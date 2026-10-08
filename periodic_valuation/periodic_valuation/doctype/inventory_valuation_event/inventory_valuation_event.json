@@ -64,7 +64,13 @@
   "cb_std2",
   "ppv_with_sett",
   "ppv_without_sett",
-  "rev_flag"
+  "rev_flag",
+  "sec_sett_split",
+  "sett_ppv_es",
+  "sett_rev_es",
+  "cb_sett_split",
+  "sett_ppv_cons",
+  "sett_rev_cons"
  ],
  "fields": [
   {
@@ -182,7 +188,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Reason Code",
-   "options": "\nreceipt\nissue\nlanded_cost\ninvoice_diff\ncount_diff\nrevaluation\nreturn_with_ref\nreturn_no_ref\ncancellation\ntransfer\nreceipt_neg\nreceipt_cross_zero\nprd_split\nfx_adjust\nrounding_cleanup\nstd_event\nsettlement\nsettlement_reverse\nstranded_sweep\ncarry_revaluation",
+   "options": "\nreceipt\nissue\nlanded_cost\ninvoice_diff\ncount_diff\nrevaluation\nreturn_with_ref\nreturn_no_ref\ncancellation\ntransfer\nreceipt_neg\nreceipt_cross_zero\nprd_split\nfx_adjust\nrounding_cleanup\nstd_event\nsettlement\nsettlement_reverse\nstranded_sweep\ncarry_revaluation\nopening\npurchase_return\nsales_return\nbackdate_bridge\nrevaluation_reverse\nsettlement_carry",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1
@@ -459,6 +465,41 @@
    "fieldtype": "Check",
    "label": "Reval Pool",
    "read_only": 1
+  },
+  {
+   "fieldname": "sec_sett_split",
+   "fieldtype": "Section Break",
+   "label": "Settlement Split",
+   "depends_on": "eval:(doc.std_trans || \"\").startsWith(\"Sett\")",
+   "description": "How this settlement row's amount divides between purchase price variance (PPV) and standard cost revaluation, for ending stock and for consumption."
+  },
+  {
+   "fieldname": "sett_ppv_es",
+   "fieldtype": "Currency",
+   "label": "PPV to Ending Stock",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sett_rev_es",
+   "fieldtype": "Currency",
+   "label": "Revaluation to Ending Stock",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_sett_split",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sett_ppv_cons",
+   "fieldtype": "Currency",
+   "label": "PPV to Consumption",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sett_rev_cons",
+   "fieldtype": "Currency",
+   "label": "Revaluation to Consumption",
+   "read_only": 1
   }
  ],
  "idx": 0,
@@ -467,7 +508,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-06 12:00:00.000000",
+ "modified": "2026-10-08 22:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Valuation Event",
