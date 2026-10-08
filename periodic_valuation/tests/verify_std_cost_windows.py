@@ -4,13 +4,12 @@ Run:
 bench --site <site> execute periodic_valuation.tests.verify_std_cost_windows.run
 
   A  a chain: the earlier version closes the day before the next one starts
-  B  a correction of the previous month when the version in force started in
-     that month: the correction holds the month, that version moves to the
-     current month
+  B  a correction of the previous month: the correction holds the month,
+     the current month keeps its own inherited version (DR-65)
   C  a correction of the previous month when the version in force started
-     earlier: it closes before the corrected month and a continuation at the
-     same cost carries on from the current month (nothing to revalue)
-  D  a later current-month version supersedes the continuation
+     earlier: it closes before the corrected month; the current month carries
+     on at the same cost through its inherited version (nothing to revalue)
+  D  a later current-month version supersedes the inherited one
   E  two RELEASED versions whose windows overlap are refused
   F  the cost every day resolves to is the same before and after windowing
 
@@ -91,8 +90,8 @@ def _run():
 		b = pack.std_item("_STD-WIN-B")
 		pack.scv_release(b, prev.year, prev.month, 300)
 		vb = pack.scv_release(b, prev.year, prev.month, 400)
-		check("B: the correction holds the month; the earlier version moves to the current month",
-			_windows(b) == [(400.0, str(p1), str(plast), "MANUAL_OVERRIDE"), (300.0, str(day1), None, "MANUAL_OVERRIDE")]
+		check("B: the correction holds the month; the current month has its inherited 300 (DR-65)",
+			_windows(b) == [(400.0, str(p1), str(plast), "MANUAL_OVERRIDE"), (300.0, str(day1), None, "INHERITED")]
 			and frappe.db.get_value(SCV, vb.name, "is_correction") == 1, str(_windows(b)))
 
 		# ---- C: correction, the version in force started earlier -----------------
@@ -100,21 +99,21 @@ def _run():
 		pack.scv_release(c, pp.year, pp.month, 300)
 		pack.make_period(pp.year, pp.month, "SETTLED_FROZEN")       # two months back is closed
 		pack.scv_release(c, prev.year, prev.month, 400)
-		check("C: the earlier version closes before the corrected month; a continuation carries on at 300",
+		check("C: the earlier version closes before the corrected month; the current month carries on at 300, inherited (DR-65)",
 			_windows(c) == [(300.0, str(pp), str(pplast), "MANUAL_OVERRIDE"),
 				(400.0, str(p1), str(plast), "MANUAL_OVERRIDE"),
-				(300.0, str(day1), None, "CORRECTION_CONTINUATION")], str(_windows(c)))
+				(300.0, str(day1), None, "INHERITED")], str(_windows(c)))
 		check("C: costs: 300 two months back, 400 in the corrected month, 300 now",
 			_sc(c, add_days(pp, 10)) == 300 and _sc(c, add_days(p1, 10)) == 400 and _sc(c, today) == 300)
-		cont = frappe.get_all(SCV, filters={"item_code": c, "source_type": "CORRECTION_CONTINUATION"},
-			fields=["name", "revaluation_posted"])
-		check("C: the continuation revalues nothing",
+		cont = frappe.get_all(SCV, filters={"item_code": c, "source_type": "INHERITED", "status": "RELEASED",
+			"valid_from_month": today.month}, fields=["name", "revaluation_posted"])
+		check("C: the inherited version revalues nothing",
 			cont and cont[0].revaluation_posted == 1
 			and not frappe.db.exists("Inventory Valuation Event", {"source_docname": cont[0].name}), str(cont))
 
 		# ---- D: a later current-month version supersedes the continuation ---------
 		pack.scv_release(c, today.year, today.month, 350)
-		check("D: a current-month version supersedes the continuation",
+		check("D: a current-month version supersedes the inherited one",
 			_windows(c)[-1][:2] == (350.0, str(day1)) and len(_windows(c)) == 3
 			and frappe.db.get_value(SCV, cont[0].name, "status") == "SUPERSEDED", str(_windows(c)))
 

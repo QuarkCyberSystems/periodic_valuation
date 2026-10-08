@@ -117,8 +117,9 @@ def _run():
 		rev = _onload(v_b.name).get("revaluation", {})
 		check("B: the form reports a zero revaluation with its event",
 			rev.get("reason") == "nothing_to_revalue" and rev.get("events") == 1, str(rev))
-		check("B: the earlier version stays RELEASED (it prices the current month)",
-			frappe.db.get_value(SCV, v_b_old.name, "status") == "RELEASED")
+		check("B: the current month keeps 150 through its inherited version (DR-65)",
+			frappe.db.get_value(SCV, {"item_code": b, "source_type": "INHERITED", "status": "RELEASED"},
+				"standard_cost") == 150)
 
 		# ---- C: first cost, unchanged cost --------------------------------
 		_set("First day of the period")

@@ -135,9 +135,11 @@ def _run():
 			_sc(a, p3) == 400 and _sc(a, day1) == 300 and _sc(a, today) == 300)
 		check("A: the consumption adjustment stays in the previous month (20,000)",
 			_gl(a, acc.cogs_adj) == 20000, str(_gl(a, acc.cogs_adj)))
-		check("A: the earlier version stays RELEASED and now starts from the current month (DR-62)",
-			frappe.db.get_value(SCV, a0.name, "status") == "RELEASED"
-			and str(frappe.db.get_value(SCV, a0.name, "effective_from")) == str(day1))
+		inh = frappe.db.get_value(SCV, {"item_code": a, "source_type": "INHERITED", "status": "RELEASED"},
+			["name", "standard_cost", "valid_from_month"], as_dict=True)
+		check("A: the current month keeps 300 through its own inherited version; the original 300, which prices nothing now, is SUPERSEDED (DR-65)",
+			inh and flt(inh.standard_cost) == 300 and inh.valid_from_month == today.month
+			and frappe.db.get_value(SCV, a0.name, "status") == "SUPERSEDED", str(inh))
 		identity("A")
 
 		# ---- G: late receipt into the corrected month -------------------------
@@ -150,9 +152,9 @@ def _run():
 		vh = pack.scv_release(a, today.year, today.month, 350)
 		check("H: a current-month version measures its delta from 300 (Rev Beg 810 x 50)",
 			("Rev Beg", 40500.0, str(day1)) in _events(vh.name)
-			and frappe.db.get_value(SCV, vh.name, "supersedes_version") == a0.name, str(_events(vh.name)))
-		check("H: the 300 version, which no date resolves to any more, is SUPERSEDED; one RELEASED per month (DR-62)",
-			frappe.db.get_value(SCV, a0.name, "status") == "SUPERSEDED"
+			and frappe.db.get_value(SCV, vh.name, "supersedes_version") == inh.name, str(_events(vh.name)))
+		check("H: the inherited 300 version is SUPERSEDED by it; one RELEASED per month (DR-62)",
+			frappe.db.get_value(SCV, inh.name, "status") == "SUPERSEDED"
 			and sorted(frappe.get_all(SCV, filters={"item_code": a, "status": "RELEASED"}, pluck="name")) == sorted([va.name, vh.name]))
 
 		# ---- I: a second correction of the same month retires the first ---------
@@ -196,7 +198,9 @@ def _run():
 		check("D: settled previous month - nothing posts into it, no reversal; the current month revalues forward",
 			_events(vd.name) and all(x[2] == str(day1) for x in _events(vd.name))
 			and not [x for x in _events(vd.name) if x[0] == "Rev Reverse"]
-			and not frappe.db.get_value(SCV, vd.name, "effective_to"), str(_events(vd.name)))
+			and _sc(d, today) == 400
+			and frappe.db.get_value(SCV, {"item_code": d, "source_type": "INHERITED", "status": "RELEASED"},
+				"standard_cost") == 400, str(_events(vd.name)))
 
 		# ---- E: nothing on hand, no movement ---------------------------------
 		e = pack.std_item("_STD-BDCOR-E")

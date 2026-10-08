@@ -15,3 +15,4 @@ periodic_valuation.patches.v1_0.show_retained_map_at_zero
 periodic_valuation.patches.v1_0.one_released_cost_per_month
 periodic_valuation.patches.v1_0.standard_cost_windows
 periodic_valuation.patches.v1_0.std_ytd_balance_fields
+periodic_valuation.patches.v1_0.inherit_period_costs

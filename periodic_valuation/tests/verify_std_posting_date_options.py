@@ -210,6 +210,15 @@ def _run():
 		_set("First day of the period")
 		it = pack.std_item("_STD-PDO-LEGACY")
 		v0 = pack.scv_release(it, prev.year, prev.month, 30)
+		# data from before DR-65 has no inherited version for the current month
+		from periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version import (
+			normalize_cost_windows,
+		)
+
+		for n in frappe.get_all(SCV, filters={"item_code": it, "source_type": "INHERITED"}, pluck="name"):
+			frappe.db.delete(SCV, n)
+		frappe.db.set_value(SCV, v0.name, "effective_to", None, update_modified=False)
+		normalize_cost_windows(pack.COMPANY, it, None)
 		pack.make_pr(it, wh, 10, 30, posting_date=str(p2))
 		legacy = frappe.get_doc({"doctype": SCV, "company": pack.COMPANY, "item_code": it,
 			"valid_from_year": prev.year, "valid_from_month": prev.month, "standard_cost": 35,
