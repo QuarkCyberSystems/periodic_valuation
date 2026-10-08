@@ -285,8 +285,13 @@ class StdEngine:
 		# a mirror made a backdated receipt or issue impossible to undo at all:
 		# Create Cancellation is the only sanctioned undo under STD and it failed
 		# with this internal label error.
+		# "Same month" is the current period's month - the OPEN Inventory
+		# Period, not the calendar (DR-64)
+		from periodic_valuation.shared.periods import current_period_day
+
+		cur = current_period_day(self.company, ent)
 		if reversal_of is None and trans in BD_BY_PRIMARIES \
-				and (pst.month, pst.year) == (ent.month, ent.year):
+				and (pst.month, pst.year) == (cur.month, cur.year):
 			raise BackdateLabelError(
 				_(
 					"{0} is only for cross-month backdates. Same-month backdates post as plain "
