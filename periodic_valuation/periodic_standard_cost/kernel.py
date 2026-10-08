@@ -30,7 +30,7 @@ from periodic_valuation.periodic_standard_cost.engine import (
 	r2,
 )
 from periodic_valuation.shared.immutable import KERNEL_FLAG
-from periodic_valuation.shared.periods import assert_posting_allowed
+from periodic_valuation.shared.periods import assert_posting_allowed, current_period_day, is_backdate_period
 
 
 def post_via_std_kernel(controller, sl_entries):
@@ -92,8 +92,9 @@ def _post_entry(controller, sle, is_return):
 		_post_cancellation_std(controller, engine, sle, period)
 		return
 
-	today = getdate(frappe.utils.nowdate())
-	cross_month, cross_fy = _backdate_class(engine, posting_date, today)
+	# the current period is the OPEN Inventory Period, not the calendar month (DR-64)
+	today = current_period_day(company)
+	cross_month, cross_fy = _backdate_class(engine, posting_date, today, period)
 
 	scv = get_active_standard_cost(company, item_code, sle.get("warehouse"), posting_date)
 	sc = flt(scv.standard_cost)
@@ -255,10 +256,10 @@ def _post_cancellation_std(controller, engine, sle, period):
 	elif value:
 		write_value_sle(scope, ipb, source=source, posting_date=mirror.posting_date,
 			value_delta=value, stock_uom=sle.get("stock_uom"))
-	bridge_cancelled_before_switch(engine, orig_rows, source, getdate(frappe.utils.nowdate()))
+	bridge_cancelled_before_switch(engine, orig_rows, source, current_period_day(engine.company))
 
 
-def _backdate_class(engine, posting_date, today):
+def _backdate_class(engine, posting_date, today, period):
 	"""DR-09 label rules (m11): decide whether a backdated posting carries a
 	(BD)/(BY) label or posts plain.
 
@@ -267,8 +268,12 @@ def _backdate_class(engine, posting_date, today):
 	- (BY) exists only inside the prior-FY soft-close window: the immediately
 	  previous fiscal year, before its December is live-settled. Outside the
 	  window the backdate is refused (post a current-dated correction).
+
+	A Backdate Transaction is one dated in a PREV_OPEN_UNSETTLED period, not
+	simply in an earlier calendar month (client 08/10/2026, DR-64); `today`
+	is the current period's day (shared.periods.current_period_day).
 	"""
-	cross_month = (posting_date.year, posting_date.month) != (today.year, today.month)
+	cross_month = is_backdate_period(period)
 	if not cross_month:
 		return False, False
 

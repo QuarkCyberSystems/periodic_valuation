@@ -32,6 +32,29 @@ def get_open_period(company):
 	return frappe.get_doc("Inventory Period", name) if name else None
 
 
+def current_period_day(company, today=None):
+	"""Today, as the current period sees it: the current period is the
+	company's OPEN Inventory Period, not the calendar month (client
+	08/10/2026, DR-64). While the calendar has moved past the OPEN period
+	(October, with 10-2026 not created yet) nothing can post after it, so
+	the day is held at its last day; before it, at its first. Without an
+	OPEN period, the calendar day."""
+	from frappe.utils import get_first_day, get_last_day, nowdate
+
+	d = getdate(today or nowdate())
+	open_period = get_open_period(company)
+	if not open_period:
+		return d
+	first = getdate(f"{open_period.period_year}-{open_period.period_month:02d}-01")
+	return min(max(d, first), getdate(get_last_day(first)))
+
+
+def is_backdate_period(period):
+	"""A Backdate Transaction is one dated in a PREV_OPEN_UNSETTLED period
+	(client 08/10/2026, DR-64; design V2-1 §8.B / §12)."""
+	return bool(period) and period.status == "PREV_OPEN_UNSETTLED"
+
+
 def _open_on_demand(company, posting_date):
 	"""A posting dated in the month right after the OPEN period rolls the
 	machine forward (DR-37): the OPEN month becomes previous-open and the new

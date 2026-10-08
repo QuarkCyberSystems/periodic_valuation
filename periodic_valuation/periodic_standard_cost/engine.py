@@ -67,10 +67,12 @@ def backdate_entry_date(company, today=None):
 	ticket STD-004, 07/10/2026, DR-59): set by Periodic Standard Cost
 	Settings > Revaluation Posting Date - day 1 of the current period ("First
 	day of the period") or the day it is entered ("Latest day of the
-	period")."""
+	period"), the current period being the OPEN Inventory Period (DR-64)."""
 	from frappe.utils import get_first_day
 
-	today = getdate(today or frappe.utils.nowdate())
+	from periodic_valuation.shared.periods import current_period_day
+
+	today = current_period_day(company, today)
 	latest = get_std_setting(company, "revaluation_posting_date") in (
 		"Latest day of the period", "Last day of the period")
 	return today if latest else getdate(get_first_day(today))
@@ -1097,7 +1099,9 @@ class StdEngine:
 				title=_("Double Reversal Blocked"))
 
 		locked = self.is_period_locked(orig.period_year, orig.period_month)
-		pst = posting_date or (getdate(frappe.utils.nowdate()) if locked else orig.posting_date)
+		from periodic_valuation.shared.periods import current_period_day
+
+		pst = posting_date or (current_period_day(self.company) if locked else orig.posting_date)
 
 		mirror = self.post(
 			trans=orig.std_trans, posting_date=pst, source=source, entry_date=entry_date,

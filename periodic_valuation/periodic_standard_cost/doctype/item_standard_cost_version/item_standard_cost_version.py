@@ -154,20 +154,25 @@ class ItemStandardCostVersion(Document):
 		only the dates:
 		- a change for the current month: day 1 of the month ("First day of
 		  the period") or the release day ("Latest day of the period");
-		- a change for an earlier month still open and not settled is a
-		  correction of that month only (DR-57): that month is revalued on
-		  its day 1 or its last day, the revaluation reverses on day 1 of the
-		  current month, and the current month keeps its own standard;
-		- a change for a future month cannot be released.
+		- a change for the previous period (PREV_OPEN_UNSETTLED) not settled
+		  for the item is a correction of that month only (DR-57): that month
+		  is revalued on its day 1 or its last day, the revaluation reverses
+		  on day 1 of the current period or the release day (DR-59), and the
+		  current period keeps its own standard;
+		- a change for a month after the current period cannot be released.
+		The current period is the OPEN Inventory Period, not the calendar
+		month (DR-64).
 		A same-period prior is replaced outright (SUPERSEDED)."""
 		if self.status != "DRAFT":
 			frappe.throw(_("Only DRAFT versions can be released."))
 
-		today = getdate(frappe.utils.nowdate())
+		from periodic_valuation.shared.periods import current_period_day
+
+		today = current_period_day(self.company)
 		if (self.valid_from_year, self.valid_from_month) > (today.year, today.month):
 			frappe.throw(
-				_("A cost version for a future month ({0}-{1:02d}) cannot be released. Release it once that month begins.").format(
-					self.valid_from_year, self.valid_from_month
+				_("A cost version for {0}-{1:02d} cannot be released: the current inventory period is {2}-{3:02d}. Release it once that period is open.").format(
+					self.valid_from_year, self.valid_from_month, today.year, today.month
 				),
 				title=_("Future Month"),
 			)
@@ -295,16 +300,14 @@ class ItemStandardCostVersion(Document):
 			frappe.flags.in_scv_materialize = False
 
 	def _prior_period_open(self, today):
-		"""A backdated version whose valid-from month is an earlier period
-		that still takes postings and is not settled for this scope (DR-54).
-		A settled month keeps the forward revaluation in the current period
-		(client design §8.A)."""
-		from periodic_valuation.shared.periods import get_period, period_refusal
+		"""A backdated version: its valid-from month is the previous period
+		(PREV_OPEN_UNSETTLED - DR-64, not an earlier calendar month) and is not
+		settled for this scope (DR-54). A settled month keeps the forward
+		revaluation in the current period (client design §8.A)."""
+		from periodic_valuation.shared.periods import get_period, is_backdate_period
 
-		if (self.valid_from_year, self.valid_from_month) >= (today.year, today.month):
-			return False
 		period = get_period(self.company, f"{self.valid_from_year}-{self.valid_from_month:02d}-01")
-		if not period or period_refusal(period):
+		if not is_backdate_period(period):
 			return False
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
 		return not engine.is_period_locked(self.valid_from_year, self.valid_from_month)
@@ -406,8 +409,10 @@ class ItemStandardCostVersion(Document):
 		valid-from month (`prior_period`, DR-54) revalued over that whole
 		month. Returns (Rev Beg + REV In amount, REV out amount, net stock
 		effect) as posted."""
+		from periodic_valuation.shared.periods import current_period_day
+
 		engine = StdEngine(self.company, self.item_code, self.warehouse)
-		today = getdate(as_of or frappe.utils.nowdate())
+		today = getdate(as_of) if as_of else current_period_day(self.company)
 		# quantities are the month to date; the entries are dated day 1, or on
 		# `post_on` under "Latest day of the period" (DR-55)
 		post_date = getdate(post_on) if post_on else revaluation_posting_date(today)
