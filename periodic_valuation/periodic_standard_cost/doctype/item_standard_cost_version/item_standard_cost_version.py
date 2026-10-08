@@ -222,6 +222,11 @@ class ItemStandardCostVersion(Document):
 		self.released_on = now_datetime()
 		self.released_by = frappe.session.user
 		self.save(ignore_permissions=False)
+		if not self.effective_to:
+			# a cost that carries forward (not a one-month correction) replaces
+			# what later months merely inherited; they re-inherit from it once
+			# released (DR-65)
+			self._retire_later_inherited()
 
 		if prior_sc is None:
 			# the item's first cost is logged as a zero-value event too
@@ -244,6 +249,16 @@ class ItemStandardCostVersion(Document):
 		else:
 			self.post_revaluation_triplet(prior_sc, post_on=today if latest else None)
 		return self.name
+
+	def _retire_later_inherited(self):
+		for name in frappe.get_all("Item Standard Cost Version", filters={
+				"company": self.company, "item_code": self.item_code,
+				"warehouse": ("in", (self.warehouse or "", None)), "status": "RELEASED",
+				"source_type": "INHERITED", "name": ("!=", self.name)},
+				fields=["name", "valid_from_year", "valid_from_month"]):
+			if (name.valid_from_year, name.valid_from_month) > (self.valid_from_year, self.valid_from_month):
+				frappe.db.set_value("Item Standard Cost Version", name.name, "status", "SUPERSEDED",
+					update_modified=False)
 
 	def _warn_later_periods_keep_cost(self, today):
 		"""DR-65: a backdated correction changes its own month only. Say so,
@@ -763,7 +778,10 @@ def inherit_period_cost(company, item_code, warehouse, year, month):
 	rows = frappe.get_all("Item Standard Cost Version", filters={
 		"company": company, "item_code": item_code,
 		"warehouse": ("in", (warehouse or "", None)), "status": "RELEASED"}, fields=WINDOW_FIELDS)
-	if any((x.valid_from_year, x.valid_from_month) == (year, month) for x in rows):
+	if any((x.valid_from_year, x.valid_from_month) == (year, month)
+			or (x.switch_on_release and price_from(x) == (year, month)) for x in rows):
+		# the month has its own version, or a switch-at-release version (05/10
+		# rule) changes the cost inside it
 		return None
 	day1 = getdate(f"{year}-{month:02d}-01")
 	source = resolve_version(rows, day1)
