@@ -120,13 +120,8 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 		fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "released_on",
 			"price_from_year", "price_from_month", "switch_on_release", "effective_from", "effective_to"],
 	)
-	# DR-50 (amended): a version that switches at its release prices from its
-	# release date - a posting dated earlier in that month keeps the cost that
-	# was in force then. DR-57: a backdated correction prices its own month
-	# only (effective_to); the month after keeps its own standard
-	candidates = [x for x in rows if price_from(x) <= (d.year, d.month)
-		and not (x.switch_on_release and x.effective_from and d < getdate(x.effective_from))
-		and not (x.effective_to and d > getdate(x.effective_to))]
+	best = resolve_version(rows, d)
+	candidates = [best] if best else []
 	if not candidates:
 		frappe.throw(
 			_("No RELEASED Item Standard Cost Version covers {0} for {1}. Release one before posting.").format(
@@ -134,9 +129,26 @@ def get_active_standard_cost(company, item_code, warehouse, posting_date):
 			),
 			title=_("No Standard Cost"),
 		)
-	best = max(candidates, key=switch_order)
 	_materialize_if_pending(best.name)
 	return best
+
+
+def version_applies(version, day):
+	"""Whether a RELEASED version can price `day`: from its prices-from month
+	(or, for a switch-at-release version, its switch date), up to its
+	Effective To when it has one (DR-57 corrections, DR-63 closed windows)."""
+	return price_from(version) <= (day.year, day.month) \
+		and not (version.switch_on_release and version.effective_from and day < getdate(version.effective_from)) \
+		and not (version.effective_to and day > getdate(version.effective_to))
+
+
+def resolve_version(rows, day):
+	"""The version in force on `day` among `rows`: of those that apply, the
+	latest prices-from month, then the latest release. The one rule the cost
+	lookup and the version windows (DR-63) both read."""
+	day = getdate(day)
+	candidates = [x for x in rows if version_applies(x, day)]
+	return max(candidates, key=switch_order) if candidates else None
 
 
 # the zero-value event a cost version records when there is nothing to

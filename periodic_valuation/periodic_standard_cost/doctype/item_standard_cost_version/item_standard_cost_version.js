@@ -70,7 +70,7 @@ function show_revaluation(frm) {
 // DR-57: a backdated change corrects its own month only - say so, and that
 // the month after keeps its own standard cost
 function show_correction(frm) {
-	if (!frm.doc.effective_to) return false;
+	if (!frm.doc.is_correction) return false;
 	const to = frappe.datetime.str_to_user(frm.doc.effective_to);
 	const next = frappe.datetime.str_to_user(frappe.datetime.add_days(frm.doc.effective_to, 1));
 	frm.dashboard.set_headline(
