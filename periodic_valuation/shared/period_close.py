@@ -235,15 +235,7 @@ def assert_std_scopes_settled(period):
 		if key in seen:
 			continue
 		seen.add(key)
-		if engine.is_period_locked(period.period_year, period.period_month):
-			continue
-		if engine.view == "MTD":
-			basis = flt(engine.beg_qty_mtd(period.period_year, period.period_month)) \
-				+ flt(engine.in_qty_mtd(period.period_year, period.period_month))
-		else:
-			basis = flt(engine.beg_qty_ytd(period.period_year)) \
-				+ flt(engine.in_qty_ytd(period.period_year, period.period_month))
-		if basis <= 0:
+		if not engine.needs_settlement(period.period_year, period.period_month):
 			continue
 		unsettled.append({"item_code": r.item_code, "warehouse": engine.warehouse or "(company scope)",
 			"view": engine.view})

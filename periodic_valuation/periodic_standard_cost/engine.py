@@ -821,9 +821,42 @@ class StdEngine:
 				(settings,))
 		return [settings] if settings else []
 
+	def settlement_basis(self, year, month):
+		"""The quantity the month's settlement shares its pool over (beg + in,
+		view-aware). Nothing to settle when it is not positive."""
+		if self.view == "MTD":
+			return flt(self.beg_qty_mtd(year, month)) + flt(self.in_qty_mtd(year, month))
+		return flt(self.beg_qty_ytd(year)) + flt(self.in_qty_ytd(year, month))
+
+	def needs_settlement(self, year, month):
+		"""Settleable and not yet settled: the one test the freeze gate (DR-47)
+		and the settlement order check (STD-016) share."""
+		return not self.is_period_locked(year, month) and self.settlement_basis(year, month) > 0
+
+	def _assert_previous_settled(self, year, month):
+		"""Months settle in order (client ticket STD-016, 08/10/2026: "Settlement
+		was executed for October 2026, but September 2026 were not settled"):
+		the previous month's settlement feeds this one - its ending-stock share
+		is this month's carry (MTD) and this month re-settles the year to date
+		(YTD). While the previous month is still open and this item has
+		something to settle there, this month cannot be settled. A frozen
+		month is settled by its freeze gate."""
+		py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+		status = frappe.db.get_value("Inventory Period",
+			{"company": self.company, "period_year": py, "period_month": pm}, "status")
+		if status in (None, "SETTLED_FROZEN"):
+			return
+		if self.needs_settlement(py, pm):
+			frappe.throw(
+				_("{0}: settle {1}-{2:02d} first. Its settlement feeds {3}-{4:02d}, and it is still open and unsettled for this item.").format(
+					self.item_code, py, pm, year, month),
+				title=_("Settle the Previous Month First"),
+			)
+
 	def close_period(self, *, year, month, sc, source, entry_date=None, ref=None,
 			es_qty_override=None, out_qty_override=None, settlement_run=None):
 		self._assert_prior_fy_closed(year)
+		self._assert_previous_settled(year, month)
 		self._lock_for_settlement(year, month)
 		if self.is_period_locked(year, month):
 			raise PeriodLockedError(
