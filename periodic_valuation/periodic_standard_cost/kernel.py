@@ -130,12 +130,14 @@ def _post_entry(controller, sle, is_return):
 			row = next((x for x in controller.get("items") or []
 				if x.name == sle.get("voucher_detail_no")), None)
 			ac = flt(row.base_net_rate) if row else 0.0
-		engine.post(trans="PR", posting_date=posting_date, qty=-qty, sc=sc, ac=ac,
+		trans = "PR"
+		engine.post(trans=trans, posting_date=posting_date, qty=-qty, sc=sc, ac=ac,
 			source=source, cost_version=scv.name)
 		value = r2(qty * sc)
 	else:
 		# sales return (SR intent): new movement at posting-date STD (phase-1 rule)
-		engine.post(trans="SR", posting_date=posting_date, qty=qty, sc=sc, ac=sc,
+		trans = "SR"
+		engine.post(trans=trans, posting_date=posting_date, qty=qty, sc=sc, ac=sc,
 			source=source, cost_version=scv.name)
 		value = r2(qty * sc)
 
