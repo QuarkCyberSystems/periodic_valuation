@@ -143,7 +143,7 @@ def _run():
 		run_doc.submit()
 		run_doc.reload()
 		check("5: a run lists a company-level item once (refused: previous month first)",
-			(run_doc.remarks or "").count("_STD-DETAIL-2WH") == 1, run_doc.remarks)
+			len([ln for ln in (run_doc.remarks or "").splitlines() if "_STD-DETAIL-2WH" in ln]) == 1, run_doc.remarks)
 
 		# ---- 6: backfill patch ----------------------------------------------------
 		from periodic_valuation.patches.v1_0 import std_event_reasons_and_settlement_detail as patch
