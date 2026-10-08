@@ -663,8 +663,10 @@ def run(commit=False):
 	make_dn(it, wh, 200)
 	cn = make_cancellation("Purchase Receipt", pr.name)
 	cx = frappe.get_doc("Purchase Receipt", cn)
-	cx.items[0].qty = 500
-	cx.items[0].received_qty = 500
+	# a receipt cancellation is the native return (STD-014): quantities negative
+	cx.items[0].qty = -500
+	cx.items[0].received_qty = -500
+	cx.items[0].stock_qty = -500
 	cx.save(ignore_permissions=True)
 	cx.submit()
 	c = ipb(it)

@@ -1263,9 +1263,13 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 
 	posting_date = sle.get("posting_date")
 	map_before = flt(ipb.moving_avg_price)
-	# the cancellation document carries the original's positive quantities;
-	# the kernel posts the mirror
-	qty = -flt(sle.get("actual_qty"))
+	# a copied cancellation (Stock Entry, Subcontracting Receipt, a return)
+	# carries the original's quantities and the kernel posts the mirror; a
+	# return-shaped one (receipt, delivery, invoice - STD-014) already
+	# carries the reversed sign
+	from periodic_valuation.periodic_moving_average.cancellation import is_return_shaped
+
+	qty = flt(sle.get("actual_qty")) if is_return_shaped(controller) else -flt(sle.get("actual_qty"))
 
 	want = abs(flt(sle.get("actual_qty")))
 	orig = next((e for e in unreversed if flt(e.qty_basis) == want), unreversed[0])

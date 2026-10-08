@@ -37,6 +37,20 @@
   "closing_value",
   "col_closing",
   "moving_avg_price",
+  "sec_ytd",
+  "ytd_opening_qty",
+  "ytd_opening_value",
+  "ytd_receipt_qty",
+  "ytd_receipt_value",
+  "col_ytd",
+  "ytd_issue_qty",
+  "ytd_issue_value",
+  "ytd_adjust_qty",
+  "ytd_adjust_value",
+  "col_ytd2",
+  "ytd_reval_value",
+  "ytd_closing_qty",
+  "ytd_closing_value",
   "sec_map_state",
   "total_received_since_zero",
   "col_map_state",
@@ -257,6 +271,92 @@
    "description": "Moving average price for Periodic Moving Average items; the active standard cost for Periodic Standard Cost items."
   },
   {
+   "fieldname": "sec_ytd",
+   "fieldtype": "Section Break",
+   "label": "Year to Date",
+   "depends_on": "eval:doc.valuation_method == \"Periodic Standard Cost\" && doc.resolved_settlement_view == \"YTD\"",
+   "description": "For items on the YTD settlement view: the year from its first month to this one. Opening is the year's opening; the movements add up every month of the year to this one. Updated as each valuation event posts. The fields above stay this month's own figures."
+  },
+  {
+   "fieldname": "ytd_opening_qty",
+   "fieldtype": "Float",
+   "label": "YTD Opening Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_opening_value",
+   "fieldtype": "Currency",
+   "label": "YTD Opening Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_receipt_qty",
+   "fieldtype": "Float",
+   "label": "YTD Receipt Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_receipt_value",
+   "fieldtype": "Currency",
+   "label": "YTD Receipt Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_ytd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ytd_issue_qty",
+   "fieldtype": "Float",
+   "label": "YTD Issue Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_issue_value",
+   "fieldtype": "Currency",
+   "label": "YTD Issue Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_adjust_qty",
+   "fieldtype": "Float",
+   "label": "YTD Adjust Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_adjust_value",
+   "fieldtype": "Currency",
+   "label": "YTD Adjust Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_ytd2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ytd_reval_value",
+   "fieldtype": "Currency",
+   "label": "YTD Reval Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_closing_qty",
+   "fieldtype": "Float",
+   "label": "YTD Closing Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_closing_value",
+   "fieldtype": "Currency",
+   "label": "YTD Closing Value",
+   "read_only": 1
+  },
+  {
    "fieldname": "sec_map_state",
    "fieldtype": "Section Break",
    "label": "MAP State",
@@ -371,7 +471,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-07 10:00:00.000000",
+ "modified": "2026-10-08 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period Balance",

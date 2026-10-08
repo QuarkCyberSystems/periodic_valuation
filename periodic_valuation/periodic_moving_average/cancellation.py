@@ -6,8 +6,13 @@ contains periodic-valuation items (signed MAP plan; May 6 universal rule).
 
 Creates a new draft of the SAME doctype with is_cancellation = 1 and
 cancellation_against set, items copied from the original, posting_date
-defaulted to today. On submit the kernel posts dated mirror events; both
-documents survive at docstatus 1.
+defaulted to today. On submit the kernel posts dated mirror events, on the
+cancellation's own posting date; both documents survive at docstatus 1.
+
+A receipt, delivery or invoice cancellation is built as the ERPNext return of
+the original, so it shows negative quantities and totals (client ticket
+STD-014, 08/10/2026). A cancellation can never be dated before the document
+it cancels.
 """
 
 import frappe
@@ -15,6 +20,9 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from qcs_platform.core.reversal import reversed_by, reversed_ones
+
+# built as the native return: negative quantities and totals (STD-014)
+RETURN_SHAPED = ("Purchase Invoice", "Sales Invoice", "Purchase Receipt", "Delivery Note")
 
 CANCELLABLE = (
 	"Purchase Receipt",
@@ -47,7 +55,9 @@ def make_cancellation(doctype, name):
 
 	_block_if_has_dependents(doctype, name, original)
 
-	if doctype in ("Purchase Invoice", "Sales Invoice"):
+	if doctype in RETURN_SHAPED and not original.get("is_return"):
+		# (a return is itself cancelled by a copy - ERPNext has no return of
+		# a return; is_return_shaped tells the two apart)
 		# A PI/SI reversal is a debit/credit note: this reverses the party
 		# accounting (creditor/debtor, SRBNB/GRIR) and nets the receipt's
 		# billing status natively, so the receipt returns to 'To Bill' and can
@@ -75,6 +85,14 @@ def make_cancellation(doctype, name):
 	cancellation.flags.ignore_permissions = False
 	cancellation.insert()
 	return cancellation.name
+
+
+def is_return_shaped(doc):
+	"""A cancellation built as the native return of its original: its
+	quantities already carry the reversed sign. A copied cancellation (of a
+	Stock Entry, or of a return) carries the original's."""
+	return bool(doc.get("is_cancellation") and doc.get("is_return")
+		and doc.get("return_against") == doc.get("cancellation_against"))
 
 
 def _retype_reversal(cancellation):
@@ -199,3 +217,30 @@ def _block_if_has_dependents(doctype, name, original, _collect=None):
 		lcvs = _still_standing("Landed Cost Voucher", sorted(set(lcvs)))
 		if lcvs:
 			refuse("Landed Cost Voucher", lcvs, _("Reverse the landed cost voucher(s) first, then reverse this document."))
+
+
+def validate_cancellation_date(doc, method=None):
+	"""A cancellation is dated on or after the document it cancels: stock
+	cannot be taken back before it arrived, nor put back before it left
+	(client ticket STD-014, 08/10/2026: a 20-09 cancellation of a 02-10
+	receipt was accepted). Its own posting date is the date the reversal
+	posts on."""
+	if not doc.get("is_cancellation") or not doc.get("cancellation_against"):
+		return
+	from frappe.utils import get_datetime
+
+	fields = ["posting_date"] + (["posting_time"] if doc.meta.has_field("posting_time") else [])
+	original = frappe.db.get_value(doc.doctype, doc.cancellation_against, fields, as_dict=True)
+	if not original or not original.posting_date:
+		return
+
+	def stamp(d):
+		return get_datetime(f"{d.posting_date} {d.get('posting_time') or '00:00:00'}")
+
+	if stamp(doc) < stamp(original):
+		frappe.throw(
+			_("The cancellation cannot be dated before {0} ({1} {2}). Set its posting date to {1} or later.").format(
+				doc.cancellation_against, frappe.utils.formatdate(original.posting_date), original.posting_time or ""
+			),
+			title=_("Cancellation Date Before Original"),
+		)
