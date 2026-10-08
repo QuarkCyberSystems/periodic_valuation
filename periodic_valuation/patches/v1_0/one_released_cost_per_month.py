@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems
 # License: GNU General Public License v3. See license.txt
 
-"""DR-60 (client, 08/10/2026: "two released Standard Costs for the same
+"""DR-62 (client, 08/10/2026: "two released Standard Costs for the same
 period"). The version a backdated correction replaced for its month keeps
 only the months after it, and a version no date resolves to any more is
 SUPERSEDED. Brings the versions released before that rule into line; the
@@ -49,4 +49,4 @@ def execute():
 	for s in frappe.db.sql("""SELECT DISTINCT company, item_code, warehouse FROM `tabItem Standard Cost Version`
 			WHERE status = 'RELEASED'""", as_dict=True):
 		retired += supersede_shadowed_versions(s.company, s.item_code, s.warehouse)
-	print(f"DR-60: {moved} versions now start after the month a correction took; {len(retired)} superseded: {', '.join(retired)}")
+	print(f"DR-62: {moved} versions now start after the month a correction took; {len(retired)} superseded: {', '.join(retired)}")

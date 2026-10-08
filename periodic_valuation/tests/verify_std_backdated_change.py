@@ -27,7 +27,7 @@ in the current month; the previous month received 1,000 at 300 and issued
      "First day of the period" (DR-59)
   H  a new version for the current month measures its delta from the
      current month's standard (300), not from the correction; the 300
-     version then prices nothing and is SUPERSEDED (DR-60)
+     version then prices nothing and is SUPERSEDED (DR-62)
   I  a second correction of the same month supersedes the first
 
 Savepoint-rolled-back; run on the throwaway site.
@@ -135,7 +135,7 @@ def _run():
 			_sc(a, p3) == 400 and _sc(a, day1) == 300 and _sc(a, today) == 300)
 		check("A: the consumption adjustment stays in the previous month (20,000)",
 			_gl(a, acc.cogs_adj) == 20000, str(_gl(a, acc.cogs_adj)))
-		check("A: the earlier version stays RELEASED and now starts from the current month (DR-60)",
+		check("A: the earlier version stays RELEASED and now starts from the current month (DR-62)",
 			frappe.db.get_value(SCV, a0.name, "status") == "RELEASED"
 			and str(frappe.db.get_value(SCV, a0.name, "effective_from")) == str(day1))
 		identity("A")
@@ -151,13 +151,13 @@ def _run():
 		check("H: a current-month version measures its delta from 300 (Rev Beg 810 x 50)",
 			("Rev Beg", 40500.0, str(day1)) in _events(vh.name)
 			and frappe.db.get_value(SCV, vh.name, "supersedes_version") == a0.name, str(_events(vh.name)))
-		check("H: the 300 version, which no date resolves to any more, is SUPERSEDED; one RELEASED per month (DR-60)",
+		check("H: the 300 version, which no date resolves to any more, is SUPERSEDED; one RELEASED per month (DR-62)",
 			frappe.db.get_value(SCV, a0.name, "status") == "SUPERSEDED"
 			and sorted(frappe.get_all(SCV, filters={"item_code": a, "status": "RELEASED"}, pluck="name")) == sorted([va.name, vh.name]))
 
 		# ---- I: a second correction of the same month retires the first ---------
 		vi = pack.scv_release(a, prev.year, prev.month, 450)
-		check("I: a second correction of the previous month retires the first (DR-60)",
+		check("I: a second correction of the previous month retires the first (DR-62)",
 			frappe.db.get_value(SCV, va.name, "status") == "SUPERSEDED"
 			and frappe.db.get_value(SCV, vi.name, "status") == "RELEASED" and _sc(a, p3) == 450 and _sc(a, today) == 350)
 
