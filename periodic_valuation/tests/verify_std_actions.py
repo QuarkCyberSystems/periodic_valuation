@@ -170,8 +170,9 @@ def run(commit=False):
 	pr_s = make_pr(item_s, wh, 10, 12)
 	eng = StdEngine(company, item_s, wh)
 	sett = eng.close_period(year=today.year, month=today.month, sc=10, source=("Item", item_s))
-	cx = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr_s.name))
 	try:
+		# refused already when the draft is saved (STD-016: refuse on Save)
+		cx = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr_s.name))
 		cx.submit()
 		m = one_ive(source_docname=cx.name)
 		delta = one_ive(item_code=item_s, std_trans="Sett - Delta")
