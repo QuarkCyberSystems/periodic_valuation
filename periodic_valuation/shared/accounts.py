@@ -172,3 +172,17 @@ def get_all_inventory_accounts(company, ipb_rows):
 		if account:
 			accounts.add(account)
 	return accounts
+
+
+def voucher_expense_account(controller, sle):
+	"""Expense / offset for an issue's GL: the row's own account -> Item /
+	Item Group default expense -> Company default expense account. Never
+	SRBNB. One lookup for both kernels."""
+	detail = sle.get("voucher_detail_no")
+	for row in controller.get("items") or []:
+		if row.name == detail and row.get("expense_account"):
+			return row.get("expense_account")
+	return (
+		get_offset_account(controller.company, sle.get("item_code"), sle.get("warehouse"), "expense")
+		or frappe.get_cached_value("Company", controller.company, "default_expense_account")
+	)

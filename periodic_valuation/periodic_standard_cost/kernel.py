@@ -109,7 +109,8 @@ def _post_entry(controller, sle, is_return):
 		fx_rate = flt(controller.get("conversion_rate"))
 		engine.post(trans=trans, posting_date=posting_date, qty=qty, sc=sc, ac=ac,
 			source=source, cost_version=scv.name,
-			exchange_rate_at_receipt=fx_rate if fx_rate and fx_rate != 1 else None)
+			exchange_rate_at_receipt=fx_rate if fx_rate and fx_rate != 1 else None,
+			offset_account=_asset_issue_account(controller, sle))
 		value = r2(qty * sc)
 		_post_companion_if_needed(engine, controller, sle, trans, qty, sc, source, today)
 	elif qty < 0 and not is_return:
@@ -118,7 +119,7 @@ def _post_entry(controller, sle, is_return):
 			_assert_stock_available(engine, -qty)
 		trans = "Issue (BY)" if (cross_month and cross_fy) else ("Issue (BD)" if cross_month else "Iss")
 		engine.post(trans=trans, posting_date=posting_date, qty=-qty, sc=sc,
-			source=source, cost_version=scv.name)
+			source=source, cost_version=scv.name, offset_account=_asset_issue_account(controller, sle))
 		value = r2(qty * sc)
 		_post_companion_if_needed(engine, controller, sle, trans, -qty, sc, source, today)
 	elif is_return and qty < 0:
@@ -262,6 +263,22 @@ def _post_cancellation_std(controller, engine, sle, period):
 		write_value_sle(scope, ipb, source=source, posting_date=mirror.posting_date,
 			value_delta=value, stock_uom=sle.get("stock_uom"))
 	bridge_cancelled_before_switch(engine, orig_rows, source, current_period_day(engine.company))
+
+
+def _asset_issue_account(controller, sle):
+	"""A movement raised by an Asset Capitalization or an Asset Repair offsets
+	stock against its row's account - the account the asset side's journal
+	clears (TSK-2026-00902, Vivek 12/10/2026, the narrow version): the issue
+	instead of Cost of Goods Sold, and the receipt that returns the materials
+	on a reversal instead of Stock Received But Not Billed. Every other
+	standard-cost movement keeps its default offset per the client STD
+	design; None leaves it there."""
+	if controller.doctype != "Stock Entry" or not (
+			controller.get("asset_capitalization") or controller.get("asset_repair")):
+		return None
+	from periodic_valuation.shared.accounts import voucher_expense_account
+
+	return voucher_expense_account(controller, sle)
 
 
 def _backdate_class(engine, posting_date, today, period):
