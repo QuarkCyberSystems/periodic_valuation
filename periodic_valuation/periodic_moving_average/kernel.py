@@ -1183,18 +1183,9 @@ def maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_sca
 
 
 def _voucher_expense_account(controller, sle):
-	"""Expense/offset for issue-side GL: row override -> Item/Item Group
-	default expense -> Company default expense account. Never SRBNB."""
-	detail = sle.get("voucher_detail_no")
-	for row in controller.get("items") or []:
-		if row.name == detail and row.get("expense_account"):
-			return row.get("expense_account")
-	return (
-		get_offset_account(
-			controller.company, sle.get("item_code"), sle.get("warehouse"), "expense"
-		)
-		or frappe.get_cached_value("Company", controller.company, "default_expense_account")
-	)
+	from periodic_valuation.shared.accounts import voucher_expense_account
+
+	return voucher_expense_account(controller, sle)
 
 
 def _original_rate(controller, sle):

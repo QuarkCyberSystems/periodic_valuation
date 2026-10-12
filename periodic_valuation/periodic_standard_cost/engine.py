@@ -308,7 +308,8 @@ class StdEngine:
 	def post(self, *, trans, posting_date, qty=None, sc=None, ac=None, source,
 			entry_date=None, ref="", t_sc_override=None, t_ac_override=None,
 			cost_version=None, post_gl=True, qty_adj_override=None, reversal_of=None,
-			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0, extra=None):
+			posting_intent=None, exchange_rate_at_receipt=None, fx_variance=0.0, extra=None,
+			offset_account=None):
 		"""Append one STD event (and its GL unless Sett-family)."""
 		flags = flags_for(trans, self.view)
 		pst = getdate(posting_date)
@@ -423,7 +424,7 @@ class StdEngine:
 			frappe.flags[KERNEL_FLAG] = False
 
 		if post_gl and trans not in SETT_FAMILY:
-			self._post_gl(ive, trans, total_sc, total_ac)
+			self._post_gl(ive, trans, total_sc, total_ac, offset_override=offset_account)
 		self.refresh_ipb_pools(pst.year, pst.month)
 		return ive
 
