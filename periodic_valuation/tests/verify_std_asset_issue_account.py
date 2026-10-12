@@ -10,6 +10,9 @@ bench --site <site> execute periodic_valuation.tests.verify_std_asset_issue_acco
   4  the capitalization issue's cancellation mirrors the row's account, so
      the account nets to zero
   5  moving average reads the same helper (row account wins)
+  6  the asset side's reversal returns the materials with a Material
+     Receipt: Dr Stock / Cr the row's account, not SRBNB
+  7  an ordinary receipt still credits SRBNB
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -95,6 +98,22 @@ def _run():
 		net = flt(_gl(cap.name).get(clearing, 0) + _gl(cx.name).get(clearing, 0), 2)
 		check("4: the cancellation mirrors the row's account; the account nets to zero",
 			_gl(cx.name) == {clearing: -1000.0, a.stock: 1000.0} and net == 0, str(_gl(cx.name)))
+
+		# the asset side's reversal returns the materials with a Material Receipt
+		# whose row carries the clearing account, at the issued cost
+		ret = frappe.get_doc({"doctype": "Stock Entry", "company": pack.COMPANY,
+			"stock_entry_type": "Material Receipt", "purpose": "Material Receipt",
+			"posting_date": nowdate(), "set_posting_time": 1, "asset_capitalization": "ACC-ASC-TEST-0002",
+			"items": [{"item_code": it, "qty": 4, "t_warehouse": wh, "basic_rate": 100,
+				"expense_account": clearing}]})
+		ret.flags.ignore_links = True
+		ret.insert(ignore_permissions=True)
+		ret.submit()
+		check("6: the reversal's Material Receipt - Dr Stock / Cr the row's account 400; nothing to SRBNB or PPV",
+			_gl(ret.name) == {a.stock: 400.0, clearing: -400.0}, str(_gl(ret.name)))
+		rec = pack.make_pr(it, wh, 1, 100)
+		check("7: an ordinary receipt still credits Stock Received But Not Billed",
+			_gl(rec.name).get(a.grir) == -100.0, str(_gl(rec.name)))
 
 		from periodic_valuation.shared.accounts import voucher_expense_account
 

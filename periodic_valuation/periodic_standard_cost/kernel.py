@@ -109,7 +109,8 @@ def _post_entry(controller, sle, is_return):
 		fx_rate = flt(controller.get("conversion_rate"))
 		engine.post(trans=trans, posting_date=posting_date, qty=qty, sc=sc, ac=ac,
 			source=source, cost_version=scv.name,
-			exchange_rate_at_receipt=fx_rate if fx_rate and fx_rate != 1 else None)
+			exchange_rate_at_receipt=fx_rate if fx_rate and fx_rate != 1 else None,
+			offset_account=_asset_issue_account(controller, sle))
 		value = r2(qty * sc)
 		_post_companion_if_needed(engine, controller, sle, trans, qty, sc, source, today)
 	elif qty < 0 and not is_return:
@@ -265,11 +266,13 @@ def _post_cancellation_std(controller, engine, sle, period):
 
 
 def _asset_issue_account(controller, sle):
-	"""An issue raised by an Asset Capitalization or an Asset Repair credits
+	"""A movement raised by an Asset Capitalization or an Asset Repair offsets
 	stock against its row's account - the account the asset side's journal
-	clears - not Cost of Goods Sold (TSK-2026-00902, Vivek 12/10/2026, the
-	narrow version). Every other standard-cost issue keeps COGS per the
-	client STD design; None leaves it there."""
+	clears (TSK-2026-00902, Vivek 12/10/2026, the narrow version): the issue
+	instead of Cost of Goods Sold, and the receipt that returns the materials
+	on a reversal instead of Stock Received But Not Billed. Every other
+	standard-cost movement keeps its default offset per the client STD
+	design; None leaves it there."""
 	if controller.doctype != "Stock Entry" or not (
 			controller.get("asset_capitalization") or controller.get("asset_repair")):
 		return None
