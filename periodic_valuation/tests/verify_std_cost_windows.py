@@ -107,9 +107,10 @@ def _run():
 			_sc(c, add_days(pp, 10)) == 300 and _sc(c, add_days(p1, 10)) == 400 and _sc(c, today) == 300)
 		cont = frappe.get_all(SCV, filters={"item_code": c, "source_type": "INHERITED", "status": "RELEASED",
 			"valid_from_month": today.month}, fields=["name", "revaluation_posted"])
-		check("C: the inherited version revalues nothing",
+		check("C: the inherited version revalues nothing (one zero-value event, STD-018)",
 			cont and cont[0].revaluation_posted == 1
-			and not frappe.db.exists("Inventory Valuation Event", {"source_docname": cont[0].name}), str(cont))
+			and [flt(x) for x in frappe.get_all("Inventory Valuation Event",
+				filters={"source_docname": cont[0].name}, pluck="total_sc")] == [0.0], str(cont))
 
 		# ---- D: a later current-month version supersedes the continuation ---------
 		pack.scv_release(c, today.year, today.month, 350)

@@ -121,9 +121,11 @@ def _run():
 			before = _row(b, today)
 			pack.make_pr(b, wh, 12, 10, posting_date=str(add_days(prev, 5)))
 			after = _row(b, today)
+			# the current period opened before the previous month's receipts,
+			# so both are Carryover (STD-015, reopened 12/10/2026)
 			check(f"4 {view}: a backdated receipt leaves the current Opening fixed and adds to Carryover",
-				after.opening_qty == before.opening_qty == 50 and after.carryover_qty == 12
-				and after.closing_qty == 67, f"before {before} after {after}")
+				after.opening_qty == before.opening_qty == 0 and before.carryover_qty == 50
+				and after.carryover_qty == 62 and after.closing_qty == 67, f"before {before} after {after}")
 
 		# ---- 6: YTD section reads the netted buckets --------------------------------
 		y = pack.std_item("_STD-BUCKETS-YTD", view="YTD")

@@ -163,9 +163,12 @@ def _run():
 		scx.submit()
 		mirror = frappe.get_all("Inventory Valuation Event", filters={"source_docname": scx.name, "is_cancelled": 0},
 			fields=["std_trans", "total_sc", "posting_date", "reversal_of"])
-		check("5: STD - every reversal row is dated the cancellation's date, the receipt's companion included",
-			len(mirror) == 2 and all(str(x.posting_date) == str(today) and x.reversal_of for x in mirror)
-			and _gl_dates(scx) == [str(today)], str(mirror))
+		orig_comp = frappe.db.get_value("Inventory Valuation Event", {"source_docname": spr.name,
+			"std_trans": ("like", "% - Rev")}, "posting_date")
+		check("5: STD - the receipt reverses on the cancellation's date, its companion where the companion was posted (STD-017)",
+			len(mirror) == 2 and all(x.reversal_of for x in mirror)
+			and all(str(x.posting_date) == (str(orig_comp) if x.std_trans.endswith(" - Rev") else str(today))
+				for x in mirror), str(mirror))
 		check("5: STD - reversed at the receipt's own standard cost (20 x 100), the companion's 200 with it",
 			sorted(flt(x.total_sc) for x in mirror) == [-2000.0, -200.0], str(mirror))
 		net = flt(frappe.db.sql("""select coalesce(sum(total_sc), 0) from `tabInventory Valuation Event`
