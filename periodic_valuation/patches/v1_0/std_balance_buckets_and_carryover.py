@@ -17,6 +17,11 @@ import frappe
 from frappe.utils import flt
 
 
+def opened_at(company, year, month):
+	return frappe.db.get_value("Inventory Period",
+		{"company": company, "period_year": year, "period_month": month}, "creation")
+
+
 def execute():
 	from periodic_valuation.periodic_moving_average.kernel import recompute_closing
 	from periodic_valuation.periodic_standard_cost.engine import StdEngine
@@ -30,7 +35,11 @@ def execute():
 		engine = StdEngine(s.company, s.item_code, s.warehouse or None)
 		events = frappe.get_all("Inventory Valuation Event",
 			filters={**engine._scope_filters(), "std_trans": ("!=", "")},
-			fields=["std_trans", "period_year", "period_month", "qty_adj", "total_sc", "reversal_of", "creation"])
+			fields=["std_trans", "period_year", "period_month", "qty_adj", "total_sc", "reversal_of", "creation",
+				"source_docname"])
+		# months that hold a cancellation's movement, per cancellation document
+		moved = {(e.source_docname, e.period_year, e.period_month) for e in events
+			if e.reversal_of and bucket_of(e.std_trans)}
 		for row in frappe.get_all("Inventory Period Balance", filters={"company": s.company,
 				"item_code": s.item_code, "warehouse": s.warehouse or ""}, fields=["name"]):
 			ipb = frappe.get_doc("Inventory Period Balance", row.name)
@@ -41,9 +50,12 @@ def execute():
 				if (e.period_year, e.period_month) != key:
 					continue
 				b = bucket_of(e.std_trans)
-				if b is None and e.reversal_of and e.std_trans.endswith(" - Rev"):
+				if b is None and e.reversal_of and e.std_trans.endswith(" - Rev") \
+						and (e.source_docname, e.period_year, e.period_month) in moved:
 					# a cancellation books its companion's reversal with the
-					# movement it belongs to (kernel._post_cancellation_std)
+					# movement it belongs to when both land in the same month
+					# (kernel._post_cancellation_std); one landing in a later
+					# month is a revaluation of that month
 					b = bucket_of(e.std_trans[: -len(" - Rev")])
 					if b == "receipt":
 						rv += flt(e.total_sc)
@@ -54,7 +66,11 @@ def execute():
 					rq += flt(e.qty_adj); rv += flt(e.total_sc)
 				elif b == "issue":
 					iq -= flt(e.qty_adj); iv -= flt(e.total_sc)
-			later = [e for e in events if (e.period_year, e.period_month) < key and e.creation > ipb.creation]
+			# Opening is fixed when the Inventory Period opens (client ticket
+			# STD-015, reopened 12/10/2026), not when the item's row appears:
+			# what earlier months received after that is Carryover
+			basis = opened_at(s.company, *key) or ipb.creation
+			later = [e for e in events if (e.period_year, e.period_month) < key and e.creation > basis]
 			cq = sum(flt(e.qty_adj) for e in later)
 			cv = sum(flt(e.total_sc) for e in later)
 			new = frappe._dict(ipb.as_dict())
