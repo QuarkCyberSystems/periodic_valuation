@@ -210,26 +210,11 @@ def _post_cancellation_std(controller, engine, sle, period):
 		frappe.throw(_("No STD valuation events found for {0} to reverse.").format(original))
 
 	source = (controller.doctype, controller.name, detail)
-	mirror = None
-	for name in originals:
-		# the reversal posts on the cancellation's own date, as Moving Average
-		# does (client ticket STD-014, 08/10/2026; Apr-22 decision 8: a
-		# cancellation never copies the original's posting date). That date is
-		# in an open period (asserted above) and never before the original
-		# (cancellation.validate_cancellation_date). Replaces the Cancellation
-		# Matrix row 3 reading, which dated it into the original's period.
-		mirror = engine.reverse_event(name, source=source, posting_date=getdate(sle.get("posting_date")))
-
-	# SLE-compatible row + state at the ORIGINAL standard cost.
-	# Aggregate over EVERY event the original document produced, not just the
-	# first: a backdated receipt/issue posts a primary movement plus a delta-SC
-	# companion, and the companion carries qty_adj = 0. Reading originals[0]
-	# picked whichever came back first, so a backdated document's reversal tried
-	# to write an SLE with zero quantity ("Actual Qty is mandatory") and, when it
-	# did not, restored only part of the value.
+	cd = getdate(sle.get("posting_date"))
 	orig_rows = [frappe.get_doc("Inventory Valuation Event", n) for n in originals]
-	qty = -sum(flt(r.qty_adj) for r in orig_rows)
-	value = -sum(flt(r.total_sc) for r in orig_rows)
+	primaries = [r for r in orig_rows if bucket_of(r.std_trans)]
+	others = [r for r in orig_rows if not bucket_of(r.std_trans)]
+
 	from periodic_valuation.periodic_moving_average.kernel import (
 		ScopeState,
 		recompute_closing,
@@ -238,15 +223,34 @@ def _post_cancellation_std(controller, engine, sle, period):
 	)
 	from periodic_valuation.shared.periods import get_period
 
-	# the mirror's own period, which reverse_event chose from the period state -
-	# the balance has to move where the GL moved, not where the document is dated
+	# 1. exact reversal. The movement posts on the cancellation's own date
+	# (STD-014; Apr-22 decision 8) at the ORIGINAL standard cost. The rows
+	# that bridged a backdated original into a later month (its "- Rev"
+	# companions) are reversed where they were posted - their own date while
+	# that period is open (reverse_event's rule) - so the later month gives
+	# back exactly what it received (STD-017)
+	mirror = None
+	for r in primaries:
+		mirror = engine.reverse_event(r.name, source=source, posting_date=cd)
+	other_mirrors = [engine.reverse_event(r.name, source=source) for r in others]
+	mirror = mirror or (other_mirrors[0] if other_mirrors else None)
+
+	qty = -sum(flt(r.qty_adj) for r in orig_rows)
 	mirror_period = get_period(engine.company, mirror.posting_date) or period
+	same = lambda m: (getdate(m.posting_date).year, getdate(m.posting_date).month) == \
+		(mirror_period.period_year, mirror_period.period_month)
+	# value booked with the movement: the movement itself and any reversed
+	# companion that lands in the same month (as before); a companion that
+	# lands in a later month restates that month's balance there
+	value = -sum(flt(r.total_sc) for r in primaries) - sum(
+		flt(m.total_sc) for m in other_mirrors if same(m)) if primaries else -sum(flt(r.total_sc) for r in orig_rows)
+
 	scope = ScopeState(engine.company, engine.item_code, sle.get("warehouse"))
 	ipb = scope.load(mirror_period)
 	# a cancellation nets the bucket its ORIGINAL filled (DR-31, as MAP):
 	# cancelling an issue reduces Issues, cancelling a purchase return puts
 	# Receipts back (client ticket STD-013, 08/10/2026)
-	primary = next((r.std_trans for r in orig_rows if bucket_of(r.std_trans)), None)
+	primary = primaries[0].std_trans if primaries else None
 	if qty:
 		_book_bucket(ipb, bucket_of(primary), qty, value)
 	else:
@@ -254,6 +258,9 @@ def _post_cancellation_std(controller, engine, sle, period):
 	recompute_closing(ipb)
 	scope.save(ipb, source=(controller.doctype, controller.name))
 	engine.refresh_ipb_pools(ipb.period_year, ipb.period_month)  # STD-013: pools stay current
+	# a movement dated in an earlier month carries into every later month's
+	# balance (Carryover), as any backdated posting does (STD-015 / STD-017)
+	_cascade_backdated_ipb(scope, mirror_period, qty, value, source=(controller.doctype, controller.name))
 	mirrored = dict(sle)
 	mirrored["actual_qty"] = qty
 	mirrored["posting_date"] = mirror.posting_date
@@ -262,7 +269,97 @@ def _post_cancellation_std(controller, engine, sle, period):
 	elif value:
 		write_value_sle(scope, ipb, source=source, posting_date=mirror.posting_date,
 			value_delta=value, stock_uom=sle.get("stock_uom"))
+	for m in other_mirrors:
+		if not same(m) and flt(m.total_sc):
+			book_revaluation(engine, getdate(m.posting_date), flt(m.total_sc), source, stock_uom=sle.get("stock_uom"))
+
+	if qty and primaries:
+		_revalue_returned_quantity(engine, controller, sle, source, primaries[0], qty, cd, mirror_period,
+			other_mirrors)
 	bridge_cancelled_before_switch(engine, orig_rows, source, current_period_day(engine.company))
+
+
+def _revalue_returned_quantity(engine, controller, sle, source, orig, qty, cd, mirror_period, other_mirrors):
+	"""Client ticket STD-017 (12/10/2026; DR-66): after the exact reversal at
+	the original standard cost, the quantity a cancellation moves ends at the
+	standard costs in force now, as a fresh posting would.
+
+	1. the standard of the original's month may have been corrected since
+	   (DR-57) or re-priced within the month: the correction revalued these
+	   units, so its share is reversed - an issue's consumption adjustment
+	   (REV out) against COGS Adjustment, a receipt's revaluation (REV In)
+	   against the Revaluation Reserve: qty x (that month's standard now -
+	   the original standard), dated the cancellation's date;
+	2. when the cancellation is dated in a later month than the original,
+	   the quantity is brought from the original month's standard to that
+	   month's (Revaluation Reserve);
+	3. when the cancellation is dated in the previous open period (a
+	   Backdate Transaction, DR-64), the current period's standard is reached
+	   by a bridge dated by the Revaluation Posting Date option (DR-59).
+	Steps 2 and 3 net off what the reversed companions of a backdated
+	original already gave back in the same month."""
+	from periodic_valuation.periodic_standard_cost.engine import backdate_entry_date, get_active_standard_cost
+
+	company, item, wh = engine.company, engine.item_code, engine.physical_warehouse
+	sc_orig = flt(orig.standard_cost)
+	sc_orig_now = flt(get_active_standard_cost(company, item, wh, getdate(orig.posting_date)).standard_cost)
+	sc_cd = flt(get_active_standard_cost(company, item, wh, cd).standard_cost)
+	stock_uom = sle.get("stock_uom")
+
+	def returned_in(month_period):
+		return sum(flt(m.total_sc) for m in other_mirrors
+			if (getdate(m.posting_date).year, getdate(m.posting_date).month)
+			== (month_period.period_year, month_period.period_month))
+
+	def post(trans, day, amount, sc, ac):
+		amount = r2(amount)
+		if not amount:
+			return
+		engine.post(trans=trans, posting_date=day, source=source, ref=source[1], sc=sc, ac=ac,
+			t_sc_override=amount, cost_version=get_active_standard_cost(company, item, wh, day).name)
+		book_revaluation(engine, day, amount, source, stock_uom=stock_uom)
+
+	issue_family = bucket_of(orig.std_trans) == "issue"
+	post("REV out Reverse" if issue_family else "Rev Reverse", cd, qty * (sc_orig_now - sc_orig), sc_orig_now, sc_orig)
+	post("Rev Reverse", cd, qty * (sc_cd - sc_orig_now) - returned_in(mirror_period), sc_cd, sc_orig_now)
+
+	if is_backdate_period(mirror_period):
+		today = current_period_day(company)
+		on = backdate_entry_date(company, today)
+		from periodic_valuation.shared.periods import get_period
+
+		current = get_period(company, on)
+		sc_now = flt(get_active_standard_cost(company, item, wh, on).standard_cost)
+		post("REC (BD) - Rev", on, qty * (sc_now - sc_cd) - (returned_in(current) if current else 0), sc_now, sc_cd)
+
+
+def split_opening_at_period_open(scope, ipb_name, period):
+	"""Client ticket STD-015 (reopened 12/10/2026): Opening is fixed when the
+	Inventory Period opens. An item's row for the month can appear later (at
+	its first posting there); what earlier months received after the period
+	opened is then Carryover, not Opening. The total is unchanged."""
+	if not period or not period.get("creation"):
+		return
+	filters = {"company": scope.company, "item_code": scope.item_code, "is_cancelled": 0,
+		"std_trans": ("!=", ""), "creation": (">", period.creation)}
+	if scope.include_warehouse:
+		filters["warehouse"] = scope.physical_warehouse
+	carry_qty = carry_value = 0.0
+	for e in frappe.get_all("Inventory Valuation Event", filters=filters,
+			fields=["period_year", "period_month", "qty_adj", "total_sc"]):
+		if (e.period_year, e.period_month) < (period.period_year, period.period_month):
+			carry_qty += flt(e.qty_adj)
+			carry_value += flt(e.total_sc)
+	if not carry_qty and not carry_value:
+		return
+	row = frappe.db.get_value("Inventory Period Balance", ipb_name,
+		["opening_qty", "opening_value", "carryover_qty", "carryover_value"], as_dict=True)
+	frappe.db.set_value("Inventory Period Balance", ipb_name, {
+		"opening_qty": flt(row.opening_qty) - carry_qty,
+		"opening_value": r2(flt(row.opening_value) - carry_value),
+		"carryover_qty": flt(row.carryover_qty) + carry_qty,
+		"carryover_value": r2(flt(row.carryover_value) + carry_value),
+	}, update_modified=False)
 
 
 def _asset_issue_account(controller, sle):

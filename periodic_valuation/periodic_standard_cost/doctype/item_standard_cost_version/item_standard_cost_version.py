@@ -233,9 +233,17 @@ class ItemStandardCostVersion(Document):
 			# (client, 06/10/2026, case 6), dated as a revaluation would be
 			engine = StdEngine(self.company, self.item_code, self.warehouse)
 			first_day = getdate(f"{self.valid_from_year}-{self.valid_from_month:02d}-01")
-			self._record_zero_revaluation(engine, "Rev Beg", today if latest else first_day, 0.0)
-			self.db_set({"revaluation_posted": 1, "revaluation_date": today if latest else first_day},
-				update_modified=False)
+			on = today if latest else first_day
+			if (self.valid_from_year, self.valid_from_month) < (today.year, today.month):
+				# a first cost for the previous period is recorded in that
+				# period: its last day ("Latest day") or its day 1 ("First
+				# day"), as that month's revaluation would be (client ticket
+				# STD-018, 12/10/2026; DR-55 / DR-57)
+				from frappe.utils import get_last_day
+
+				on = getdate(get_last_day(first_day)) if latest else first_day
+			self._record_zero_revaluation(engine, "Rev Beg", on, 0.0)
+			self.db_set({"revaluation_posted": 1, "revaluation_date": on}, update_modified=False)
 			return self.name
 		if flt(self.standard_cost) == prior_sc:
 			self.db_set("revaluation_posted", 1, update_modified=False)
@@ -800,6 +808,13 @@ def inherit_period_cost(company, item_code, warehouse, year, month):
 	doc.flags.via_release_flow = True
 	doc.insert(ignore_permissions=True)
 	normalize_cost_windows(company, item_code, warehouse)
+	# a zero-value event records the month's cost in the valuation log, dated
+	# its first day (client ticket STD-018, 12/10/2026: "create valuation
+	# event in 10 and 9"); no GL, no quantity, no pool
+	engine = StdEngine(company, item_code, warehouse)
+	if not engine.is_period_locked(year, month):
+		doc._record_zero_revaluation(engine, "Rev Beg", day1, flt(source.standard_cost))
+		doc.db_set("revaluation_date", day1, update_modified=False)
 	return doc.name
 
 

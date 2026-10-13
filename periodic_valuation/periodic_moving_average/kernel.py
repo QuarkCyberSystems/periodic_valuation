@@ -83,6 +83,10 @@ class ScopeState:
 			finally:
 				frappe.flags[KERNEL_FLAG] = False
 			name = doc.name
+			if frappe.get_cached_value("Item", self.item_code, "valuation_method") == "Periodic Standard Cost":
+				from periodic_valuation.periodic_standard_cost.kernel import split_opening_at_period_open
+
+				split_opening_at_period_open(self, name, period)
 			frappe.db.get_value("Inventory Period Balance", name, for_update=lock)
 		return frappe.get_doc("Inventory Period Balance", name)
 
