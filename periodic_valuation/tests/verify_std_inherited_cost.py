@@ -98,10 +98,24 @@ def _run():
 		check("1: the current month inherits the previous month's 1,000 at once",
 			len(inh) == 1 and (inh[0].valid_from_year, inh[0].valid_from_month) == (today.year, today.month)
 			and flt(inh[0].standard_cost) == 1000 and inh[0].status == "RELEASED"
-			and inh[0].supersedes_version == v1000.name and not _events(inh[0].name),
+			and inh[0].supersedes_version == v1000.name,
 			str(_versions(it)))
 		check("1: the previous version now ends with its month",
 			str(frappe.db.get_value(SCV, v1000.name, "effective_to")) == str(add_days(day1, -1)))
+		check("1: STD-018 - the inherited version records its zero event on its month's first day",
+			_events(inh[0].name) == [("Rev Beg", 0.0, str(day1))], str(_events(inh[0].name)))
+		check("1: STD-018 - the first cost for the previous month is recorded in that month (First day: its day 1)",
+			_events(v1000.name) == [("Rev Beg", 0.0, str(prev))], str(_events(v1000.name)))
+		frappe.db.set_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
+			"revaluation_posting_date", "Latest day of the period")
+		lt = pack.std_item("_STD-INHERIT-LATEST")
+		vl = _release(lt, prev, 70)
+		from frappe.utils import get_last_day
+
+		check("1: STD-018 - under Latest day, the previous month's first cost is dated its last day",
+			_events(vl.name) == [("Rev Beg", 0.0, str(get_last_day(prev)))], str(_events(vl.name)))
+		frappe.db.set_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
+			"revaluation_posting_date", "First day of the period")
 
 		pack.make_pr(it, wh, 100, 1000, posting_date=str(add_days(prev, 2)))
 		pack.make_dn(it, wh, 20, posting_date=str(add_days(prev, 3)))
