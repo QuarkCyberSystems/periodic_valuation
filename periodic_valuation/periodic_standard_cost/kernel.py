@@ -99,6 +99,7 @@ def _post_entry(controller, sle, is_return):
 	scv = get_active_standard_cost(company, item_code, sle.get("warehouse"), posting_date)
 	sc = flt(scv.standard_cost)
 	qty = flt(sle.get("actual_qty"))
+	companion = None
 	source = (controller.doctype, controller.name, sle.get("voucher_detail_no"))
 
 	if qty > 0 and not is_return:
@@ -112,7 +113,7 @@ def _post_entry(controller, sle, is_return):
 			exchange_rate_at_receipt=fx_rate if fx_rate and fx_rate != 1 else None,
 			offset_account=_asset_issue_account(controller, sle))
 		value = r2(qty * sc)
-		_post_companion_if_needed(engine, controller, sle, trans, qty, sc, source, today)
+		companion = (trans, qty)
 	elif qty < 0 and not is_return:
 		block_setting = get_std_setting(company, "block_negative_stock_std")
 		if flt(1 if block_setting is None else block_setting):
@@ -121,7 +122,7 @@ def _post_entry(controller, sle, is_return):
 		engine.post(trans=trans, posting_date=posting_date, qty=-qty, sc=sc,
 			source=source, cost_version=scv.name, offset_account=_asset_issue_account(controller, sle))
 		value = r2(qty * sc)
-		_post_companion_if_needed(engine, controller, sle, trans, -qty, sc, source, today)
+		companion = (trans, -qty)
 	elif is_return and qty < 0:
 		# purchase return (PR intent): stock leg at SC; AC = the returned row's
 		# actual rate (sle.incoming_rate is 0 for outgoing returns), so the
@@ -144,6 +145,11 @@ def _post_entry(controller, sle, is_return):
 
 	_write_sle_and_state(controller, engine, sle, period, qty, sc, value, scv_name=scv.name,
 		bucket=bucket_of(trans))
+	if companion:
+		# the bridge into the current period posts after the movement's own
+		# balance is written, so a later month's row it may open is seeded
+		# from a closing that already holds the movement (STD-015)
+		_post_companion_if_needed(engine, controller, sle, companion[0], companion[1], sc, source, today)
 	if not cross_month:
 		_bridge_release_switch(engine, posting_date, qty, sc, source, today)
 
@@ -333,12 +339,37 @@ def _revalue_returned_quantity(engine, controller, sle, source, orig, qty, cd, m
 		post("REC (BD) - Rev", on, qty * (sc_now - sc_cd) - (returned_in(current) if current else 0), sc_now, sc_cd)
 
 
+def _stamp_standard_cost(scope, ipb_name, period):
+	"""A new standard-cost row shows the standard in force at its month's
+	start. Read-only: the resolver, never the pricing lookup, which may post
+	a pending boundary revaluation."""
+	from periodic_valuation.periodic_standard_cost.engine import resolve_version
+
+	day1 = getdate(f"{period.period_year}-{period.period_month:02d}-01")
+	filters = {"company": scope.company, "item_code": scope.item_code, "status": "RELEASED"}
+	if scope.include_warehouse:
+		filters["warehouse"] = scope.physical_warehouse
+	scv = resolve_version(frappe.get_all("Item Standard Cost Version", filters=filters,
+		fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "price_from_year",
+			"price_from_month", "switch_on_release", "effective_from", "effective_to", "released_on"]), day1)
+	if not scv:
+		return
+	sc = flt(scv.standard_cost)
+	qty = flt(frappe.db.get_value("Inventory Period Balance", ipb_name, "closing_qty"))
+	frappe.db.set_value("Inventory Period Balance", ipb_name, {"period_standard_cost": sc,
+		"moving_avg_price": sc, "active_cost_version": scv.name,
+		"closing_reference_value": r2(qty * sc)}, update_modified=False)
+
+
 def split_opening_at_period_open(scope, ipb_name, period):
 	"""Client ticket STD-015 (reopened 12/10/2026): Opening is fixed when the
 	Inventory Period opens. An item's row for the month can appear later (at
 	its first posting there); what earlier months received after the period
 	opened is then Carryover, not Opening. The total is unchanged."""
-	if not period or not period.get("creation"):
+	if not period:
+		return
+	_stamp_standard_cost(scope, ipb_name, period)
+	if not period.get("creation"):
 		return
 	filters = {"company": scope.company, "item_code": scope.item_code, "is_cancelled": 0,
 		"std_trans": ("!=", ""), "creation": (">", period.creation)}
@@ -652,6 +683,32 @@ def std_scopes(company, *, item_code=None, warehouse=None, item_group=None, peri
 	)
 
 
+def _open_later_rows(scope, period):
+	"""A posting into an earlier month must reach the current period's
+	balance (client design V2-1 section 4.3: "update ... the current opening
+	balance"; consolidated design: "corrects current opening via
+	carryover"). An item whose stock first arrives that way has no row in the
+	later open months yet - nothing has been posted there (client ticket
+	STD-015, 13/10/2026, MH S44: "why the October not opened"). Each such
+	month gets its row now, seeded as if the period had opened with it:
+	Opening is the previous closing as at the period's opening and what came
+	after goes to Carryover (split_opening_at_period_open). The posting is
+	already in the earlier month, so the new row needs no cascade of its own."""
+	opened = set()
+	periods = frappe.get_all("Inventory Period", filters={"company": scope.company,
+		"status": ("in", ("OPEN", "PREV_OPEN_UNSETTLED"))}, fields=["name", "period_year", "period_month"],
+		order_by="period_year asc, period_month asc")
+	for p in periods:
+		if (p.period_year, p.period_month) <= (period.period_year, period.period_month):
+			continue
+		if not frappe.db.exists("Inventory Period Balance", {"company": scope.company,
+				"item_code": scope.item_code, "warehouse": scope.warehouse or "",
+				"period_year": p.period_year, "period_month": p.period_month}):
+			scope.load(frappe.get_doc("Inventory Period", p.name))
+			opened.add((p.period_year, p.period_month))
+	return opened
+
+
 def _cascade_backdated_ipb(scope, period, qty, value, source):
 	"""A backdated posting lands in ITS period's balance row; every later
 	period's closing must shift by the same delta or the materialized chain
@@ -660,6 +717,7 @@ def _cascade_backdated_ipb(scope, period, qty, value, source):
 	as MAP)."""
 	from periodic_valuation.periodic_moving_average.kernel import recompute_closing
 
+	opened = _open_later_rows(scope, period)
 	later = frappe.get_all(
 		"Inventory Period Balance",
 		filters={"company": scope.company, "item_code": scope.item_code,
@@ -672,6 +730,8 @@ def _cascade_backdated_ipb(scope, period, qty, value, source):
 		key=lambda x: (x.period_year, x.period_month),
 	)
 	for row in later:
+		if (row.period_year, row.period_month) in opened:
+			continue  # just opened from the earlier month's closing, posting included
 		ipb = frappe.get_doc("Inventory Period Balance", row.name)
 		ipb.carryover_qty = flt(ipb.carryover_qty) + qty
 		ipb.carryover_value = r2(flt(ipb.carryover_value) + value)
