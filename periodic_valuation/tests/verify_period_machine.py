@@ -10,6 +10,8 @@ bench --site <site> execute periodic_valuation.tests.verify_period_machine.run
   4  a cost-only standard-cost item has a balance in every open month
   5  Inventory Period Close's gate reports an item without a balance in the
      month
+  6  a row seeded at zero quantity follows DR-61 (Frozen MAP = retained MAP),
+     whatever an older row stored
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -130,6 +132,24 @@ def _run():
 				frappe.flags[KERNEL_FLAG] = False
 		msg = _refused(change_opening_kernel)
 		check("3: the opening cannot be changed once created, not even by the kernel", "fixed" in msg, msg)
+
+		# ---- 6: a seeded row follows DR-61 at zero quantity --------------------------
+		from periodic_valuation.periodic_moving_average.kernel import ScopeState
+		from periodic_valuation.tests.smoke_edges import make_item
+
+		m = make_item("_DR68-MAP-ZERO")
+		scope = ScopeState(pack.COMPANY, m, None)
+		scope.ensure_open_rows()
+		prev_row = frappe.db.get_value("Inventory Period Balance", scope._filters(prev.year, prev.month))
+		frappe.db.set_value("Inventory Period Balance", prev_row, {"closing_qty": 0, "closing_value": 0,
+			"moving_avg_price": 600, "frozen_map": 0, "is_negative": 1}, update_modified=False)  # a pre-DR-61 row
+		frappe.db.delete("Inventory Period Balance", scope._filters(today.year, today.month))
+		scope.ensure_open_rows()
+		cur_row = frappe.db.get_value("Inventory Period Balance", scope._filters(today.year, today.month),
+			["moving_avg_price", "frozen_map", "is_negative"], as_dict=True)
+		check("6: a row seeded at zero quantity shows the retained MAP as Frozen MAP and is not negative (DR-61)",
+			flt(cur_row.moving_avg_price) == 600 and flt(cur_row.frozen_map) == 600 and not cur_row.is_negative,
+			str(cur_row))
 
 		# ---- 5 ------------------------------------------------------------------
 		frappe.db.delete("Inventory Period Balance", {"name": rows[-1].name})

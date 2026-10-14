@@ -105,8 +105,8 @@ class ScopeState:
 					"closing_value": prev["value"],
 					"moving_avg_price": prev["map"],
 					"total_received_since_zero": prev["counter"],
-					"is_negative": prev["is_negative"],
-					"frozen_map": prev["frozen_map"],
+					"is_negative": 1 if flt(prev["qty"]) < 0 else 0,
+					"frozen_map": seeded_frozen_map(prev["qty"], prev["map"], prev["frozen_map"]),
 				}
 			).insert(ignore_permissions=True)
 		finally:
@@ -1134,6 +1134,19 @@ def _pin_map(ipb, map_before):
 	"""
 	if flt(ipb.closing_qty) > 0:
 		ipb.moving_avg_price = r6(map_before)
+
+
+def seeded_frozen_map(closing_qty, moving_avg_price, frozen_map):
+	"""Frozen MAP of a balance seeded from an earlier closing, by the same
+	rule _freeze_check applies after every posting (DR-61): negative - the
+	frozen MAP it carries; at zero - the retained MAP (display); positive -
+	0. An older row written before DR-61 may hold 0 at zero quantity; the
+	seed does not copy that forward."""
+	if flt(closing_qty) < 0:
+		return flt(frozen_map)
+	if flt(closing_qty) == 0:
+		return flt(moving_avg_price)
+	return 0.0
 
 
 def _freeze_check(ipb):

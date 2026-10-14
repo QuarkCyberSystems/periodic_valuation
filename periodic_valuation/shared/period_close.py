@@ -413,6 +413,8 @@ def seed_balances(period, next_year, next_month):
 	or the whole opening rolls back."""
 	from erpnext.stock.utils import get_valuation_method
 
+	from periodic_valuation.periodic_moving_average.kernel import seeded_frozen_map
+
 	rows = _ipb_rows(period)
 	have = {(r.item_code, r.warehouse or "") for r in frappe.get_all("Inventory Period Balance",
 		filters={"company": period.company, "period_year": next_year, "period_month": next_month},
@@ -431,7 +433,10 @@ def seed_balances(period, next_year, next_month):
 			# 2026-08-18); MAP state survives it - a negative balance stays
 			# frozen until a receipt crosses zero
 			flt(row.closing_value) / flt(row.closing_qty) if flt(row.closing_qty) > 0 else flt(row.moving_avg_price),
-			flt(row.total_received_since_zero), row.is_negative or 0, flt(row.frozen_map),
+			flt(row.total_received_since_zero), 1 if flt(row.closing_qty) < 0 else 0,
+			seeded_frozen_map(row.closing_qty,
+				flt(row.closing_value) / flt(row.closing_qty) if flt(row.closing_qty) > 0 else flt(row.moving_avg_price),
+				row.frozen_map),
 		))
 	if values:
 		frappe.db.bulk_insert("Inventory Period Balance", IPB_SEED_FIELDS, values)
