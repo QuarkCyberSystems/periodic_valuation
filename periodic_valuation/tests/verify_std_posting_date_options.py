@@ -13,7 +13,7 @@ runs under "First day of the period" and "Latest day of the period":
      (DR-57): it revalues (REV In 100,000 / REV out -20,000) on its day 1 or
      last day, Rev Reverse -80,000 on day 1 of the current month or the
      release day (DR-59), which keeps its own standard (300)
-  3  previous month settled: nothing posts in it; the current month revalues
+  3  previous month settled for the item: the release is refused (STD-019)
   4  valid-from month frozen: refused
   5  future month: refused
   6  the item's first cost: one zero-value event, no GL
@@ -182,10 +182,8 @@ def _run():
 			it = setup(f"_STD-PDO3-{tag}")
 			StdEngine(pack.COMPANY, it).close_period(year=prev.year, month=prev.month, sc=300,
 				source=("Inventory Period", prev_period))
-			v = pack.scv_release(it, prev.year, prev.month, 400)
-			check(f"{tag} 3: settled previous month - nothing in it, the current month revalues on {rd}",
-				_events(v.name) and all(x[2] == rd for x in _events(v.name))
-				and not [x for x in _events(v.name) if x[0] == "Rev Reverse"], str(_events(v.name)))
+			check(f"{tag} 3: a cost for a month already settled for the item is refused (STD-019)",
+				_refused(lambda: _release(it, prev, 400)))
 
 			# 4 frozen valid-from month, 5 future month
 			it = pack.std_item(f"_STD-PDO45-{tag}")

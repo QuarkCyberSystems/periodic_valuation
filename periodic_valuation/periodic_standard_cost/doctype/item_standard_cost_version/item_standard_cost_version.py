@@ -178,6 +178,7 @@ class ItemStandardCostVersion(Document):
 				title=_("Future Month"),
 			)
 		latest = _release_day_mode(self.company)
+		self._refuse_settled_month(today)
 
 		# same-period re-price: the latest release for the same month (a
 		# corrected month can hold its original version and corrections,
@@ -267,6 +268,22 @@ class ItemStandardCostVersion(Document):
 			if (name.valid_from_year, name.valid_from_month) > (self.valid_from_year, self.valid_from_month):
 				frappe.db.set_value("Item Standard Cost Version", name.name, "status", "SUPERSEDED",
 					update_modified=False)
+
+	def _refuse_settled_month(self, today):
+		"""A cost for a month already settled for the item cannot be released
+		(client ticket STD-019, 14/10/2026: "the system allows changing the
+		Standard Cost for a period that has already been settled"). The month
+		was settled at the cost in force then; changing it would make the cost
+		record disagree with the books. Replaces the forward revaluation the
+		client design 8.A described for this case."""
+		engine = StdEngine(self.company, self.item_code, self.warehouse)
+		if not engine.is_period_locked(self.valid_from_year, self.valid_from_month):
+			return
+		frappe.throw(
+			_("{0}-{1:02d} is already settled for {2}. Reverse the settlement first, or release the cost for {3}-{4:02d}.").format(
+				self.valid_from_year, self.valid_from_month, self.item_code, today.year, today.month),
+			title=_("Period Settled"),
+		)
 
 	def _warn_later_periods_keep_cost(self, today):
 		"""DR-65: a backdated correction changes its own month only. Say so,
