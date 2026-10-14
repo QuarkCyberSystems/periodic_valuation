@@ -242,6 +242,22 @@ def assert_std_scopes_settled(period):
 	return {"ok": not unsettled, "unsettled": unsettled}
 
 
+def assert_scope_rows_complete(period):
+	"""Gate (DR-68): every valuation scope has its balance in this period.
+	A scope with a balance in any earlier month but none in this one was
+	never carried into it - the condition a period opened outside the period
+	machine left behind (04/10/2026, client ticket STD-021)."""
+	missing = frappe.db.sql("""
+		SELECT DISTINCT b.item_code, b.warehouse FROM `tabInventory Period Balance` b
+		WHERE b.company = %(company)s
+			AND (b.period_year < %(y)s OR (b.period_year = %(y)s AND b.period_month < %(m)s))
+			AND NOT EXISTS (SELECT 1 FROM `tabInventory Period Balance` c
+				WHERE c.company = b.company AND c.item_code = b.item_code AND c.warehouse = b.warehouse
+					AND c.period_year = %(y)s AND c.period_month = %(m)s)
+		""", {"company": period.company, "y": period.period_year, "m": period.period_month}, as_dict=True)
+	return {"ok": not missing, "missing": [{"item_code": r.item_code, "warehouse": r.warehouse or ""} for r in missing]}
+
+
 def assert_no_stranded_value(period):
 	"""Gate: no scope may carry inventory value on zero quantity.
 
@@ -299,6 +315,16 @@ def assert_bin_ledger_consistency(period):
 
 
 def open_next_period(period):
+	"""The period machine's opening step (DR-68): the only code that opens a
+	period - the daily job and the Open Next Period button call it."""
+	frappe.flags.in_period_machine = True
+	try:
+		return _open_next_period(period)
+	finally:
+		frappe.flags.in_period_machine = False
+
+
+def _open_next_period(period):
 	"""Roll the OPEN period forward one month: this period becomes
 	PREV_OPEN_UNSETTLED, the next month opens, and its balances are seeded from
 	this period's closings (provisional - later postings into this period reach
@@ -309,8 +335,6 @@ def open_next_period(period):
 	effect of rolling - it is the explicit, gated Inventory Period Close of the
 	previous-open month.
 	"""
-	from periodic_valuation.shared.immutable import KERNEL_FLAG
-
 	if period.status != "OPEN":
 		frappe.throw(
 			_("Only the OPEN Inventory Period can be rolled forward; {0} is {1}.").format(
@@ -359,49 +383,11 @@ def open_next_period(period):
 		frappe.db.set_value("Inventory Period", period.name, "status", "PREV_OPEN_UNSETTLED")
 		frappe.db.set_value("Inventory Period", next_name, "status", "OPEN")
 
-	frappe.flags[KERNEL_FLAG] = True
-	try:
-		for row in _ipb_rows(period):
-			exists = frappe.db.get_value(
-				"Inventory Period Balance",
-				{
-					"company": period.company,
-					"item_code": row.item_code,
-					"warehouse": row.warehouse or "",
-					"period_year": next_year,
-					"period_month": next_month,
-				},
-			)
-			if exists:
-				continue
-			frappe.get_doc(
-				{
-					"doctype": "Inventory Period Balance",
-					"company": period.company,
-					"item_code": row.item_code,
-					"warehouse": row.warehouse or "",
-					"period_year": next_year,
-					"period_month": next_month,
-					"opening_qty": row.closing_qty,
-					"opening_value": row.closing_value,
-					# a zero-quantity scope RETAINS its MAP across the boundary
-					# (ruled 2026-08-18) - seeding 0 here would silently undo
-					# the retention at every month end
-					"moving_avg_price": flt(row.closing_value) / flt(row.closing_qty)
-					if flt(row.closing_qty) > 0
-					else flt(row.moving_avg_price),
-					"closing_qty": row.closing_qty,
-					"closing_value": row.closing_value,
-					# MAP state survives the period boundary: a negative balance
-					# stays frozen until a receipt crosses zero.
-					"total_received_since_zero": row.total_received_since_zero,
-					"is_negative": row.is_negative,
-					"frozen_map": row.frozen_map,
-				}
-			).insert(ignore_permissions=True)
-			_refresh_std_display(period.company, row, next_year, next_month)
-	finally:
-		frappe.flags[KERNEL_FLAG] = False
+	seeded = seed_balances(period, next_year, next_month)
+	frappe.db.set_value("Inventory Period", next_name or frappe.db.get_value("Inventory Period",
+		{"company": period.company, "period_year": next_year, "period_month": next_month}), {
+		"opened_by": frappe.session.user, "opened_on": frappe.utils.now_datetime(), "balances_seeded": seeded,
+	}, update_modified=False)
 	# the new month inherits each standard cost in force at its start as its
 	# own version (DR-65)
 	from periodic_valuation.periodic_standard_cost.doctype.item_standard_cost_version.item_standard_cost_version import (
@@ -410,6 +396,54 @@ def open_next_period(period):
 
 	inherit_costs_for_period(period.company, next_year, next_month)
 	return frappe.get_doc("Inventory Period", {"company": period.company, "period_year": next_year, "period_month": next_month})
+
+
+IPB_SEED_FIELDS = ("name", "creation", "modified", "owner", "modified_by", "docstatus", "company",
+	"item_code", "warehouse", "valuation_method", "period_year", "period_month", "opening_qty",
+	"opening_value", "carryover_qty", "carryover_value", "closing_qty", "closing_value",
+	"moving_avg_price", "total_received_since_zero", "is_negative", "frozen_map")
+
+
+def seed_balances(period, next_year, next_month):
+	"""Every scope with a balance in `period` gets its balance in the next
+	month as the month opens: Opening = closing, fixed from here on (DR-68;
+	consolidated design: "opening FIXED at creation"; SAP: the period shift
+	carries every material's values into the new period). One bulk insert,
+	then a count check - every scope of the month before must have its row,
+	or the whole opening rolls back."""
+	from erpnext.stock.utils import get_valuation_method
+
+	rows = _ipb_rows(period)
+	have = {(r.item_code, r.warehouse or "") for r in frappe.get_all("Inventory Period Balance",
+		filters={"company": period.company, "period_year": next_year, "period_month": next_month},
+		fields=["item_code", "warehouse"])}
+	now, user = frappe.utils.now_datetime(), frappe.session.user
+	values = []
+	for row in rows:
+		if (row.item_code, row.warehouse or "") in have:
+			continue
+		values.append((
+			frappe.generate_hash(length=10), now, now, user, user, 0, period.company,
+			row.item_code, row.warehouse or "", get_valuation_method(row.item_code, period.company),
+			next_year, next_month, flt(row.closing_qty), flt(row.closing_value), 0, 0,
+			flt(row.closing_qty), flt(row.closing_value),
+			# a zero-quantity scope RETAINS its MAP across the boundary (ruled
+			# 2026-08-18); MAP state survives it - a negative balance stays
+			# frozen until a receipt crosses zero
+			flt(row.closing_value) / flt(row.closing_qty) if flt(row.closing_qty) > 0 else flt(row.moving_avg_price),
+			flt(row.total_received_since_zero), row.is_negative or 0, flt(row.frozen_map),
+		))
+	if values:
+		frappe.db.bulk_insert("Inventory Period Balance", IPB_SEED_FIELDS, values)
+	count = frappe.db.count("Inventory Period Balance", {"company": period.company,
+		"period_year": next_year, "period_month": next_month})
+	expected = len(have | {(r.item_code, r.warehouse or "") for r in rows})
+	if count < expected:
+		frappe.throw(_("Opening {0}-{1:02d} seeded {2} balances, expected {3}; nothing was opened.").format(
+			next_year, next_month, count, expected), title=_("Period Opening Incomplete"))
+	for row in rows:
+		_refresh_std_display(period.company, row, next_year, next_month)
+	return len(values)
 
 
 def _refresh_std_display(company, row, year, month):
@@ -430,10 +464,10 @@ def seed_next_period_openings(period):
 
 def roll_periods_due(commit=True, company=None):
 	"""Daily: open the current calendar month for every company whose OPEN
-	period is behind it, where the two-open-months rule allows. Postings roll
-	the machine on demand too; this only spares the first user of the month
-	the wait. A company blocked by an unclosed older month is skipped and
-	logged - never forced. Tests pass commit=False to stay inside their
+	period is behind it, where the two-open-months rule allows - with the
+	Open Next Period button, the only ways a period opens (DR-68; a posting
+	no longer opens one). A company blocked by an unclosed older month is
+	skipped and logged - never forced. Tests pass commit=False to stay inside their
 	transaction."""
 	from frappe.utils import getdate, nowdate
 

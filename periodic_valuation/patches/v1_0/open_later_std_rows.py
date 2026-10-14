@@ -12,7 +12,6 @@ import frappe
 
 def execute():
 	from periodic_valuation.periodic_moving_average.kernel import ScopeState
-	from periodic_valuation.periodic_standard_cost.kernel import _open_later_rows
 
 	made = 0
 	for r in frappe.db.sql("""SELECT DISTINCT b.company, b.item_code, b.warehouse, b.period_year, b.period_month
@@ -24,5 +23,5 @@ def execute():
 		scope = ScopeState(r.company, r.item_code, r.warehouse or None)
 		period = frappe.get_doc("Inventory Period", {"company": r.company, "period_year": r.period_year,
 			"period_month": r.period_month})
-		made += len(_open_later_rows(scope, period))
+		made += len(scope.ensure_open_rows(period))
 	print(f"STD-015: {made} later-month balance rows opened")

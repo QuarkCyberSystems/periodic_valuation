@@ -144,6 +144,11 @@ class ItemStandardCostVersion(Document):
 		name = self._release()
 		normalize_cost_windows(self.company, self.item_code, self.warehouse)
 		inherit_into_open_periods(self.company, self.item_code, self.warehouse)
+		# an item exists for valuation from its first cost: it has a balance in
+		# every open month from now on (DR-68; client ticket STD-021, MH S47)
+		from periodic_valuation.periodic_moving_average.kernel import ScopeState
+
+		ScopeState(self.company, self.item_code, self.warehouse).ensure_open_rows()
 		return name
 
 	def _release(self):

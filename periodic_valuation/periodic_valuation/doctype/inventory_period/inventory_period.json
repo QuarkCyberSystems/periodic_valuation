@@ -16,6 +16,11 @@
   "start_date",
   "end_date",
   "status",
+  "sec_open",
+  "opened_by",
+  "col_open",
+  "opened_on",
+  "balances_seeded",
   "sec_close",
   "closed_by",
   "col_close",
@@ -83,7 +88,38 @@
    "in_standard_filter": 1,
    "label": "Status",
    "options": "OPEN\nPREV_OPEN_UNSETTLED\nSETTLED_FROZEN",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1,
+   "description": "Changed only by the period machine: Open Next Period, Inventory Period Close and Inventory Period Reopen."
+  },
+  {
+   "fieldname": "sec_open",
+   "fieldtype": "Section Break",
+   "label": "Opened"
+  },
+  {
+   "fieldname": "opened_by",
+   "fieldtype": "Link",
+   "label": "Opened By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_open",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "opened_on",
+   "fieldtype": "Datetime",
+   "label": "Opened On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balances_seeded",
+   "fieldtype": "Int",
+   "label": "Balances Carried Forward",
+   "read_only": 1,
+   "description": "Item balances carried into this period from the month before when it opened."
   },
   {
    "fieldname": "sec_close",
@@ -150,7 +186,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-07-06 12:00:00.000000",
+ "modified": "2026-10-14 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period",

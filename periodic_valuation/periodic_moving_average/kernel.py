@@ -59,36 +59,63 @@ class ScopeState:
 		}
 
 	def load(self, period, lock=True):
-		"""Fetch-or-create the IPB row for an Inventory Period; row-lock it."""
+		"""Fetch the IPB row for an Inventory Period; row-lock it. A scope
+		missing its row - a new item, or one not yet carried into an open
+		month - first gets every open month's row (ensure_open_rows)."""
 		filters = self._filters(period.period_year, period.period_month)
 		name = frappe.db.get_value("Inventory Period Balance", filters, for_update=lock)
 		if not name:
-			prev = self._previous_closing(period)
-			frappe.flags[KERNEL_FLAG] = True
-			try:
-				doc = frappe.get_doc(
-					{
-						"doctype": "Inventory Period Balance",
-						**filters,
-						"opening_qty": prev["qty"],
-						"opening_value": prev["value"],
-						"closing_qty": prev["qty"],
-						"closing_value": prev["value"],
-						"moving_avg_price": prev["map"],
-						"total_received_since_zero": prev["counter"],
-						"is_negative": prev["is_negative"],
-						"frozen_map": prev["frozen_map"],
-					}
-				).insert(ignore_permissions=True)
-			finally:
-				frappe.flags[KERNEL_FLAG] = False
-			name = doc.name
-			if frappe.get_cached_value("Item", self.item_code, "valuation_method") == "Periodic Standard Cost":
-				from periodic_valuation.periodic_standard_cost.kernel import split_opening_at_period_open
-
-				split_opening_at_period_open(self, name, period)
-			frappe.db.get_value("Inventory Period Balance", name, for_update=lock)
+			self.ensure_open_rows(period)
+			name = frappe.db.get_value("Inventory Period Balance", filters, for_update=lock)
 		return frappe.get_doc("Inventory Period Balance", name)
+
+	def ensure_open_rows(self, period=None):
+		"""DR-68: a scope has a balance in every open month, from the moment
+		it exists - the design's "opening FIXED at creation" needs the row to
+		be there before anything posts into it. Rows are created oldest month
+		first, each seeded from the scope's latest closing before it (zero for
+		a new item), so a later posting into an earlier month always finds the
+		later rows and appends to their Carryover. `period` (any state) is
+		included. Returns the months created."""
+		months = {(p.period_year, p.period_month): p for p in frappe.get_all("Inventory Period",
+			filters={"company": self.company, "status": ("in", ("OPEN", "PREV_OPEN_UNSETTLED"))},
+			fields=["name", "period_year", "period_month"])}
+		if period is not None:
+			months[(period.period_year, period.period_month)] = period
+		created = []
+		for key in sorted(months):
+			if frappe.db.exists("Inventory Period Balance", self._filters(*key)):
+				continue
+			self._create_row(months[key])
+			created.append(key)
+		return created
+
+	def _create_row(self, period):
+		filters = self._filters(period.period_year, period.period_month)
+		prev = self._previous_closing(period)
+		frappe.flags[KERNEL_FLAG] = True
+		try:
+			doc = frappe.get_doc(
+				{
+					"doctype": "Inventory Period Balance",
+					**filters,
+					"opening_qty": prev["qty"],
+					"opening_value": prev["value"],
+					"closing_qty": prev["qty"],
+					"closing_value": prev["value"],
+					"moving_avg_price": prev["map"],
+					"total_received_since_zero": prev["counter"],
+					"is_negative": prev["is_negative"],
+					"frozen_map": prev["frozen_map"],
+				}
+			).insert(ignore_permissions=True)
+		finally:
+			frappe.flags[KERNEL_FLAG] = False
+		if frappe.get_cached_value("Item", self.item_code, "valuation_method") == "Periodic Standard Cost":
+			from periodic_valuation.periodic_standard_cost.kernel import _stamp_standard_cost
+
+			_stamp_standard_cost(self, doc.name, period)
+		return doc.name
 
 	def _previous_closing(self, period):
 		# the latest row BEFORE `period`: a later month's row may already exist
