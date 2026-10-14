@@ -830,9 +830,32 @@ def inherit_period_cost(company, item_code, warehouse, year, month):
 	# event in 10 and 9"); no GL, no quantity, no pool
 	engine = StdEngine(company, item_code, warehouse)
 	if not engine.is_period_locked(year, month):
-		doc._record_zero_revaluation(engine, "Rev Beg", day1, flt(source.standard_cost))
-		doc.db_set("revaluation_date", day1, update_modified=False)
+		on = _inherited_marker_date(company, year, month)
+		doc._record_zero_revaluation(engine, "Rev Beg", on, flt(source.standard_cost))
+		doc.db_set("revaluation_date", on, update_modified=False)
 	return doc.name
+
+
+def _inherited_marker_date(company, year, month):
+	"""The date of an inherited version's zero-value event, by the
+	Revaluation Posting Date option (client ticket STD-020, 14/10/2026: with
+	"Latest Date" the event is dated the current system date): "First day"
+	- the month's day 1; "Latest day" - the day it is entered, held inside
+	the open period (the release day, or the roll day), and for the previous
+	open month that month's last day, as its other entries (DR-55 / DR-59)."""
+	from frappe.utils import get_last_day
+
+	from periodic_valuation.shared.periods import current_period_day
+
+	day1 = getdate(f"{year}-{month:02d}-01")
+	if not _release_day_mode(company):
+		return day1
+	today = current_period_day(company)
+	if (today.year, today.month) == (year, month):
+		return today
+	if (year, month) < (today.year, today.month):
+		return getdate(get_last_day(day1))
+	return day1
 
 
 def inherit_into_open_periods(company, item_code, warehouse):

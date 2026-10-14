@@ -114,6 +114,9 @@ def _run():
 
 		check("1: STD-018 - under Latest day, the previous month's first cost is dated its last day",
 			_events(vl.name) == [("Rev Beg", 0.0, str(get_last_day(prev)))], str(_events(vl.name)))
+		inh_l = frappe.db.get_value(SCV, {"item_code": lt, "source_type": "INHERITED"}, "name")
+		check("1: STD-020 - under Latest day, the inherited version's event is dated the day it is entered",
+			_events(inh_l) == [("Rev Beg", 0.0, str(today))], str(_events(inh_l)))
 		frappe.db.set_value("Periodic Standard Cost Settings", {"company": pack.COMPANY},
 			"revaluation_posting_date", "First day of the period")
 
