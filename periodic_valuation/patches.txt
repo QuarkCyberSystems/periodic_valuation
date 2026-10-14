@@ -21,3 +21,4 @@ periodic_valuation.patches.v1_0.std_balance_buckets_and_carryover #companions
 periodic_valuation.patches.v1_0.std_event_reasons_and_settlement_detail
 periodic_valuation.patches.v1_0.std_balance_buckets_and_carryover #period_open
 periodic_valuation.patches.v1_0.inherited_cost_markers
+periodic_valuation.patches.v1_0.open_later_std_rows
