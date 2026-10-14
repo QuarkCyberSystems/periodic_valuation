@@ -217,7 +217,7 @@ def _run():
 		)
 
 		for n in frappe.get_all(SCV, filters={"item_code": it, "source_type": "INHERITED"}, pluck="name"):
-			frappe.db.delete(SCV, n)
+			frappe.db.set_value(SCV, n, "status", "SUPERSEDED", update_modified=False)
 		frappe.db.set_value(SCV, v0.name, "effective_to", None, update_modified=False)
 		normalize_cost_windows(pack.COMPANY, it, None)
 		pack.make_pr(it, wh, 10, 30, posting_date=str(p2))

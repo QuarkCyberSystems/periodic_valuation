@@ -4,9 +4,10 @@
 """Period machine - bench --site <site> execute periodic_valuation.tests.smoke_periods.run
 
 DR-37: two months may be open at once (current OPEN, previous
-PREV_OPEN_UNSETTLED), never three. A posting dated in the month after the
-OPEN one rolls the machine forward on demand; the roll is refused while the
-older previous-open month is unclosed; Inventory Period Close of a
+PREV_OPEN_UNSETTLED), never three. DR-68: only the period machine opens a
+month (Open Next Period / the daily job) and carries every balance into it;
+a posting never does; the opening is refused while the older previous-open
+month is unclosed; Inventory Period Close of a
 previous-open month freezes it after the gates; closing the OPEN month
 rolls instead of freezing; a closed month is reopenable only through the
 gated Inventory Period Reopen and only while it is the immediately-previous
@@ -120,28 +121,43 @@ def run(commit=False):
 	make_period(*ym(m2), "OPEN")
 	make_pr(item, wh, 10, 15, str(m2.replace(day=5)))   # balance in the OPEN month
 
-	# ---- 1. a third month is refused while the oldest is unclosed
+	# ---- 1. a posting never opens a period (DR-68, SAP model)
 	try:
 		make_pr(item, wh, 1, 15, str(m1.replace(day=3)))
-		check("posting into the next month is refused while the older month is unclosed", False, "posted")
+		check("a posting into the next month is refused - it does not open the period", False, "posted")
 	except frappe.ValidationError as e:
-		check("posting into the next month is refused while the older month is unclosed",
-			"still open" in str(e), str(e)[:140])
+		check("a posting into the next month is refused - it does not open the period",
+			"is not open yet" in str(e), str(e)[:140])
 	check("machine untouched by the refusal", status_of(*ym(m2)) == "OPEN" and status_of(*ym(m1)) is None,
 		f"{status_of(*ym(m2))} / {status_of(*ym(m1))}")
+	try:
+		open_next_period(period(*ym(m2)))
+		check("Open Next Period refused while the older month is unclosed", False, "opened")
+	except frappe.ValidationError as e:
+		frappe.clear_last_message()
+		check("Open Next Period refused while the older month is unclosed", "still open" in str(e), str(e)[:140])
 
-	# ---- 2. once the oldest is frozen, the same posting rolls the machine on demand
+	# ---- 2. once the oldest is frozen, the period machine opens the next month
 	frappe.db.set_value("Inventory Period", period(*ym(m3)).name, "status", "SETTLED_FROZEN", update_modified=False)
-	pr = make_pr(item, wh, 1, 15, str(m1.replace(day=3)))
-	check("posting rolls: OPEN -> previous-open, next month OPEN",
-		status_of(*ym(m2)) == "PREV_OPEN_UNSETTLED" and status_of(*ym(m1)) == "OPEN",
-		f"{status_of(*ym(m2))} / {status_of(*ym(m1))}")
+	try:
+		make_pr(item, wh, 1, 15, str(m1.replace(day=3)))
+		check("a posting still does not open it once the rule would allow", False, "posted")
+	except frappe.ValidationError as e:
+		check("a posting still does not open it once the rule would allow", "is not open yet" in str(e), str(e)[:140])
+	opened = open_next_period(period(*ym(m2)))
+	check("Open Next Period: OPEN -> previous-open, next month OPEN, opening logged",
+		status_of(*ym(m2)) == "PREV_OPEN_UNSETTLED" and status_of(*ym(m1)) == "OPEN"
+		and opened.opened_by and opened.opened_on and opened.balances_seeded == 1,
+		f"{status_of(*ym(m2))} / {status_of(*ym(m1))} / {opened.opened_by} {opened.balances_seeded}")
 	b = ipb(item, *ym(m1))
-	check("new month seeded from the previous closing (opening 10 -> closing 11 @ 15)",
-		b and flt(b.opening_qty) == 10 and flt(b.closing_qty) == 11 and flt(b.closing_value) == 165,
+	check("the new month carries every balance at once (opening 10, before any posting there)",
+		b and flt(b.opening_qty) == 10 and flt(b.closing_qty) == 10 and flt(b.closing_value) == 150,
 		str(b and (b.opening_qty, b.closing_qty, b.closing_value)))
-	check("the posting landed in the new month's period",
-		frappe.db.get_value("Inventory Valuation Event", {"source_docname": pr.name}, "period_month") == m1.month, "")
+	pr = make_pr(item, wh, 1, 15, str(m1.replace(day=3)))
+	b = ipb(item, *ym(m1))
+	check("a posting into the opened month lands there (closing 11 @ 15)",
+		frappe.db.get_value("Inventory Valuation Event", {"source_docname": pr.name}, "period_month") == m1.month
+		and flt(b.closing_qty) == 11 and flt(b.closing_value) == 165, str((b.closing_qty, b.closing_value)))
 
 	# ---- 3. backdating into the previous-open month carries forward
 	make_pr(item, wh, 2, 15, str(m2.replace(day=20)))

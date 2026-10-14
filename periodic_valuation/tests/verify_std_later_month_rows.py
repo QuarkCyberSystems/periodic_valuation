@@ -8,7 +8,7 @@ bench --site <site> execute periodic_valuation.tests.verify_std_later_month_rows
   2  the same when the two months' standards differ: the current month
      closes at its own standard, the bridge counted once (Opening 0,
      Carryover 100)
-  3  the patch opens the missing row for an item left without one
+  3  the DR-68 repair creates a balance missing from before DR-68
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -66,21 +66,21 @@ def _run():
 			_row(a, today) == (0.0, 100.0, 100.0, 40000.0), str(_row(a, today)))
 
 		b = pack.std_item("_STD-LATER-ROW-DIFF")
-		pack.scv_release(b, prev.year, prev.month, 400)
-		frappe.db.delete("Inventory Period Balance", {"item_code": b})
+		pack.scv_release(b, prev.year, prev.month, 400)        # rows exist from the first cost (DR-68)
 		pack.scv_release(b, today.year, today.month, 500)
-		frappe.db.delete("Inventory Period Balance", {"item_code": b, "period_month": today.month})
 		pack.make_pr(b, wh, 100, 400, posting_date=str(add_days(prev, 1)))
 		check("2: standards differ - the current month closes 100 x 500, Opening 0, Carryover 100, counted once",
 			_row(b, today) == (0.0, 100.0, 100.0, 50000.0) and _row(b, prev) == (0.0, 0.0, 100.0, 40000.0),
 			f"current {_row(b, today)} previous {_row(b, prev)}")
 
+		# a balance missing from before DR-68 (a period opened by hand): the
+		# DR-68 repair creates it, opening as at the period's opening
 		frappe.db.delete("Inventory Period Balance", {"item_code": a, "period_month": today.month,
 			"period_year": today.year})
-		from periodic_valuation.patches.v1_0 import open_later_std_rows
+		from periodic_valuation.patches.v1_0 import dr68_complete_open_period_balances
 
-		open_later_std_rows.execute()
-		check("3: the patch opens the missing row with the same figures",
+		dr68_complete_open_period_balances.execute()
+		check("3: the DR-68 repair creates the missing balance - Opening 0, Carryover 100",
 			_row(a, today) == (0.0, 100.0, 100.0, 40000.0), str(_row(a, today)))
 	finally:
 		frappe.db.rollback(save_point="std_later_rows")
