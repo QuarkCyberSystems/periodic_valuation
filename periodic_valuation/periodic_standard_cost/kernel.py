@@ -683,32 +683,6 @@ def std_scopes(company, *, item_code=None, warehouse=None, item_group=None, peri
 	)
 
 
-def _open_later_rows(scope, period):
-	"""A posting into an earlier month must reach the current period's
-	balance (client design V2-1 section 4.3: "update ... the current opening
-	balance"; consolidated design: "corrects current opening via
-	carryover"). An item whose stock first arrives that way has no row in the
-	later open months yet - nothing has been posted there (client ticket
-	STD-015, 13/10/2026, MH S44: "why the October not opened"). Each such
-	month gets its row now, seeded as if the period had opened with it:
-	Opening is the previous closing as at the period's opening and what came
-	after goes to Carryover (split_opening_at_period_open). The posting is
-	already in the earlier month, so the new row needs no cascade of its own."""
-	opened = set()
-	periods = frappe.get_all("Inventory Period", filters={"company": scope.company,
-		"status": ("in", ("OPEN", "PREV_OPEN_UNSETTLED"))}, fields=["name", "period_year", "period_month"],
-		order_by="period_year asc, period_month asc")
-	for p in periods:
-		if (p.period_year, p.period_month) <= (period.period_year, period.period_month):
-			continue
-		if not frappe.db.exists("Inventory Period Balance", {"company": scope.company,
-				"item_code": scope.item_code, "warehouse": scope.warehouse or "",
-				"period_year": p.period_year, "period_month": p.period_month}):
-			scope.load(frappe.get_doc("Inventory Period", p.name))
-			opened.add((p.period_year, p.period_month))
-	return opened
-
-
 def _cascade_backdated_ipb(scope, period, qty, value, source):
 	"""A backdated posting lands in ITS period's balance row; every later
 	period's closing must shift by the same delta or the materialized chain
@@ -717,7 +691,6 @@ def _cascade_backdated_ipb(scope, period, qty, value, source):
 	as MAP)."""
 	from periodic_valuation.periodic_moving_average.kernel import recompute_closing
 
-	opened = _open_later_rows(scope, period)
 	later = frappe.get_all(
 		"Inventory Period Balance",
 		filters={"company": scope.company, "item_code": scope.item_code,
@@ -730,8 +703,6 @@ def _cascade_backdated_ipb(scope, period, qty, value, source):
 		key=lambda x: (x.period_year, x.period_month),
 	)
 	for row in later:
-		if (row.period_year, row.period_month) in opened:
-			continue  # just opened from the earlier month's closing, posting included
 		ipb = frappe.get_doc("Inventory Period Balance", row.name)
 		ipb.carryover_qty = flt(ipb.carryover_qty) + qty
 		ipb.carryover_value = r2(flt(ipb.carryover_value) + value)

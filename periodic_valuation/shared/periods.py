@@ -56,13 +56,9 @@ def is_backdate_period(period):
 
 
 def _open_on_demand(company, posting_date):
-	"""A posting dated in the month right after the OPEN period rolls the
-	machine forward (DR-37): the OPEN month becomes previous-open and the new
-	month opens - provided the month before is already frozen, which
-	open_next_period enforces with its own message. Any other gap stays a
-	missing period."""
-	from periodic_valuation.shared.period_close import open_next_period
-
+	"""A posting never opens a period (DR-68, SAP model: only the period
+	shift opens one). A posting dated in the month after the OPEN period is
+	refused with how to open it."""
 	open_period = get_open_period(company)
 	if not open_period:
 		return None
@@ -72,9 +68,13 @@ def _open_on_demand(company, posting_date):
 		if open_period.period_month == 12
 		else (open_period.period_year, open_period.period_month + 1)
 	)
-	if (d.year, d.month) != (ny, nm):
-		return None
-	return open_next_period(open_period)
+	if (d.year, d.month) == (ny, nm):
+		frappe.throw(
+			_("{0}-{1:02d} is not open yet. It is opened with Open Next Period on the {2} Inventory Period, or by the daily job once {3}-{4:02d} can move to previous-open.").format(
+				ny, nm, open_period.period_name, open_period.period_year, open_period.period_month),
+			title=_("Period Not Open"),
+		)
+	return None
 
 
 def period_refusal(period):

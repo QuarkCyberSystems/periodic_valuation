@@ -45,6 +45,7 @@ class InventoryPeriodClose(Document):
 		from periodic_valuation.shared.period_close import (
 			assert_bin_ledger_consistency,
 			assert_no_stranded_value,
+			assert_scope_rows_complete,
 			assert_std_scopes_settled,
 		)
 
@@ -54,6 +55,7 @@ class InventoryPeriodClose(Document):
 		recon = run_reconciliation_gate(period)
 		bin_ledger = assert_bin_ledger_consistency(period)
 		stranded = assert_no_stranded_value(period)
+		rows_complete = assert_scope_rows_complete(period)
 		# the settlement gate only bites on the real close (freeze of the
 		# previous-open month); closing the OPEN month just rolls forward
 		std_settled = assert_std_scopes_settled(period) if period.status == "PREV_OPEN_UNSETTLED" else {"ok": True, "unsettled": []}
@@ -95,6 +97,11 @@ class InventoryPeriodClose(Document):
 					"table (tolerance {1}). Investigate via Inventory Period Balance Snapshot and post a "
 					"manual reconciliation adjustment; automatic write-off is not permitted."
 				).format(recon["discrepancy"], recon["tolerance"])
+			)
+		if not rows_complete["ok"]:
+			failures.append(
+				_("Item balances missing in {0} for: {1}. Every item carries a balance into every month (DR-68).").format(
+					period.period_name, ", ".join(sorted({m["item_code"] for m in rows_complete["missing"]})[:10]))
 			)
 		if bin_ledger["drifts"]:
 			items = ", ".join(sorted({d["item_code"] for d in bin_ledger["drifts"]})[:10])

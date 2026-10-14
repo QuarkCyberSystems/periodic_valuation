@@ -20,6 +20,23 @@ class InventoryPeriodBalance(Document):
 
 	def validate(self):
 		self.validate_unique_scope()
+		self.validate_opening_fixed()
+
+	def validate_opening_fixed(self):
+		"""Opening is fixed when the row is created and never changes (DR-68;
+		consolidated design, Apr-22 decision 3); a later posting into an
+		earlier month appends to Carryover. Only the sanctioned repair (DR-68
+		data repair) may set it, under its own flag."""
+		if self.is_new() or self.flags.allow_opening_repair:
+			return
+		before = frappe.db.get_value("Inventory Period Balance", self.name,
+			["opening_qty", "opening_value"], as_dict=True)
+		if before and (round(float(before.opening_qty or 0), 6) != round(float(self.opening_qty or 0), 6)
+				or round(float(before.opening_value or 0), 2) != round(float(self.opening_value or 0), 2)):
+			frappe.throw(
+				_("The opening of {0} is fixed when the period opens. A later posting into an earlier month goes to Carryover.").format(self.name),
+				title=_("Opening Is Fixed"),
+			)
 
 	def validate_unique_scope(self):
 		filters = {

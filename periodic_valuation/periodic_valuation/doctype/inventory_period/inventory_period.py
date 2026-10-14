@@ -21,6 +21,9 @@ STATE_TRANSITIONS = {
 
 POSTING_ALLOWED_STATES = ("OPEN", "PREV_OPEN_UNSETTLED")
 
+# who may open a period (DR-68): segregation of duties, as SAP restricts MMPV
+OPEN_NEXT_ROLES = {"Accounts Manager", "Stock Manager", "System Manager"}
+
 
 class InventoryPeriod(Document):
 	def autoname(self):
@@ -29,10 +32,47 @@ class InventoryPeriod(Document):
 		self.name = f"{abbr}-{self.period_name}"
 
 	def validate(self):
+		self.refuse_outside_period_machine()
 		self.sync_period_fields()
 		self.validate_unique_period()
 		self.validate_single_open()
 		self.validate_transition()
+
+	def refuse_outside_period_machine(self):
+		"""Periods open and change state only through the period machine
+		(DR-68, SAP model: the period shift is the only way): Open Next
+		Period / the daily job, Inventory Period Close, Inventory Period
+		Reopen. A user request - the form or the API - may create only a
+		company's first period (go-live); it can neither create a later one
+		nor change a status. On 04/10/2026 October was opened by hand that way
+		and no balance was carried into it (client ticket STD-021)."""
+		if frappe.flags.in_period_machine or not getattr(frappe.local, "request", None):
+			return
+		if self.is_new():
+			if frappe.db.exists("Inventory Period", {"company": self.company}):
+				frappe.throw(
+					_("Later periods are opened with Open Next Period on the OPEN Inventory Period (or by the daily job), so every item's balance is carried into them."),
+					title=_("Use Open Next Period"),
+				)
+			return
+		if frappe.db.get_value("Inventory Period", self.name, "status") != self.status:
+			frappe.throw(
+				_("A period's status changes only through Open Next Period, Inventory Period Close or Inventory Period Reopen."),
+				title=_("Use the Period Actions"),
+			)
+
+	@frappe.whitelist()
+	def open_next(self):
+		"""Open Next Period (DR-68): the controlled period shift. Restricted to
+		the finance and inventory managers and logged on the new period."""
+		roles = set(frappe.get_roles())
+		if not roles & OPEN_NEXT_ROLES:
+			frappe.throw(_("Opening a period needs one of these roles: {0}.").format(", ".join(sorted(OPEN_NEXT_ROLES))),
+				frappe.PermissionError)
+		from periodic_valuation.shared.period_close import open_next_period
+
+		nxt = open_next_period(self)
+		return nxt.name
 
 	def sync_period_fields(self):
 		start = getdate(self.start_date)
