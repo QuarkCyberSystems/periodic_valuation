@@ -17,8 +17,7 @@ in the current month; the previous month received 1,000 at 300 and issued
      previous month's last day and the reversal the release day (DR-59)
   C  YTD, "First day": the previous month's YTD triplet, then the stock
      reversed on day 1 - consumption adjusted once (20,000)
-  D  previous month already settled for the item: nothing posts into it;
-     the current month revalues forward as before (design §8.A)
+  D  previous month already settled for the item: the release is refused (STD-019)
   E  nothing on hand and no movement: one zero-value event, dated as the
      revaluation would be; no reversal
   F  a change for the current month is unchanged
@@ -194,13 +193,19 @@ def _run():
 		d, _d0 = setup("_STD-BDCOR-D")
 		StdEngine(pack.COMPANY, d).close_period(year=prev.year, month=prev.month, sc=300,
 			source=("Inventory Period", prev_period))
-		vd = pack.scv_release(d, prev.year, prev.month, 400)
-		check("D: settled previous month - nothing posts into it, no reversal; the current month revalues forward",
-			_events(vd.name) and all(x[2] == str(day1) for x in _events(vd.name))
-			and not [x for x in _events(vd.name) if x[0] == "Rev Reverse"]
-			and _sc(d, today) == 400
-			and frappe.db.get_value(SCV, {"item_code": d, "source_type": "INHERITED", "status": "RELEASED"},
-				"standard_cost") == 400, str(_events(vd.name)))
+		vd = frappe.get_doc({"doctype": SCV, "company": pack.COMPANY, "item_code": d,
+			"valid_from_year": prev.year, "valid_from_month": prev.month, "standard_cost": 400,
+			"source_type": "MANUAL_OVERRIDE"}).insert(ignore_permissions=True)
+		frappe.db.savepoint("bd_d")
+		try:
+			vd.release()
+			refused = ""
+		except frappe.ValidationError as ex:
+			frappe.clear_last_message()
+			refused = str(ex)
+		frappe.db.rollback(save_point="bd_d")
+		check("D: a cost for a month already settled for the item is refused (STD-019); nothing posts",
+			"already settled" in refused and not _events(vd.name) and _sc(d, today) == 300, refused)
 
 		# ---- E: nothing on hand, no movement ---------------------------------
 		e = pack.std_item("_STD-BDCOR-E")
