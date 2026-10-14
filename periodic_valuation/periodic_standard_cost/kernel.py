@@ -339,12 +339,34 @@ def _revalue_returned_quantity(engine, controller, sle, source, orig, qty, cd, m
 		post("REC (BD) - Rev", on, qty * (sc_now - sc_cd) - (returned_in(current) if current else 0), sc_now, sc_cd)
 
 
+def _stamp_standard_cost(scope, ipb_name, period):
+	"""A new standard-cost row shows the standard in force at its month's start."""
+	from periodic_valuation.periodic_standard_cost.engine import get_active_standard_cost
+
+	day1 = getdate(f"{period.period_year}-{period.period_month:02d}-01")
+	try:
+		scv = get_active_standard_cost(scope.company, scope.item_code, scope.physical_warehouse, day1)
+	except frappe.ValidationError:
+		frappe.clear_last_message()
+		return
+	if not scv:
+		return
+	sc = flt(scv.standard_cost)
+	qty = flt(frappe.db.get_value("Inventory Period Balance", ipb_name, "closing_qty"))
+	frappe.db.set_value("Inventory Period Balance", ipb_name, {"period_standard_cost": sc,
+		"moving_avg_price": sc, "active_cost_version": scv.name,
+		"closing_reference_value": r2(qty * sc)}, update_modified=False)
+
+
 def split_opening_at_period_open(scope, ipb_name, period):
 	"""Client ticket STD-015 (reopened 12/10/2026): Opening is fixed when the
 	Inventory Period opens. An item's row for the month can appear later (at
 	its first posting there); what earlier months received after the period
 	opened is then Carryover, not Opening. The total is unchanged."""
-	if not period or not period.get("creation"):
+	if not period:
+		return
+	_stamp_standard_cost(scope, ipb_name, period)
+	if not period.get("creation"):
 		return
 	filters = {"company": scope.company, "item_code": scope.item_code, "is_cancelled": 0,
 		"std_trans": ("!=", ""), "creation": (">", period.creation)}
