@@ -340,15 +340,18 @@ def _revalue_returned_quantity(engine, controller, sle, source, orig, qty, cd, m
 
 
 def _stamp_standard_cost(scope, ipb_name, period):
-	"""A new standard-cost row shows the standard in force at its month's start."""
-	from periodic_valuation.periodic_standard_cost.engine import get_active_standard_cost
+	"""A new standard-cost row shows the standard in force at its month's
+	start. Read-only: the resolver, never the pricing lookup, which may post
+	a pending boundary revaluation."""
+	from periodic_valuation.periodic_standard_cost.engine import resolve_version
 
 	day1 = getdate(f"{period.period_year}-{period.period_month:02d}-01")
-	try:
-		scv = get_active_standard_cost(scope.company, scope.item_code, scope.physical_warehouse, day1)
-	except frappe.ValidationError:
-		frappe.clear_last_message()
-		return
+	filters = {"company": scope.company, "item_code": scope.item_code, "status": "RELEASED"}
+	if scope.include_warehouse:
+		filters["warehouse"] = scope.physical_warehouse
+	scv = resolve_version(frappe.get_all("Item Standard Cost Version", filters=filters,
+		fields=["name", "standard_cost", "valid_from_year", "valid_from_month", "price_from_year",
+			"price_from_month", "switch_on_release", "effective_from", "effective_to", "released_on"]), day1)
 	if not scv:
 		return
 	sc = flt(scv.standard_cost)
