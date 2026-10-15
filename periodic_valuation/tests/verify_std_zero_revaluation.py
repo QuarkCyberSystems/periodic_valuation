@@ -145,6 +145,7 @@ def _run():
 		check("D: the settlement gate does not ask for the zero-only scopes",
 			not [u for u in gate["unsettled"] if u["item_code"] in (a, b)], str(gate["unsettled"]))
 		try:
+			pack.open_month_after(today)  # a month is settled while previous-open (DR-69)
 			StdEngine(pack.COMPANY, a).close_period(year=today.year, month=today.month, sc=120,
 				source=("Inventory Period", cur_period))
 			nothing = False

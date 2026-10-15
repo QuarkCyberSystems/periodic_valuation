@@ -129,6 +129,34 @@ def make_period(year, month, status):
 	return doc.name
 
 
+def open_month_after(d, company=None):
+	"""Move the period machine on so the month of `d` can be settled (DR-69:
+	a month is settled while it is previous-open): its month becomes
+	previous-open, the month after OPEN, and an older previous-open month
+	frozen - what Open Next Period does, without the seeding a test does not
+	need."""
+	from frappe.utils import add_months, get_first_day, getdate
+
+	company = company or COMPANY
+	d = get_first_day(getdate(d))
+	status = lambda w: frappe.db.get_value("Inventory Period", {"company": company,
+		"period_year": w.year, "period_month": w.month}, "status")
+	if status(d) == "PREV_OPEN_UNSETTLED" and status(add_months(d, 1)) == "OPEN":
+		return
+	for name in frappe.get_all("Inventory Period", filters={"company": company, "status": "PREV_OPEN_UNSETTLED"},
+			fields=["name", "period_year", "period_month"]):
+		if (name.period_year, name.period_month) != (d.year, d.month):
+			frappe.db.set_value("Inventory Period", name.name, "status", "SETTLED_FROZEN", update_modified=False)
+	for when, status in ((d, "PREV_OPEN_UNSETTLED"), (add_months(d, 1), "OPEN")):
+		name = frappe.db.get_value("Inventory Period", {"company": company, "period_year": when.year,
+			"period_month": when.month})
+		if not name:
+			doc = frappe.get_doc({"doctype": "Inventory Period", "company": company, "start_date": str(when)})
+			doc.flags.ignore_validate = True
+			name = doc.insert(ignore_permissions=True).name
+		frappe.db.set_value("Inventory Period", name, "status", status, update_modified=False)
+
+
 def std_item(code, view="MTD"):
 	if not frappe.db.exists("Item", code):
 		frappe.get_doc({"doctype": "Item", "item_code": code, "item_name": code,

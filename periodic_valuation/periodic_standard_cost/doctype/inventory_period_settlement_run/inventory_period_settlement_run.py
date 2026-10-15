@@ -13,6 +13,9 @@ class InventoryPeriodSettlementRun(Document):
 	"""Batch STD settlement for one period across every scope with activity."""
 
 	def validate(self):
+		from periodic_valuation.periodic_standard_cost.engine import assert_month_settleable
+
+		assert_month_settleable(self.company, self.period_year, self.period_month)
 		if not (1 <= (self.period_month or 0) <= 12):
 			frappe.throw(_("Period Month must be 1-12."))
 		if self.item_code:

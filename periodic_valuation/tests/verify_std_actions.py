@@ -22,6 +22,12 @@ from periodic_valuation.tests.verify_std_design_tcs import one_ive, scv_release,
 CHECKS = []
 
 
+def pack_open(company, d):
+	from periodic_valuation.tests.uat_std_pack import open_month_after
+
+	open_month_after(d, company)
+
+
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
 	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
@@ -169,6 +175,7 @@ def run(commit=False):
 	scv_release(company, item_s, today.year, today.month, 10)
 	pr_s = make_pr(item_s, wh, 10, 12)
 	eng = StdEngine(company, item_s, wh)
+	pack_open(company, today)  # a month is settled while previous-open (DR-69)
 	sett = eng.close_period(year=today.year, month=today.month, sc=10, source=("Item", item_s))
 	try:
 		# refused already when the draft is saved (STD-016: refuse on Save)

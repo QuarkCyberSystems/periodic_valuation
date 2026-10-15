@@ -155,11 +155,15 @@ def _run():
 			# settle in order (STD-016), so the previous month first
 			StdEngine(pack.COMPANY, it).close_period(year=prev.year, month=prev.month, sc=300,
 				source=("Inventory Period", prev_period))
+			# a month is settled while previous-open (DR-69): for this check only
+			frappe.db.savepoint("pdo_settle")
+			pack.open_month_after(today)
 			sett = StdEngine(pack.COMPANY, it).close_period(year=today.year, month=today.month, sc=400,
 				source=("Inventory Period", cur_period))
 			expected = flt(sett.rev_pool) * flt(sett.es_qty) / (flt(sett.beg_qty) + flt(sett.in_qty))
 			check(f"{tag} 10: the revaluation settles over the whole month (ending / (beg + in))",
 				abs(flt(sett.rev_es) - expected) < 0.01, f"{sett.rev_es} vs {expected}")
+			frappe.db.rollback(save_point="pdo_settle")
 
 			# 2 backdated
 			it = setup(f"_STD-PDO2-{tag}")

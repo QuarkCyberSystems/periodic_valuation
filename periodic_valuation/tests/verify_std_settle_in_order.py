@@ -1,16 +1,17 @@
-"""Months settle in order: an item's month cannot be settled while the month
-before is still open and unsettled for it (client ticket STD-016,
-08/10/2026: "Settlement was executed for October 2026, but September 2026
-were not settled"). Run:
+"""Which month can be settled (DR-69; SAP: period-end settlement runs after
+the period shift) and in which order (client ticket STD-016). Run:
 bench --site <site> execute periodic_valuation.tests.verify_std_settle_in_order.run
 
-  1  MTD and YTD: with stock in the previous month, settling the current
-     month is refused, naming the previous month
-  2  once the previous month is settled, the current month settles
-  3  an item with nothing to settle in the previous month settles the
-     current month at once
-  4  a Settlement Run for the current month settles the items that can be
-     settled and lists the others in Remarks
+  1  the OPEN month cannot be settled - engine, Settlement Run, Settle This
+     Item - its carry would land in a month with no period
+  2  once the next month is open (the month is previous-open) it settles,
+     and its carry lands in the open month's balance
+  3  a frozen month cannot be settled
+
+STD-016's own refusal (a month whose previous month is unsettled for the
+item) stays in the engine as a backstop; under the period machine it cannot
+arise any more: the month before a previous-open month is frozen, and the
+freeze requires its items settled (DR-47).
 
 Savepoint-rolled-back; run on the throwaway site.
 """
@@ -18,7 +19,7 @@ Savepoint-rolled-back; run on the throwaway site.
 import traceback
 
 import frappe
-from frappe.utils import add_days, add_months, get_first_day, getdate, nowdate
+from frappe.utils import add_days, add_months, flt, get_first_day, getdate, nowdate
 
 from periodic_valuation.tests import uat_std_pack as pack
 
@@ -42,13 +43,6 @@ def run():
 		raise Exception("STD settle-in-order failures: " + "; ".join(c[0] for c in failed))
 
 
-def _settle(item, d, period):
-	from periodic_valuation.periodic_standard_cost.engine import StdEngine
-
-	return StdEngine(pack.COMPANY, item).close_period(year=d.year, month=d.month, sc=10,
-		source=("Inventory Period", period))
-
-
 def _refusal(fn):
 	frappe.db.savepoint("sio_refusal")
 	try:
@@ -62,51 +56,52 @@ def _refusal(fn):
 
 
 def _run():
+	from periodic_valuation.periodic_standard_cost.engine import StdEngine
+
 	today = getdate(nowdate())
 	day1 = get_first_day(today)
 	prev = add_months(day1, -1)
+	nxt = add_months(day1, 1)
 	frappe.db.savepoint("std_settle_order")
 	try:
 		wh, _ = pack.ensure_company()
 		pp = pack.make_period(prev.year, prev.month, "PREV_OPEN_UNSETTLED")
 		cp = pack.make_period(today.year, today.month, "OPEN")
-		if prev.year != today.year:
-			print("SKIP YTD: the previous month is in the prior fiscal year")
-		for view in ("MTD", "YTD"):
-			if view == "YTD" and prev.year != today.year:
-				continue
-			it = pack.std_item(f"_STD-SIO-{view}", view=view)
-			pack.scv_release(it, prev.year, prev.month, 10)
-			pack.make_pr(it, wh, 100, 12, posting_date=str(add_days(prev, 2)))
-			pack.make_pr(it, wh, 10, 11, posting_date=str(day1))
-			msg = _refusal(lambda: _settle(it, today, cp))
-			check(f"1 {view}: settling the current month is refused while the previous month is unsettled",
-				f"settle {prev.year}-{prev.month:02d} first" in msg, msg)
-			_settle(it, prev, pp)
-			check(f"2 {view}: after the previous month settles, the current month settles",
-				not _refusal(lambda: _settle(it, today, cp)))
+		it = pack.std_item("_STD-SIO")
+		pack.scv_release(it, prev.year, prev.month, 10)
+		pack.make_pr(it, wh, 100, 12, posting_date=str(add_days(prev, 2)))
+		pack.make_pr(it, wh, 10, 11, posting_date=str(day1))
+		engine = StdEngine(pack.COMPANY, it)
 
-		quiet = pack.std_item("_STD-SIO-NEW")
-		pack.scv_release(quiet, today.year, today.month, 10)
-		pack.make_pr(quiet, wh, 5, 12, posting_date=str(day1))
-		check("3: an item with nothing in the previous month settles the current month at once",
-			not _refusal(lambda: _settle(quiet, today, cp)))
+		# ---- 1 ------------------------------------------------------------------
+		msg = _refusal(lambda: engine.close_period(year=today.year, month=today.month, sc=10,
+			source=("Inventory Period", cp)))
+		check("1: the OPEN month cannot be settled (engine)", "is settled once" in msg, msg)
+		msg = _refusal(lambda: frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": pack.COMPANY,
+			"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE"}).insert(ignore_permissions=True))
+		check("1: the OPEN month cannot be settled (Settlement Run)", "is settled once" in msg, msg)
+		row = frappe.get_doc("Inventory Period Balance", frappe.db.get_value("Inventory Period Balance",
+			{"company": pack.COMPANY, "item_code": it, "period_year": today.year, "period_month": today.month}))
+		check("1: Settle This Item is not offered for the OPEN month", not row.settlement_state()["postable"])
 
-		late = pack.std_item("_STD-SIO-RUN-LATE")
-		pack.scv_release(late, prev.year, prev.month, 10)
-		pack.make_pr(late, wh, 40, 12, posting_date=str(add_days(prev, 2)))
-		ready = pack.std_item("_STD-SIO-RUN-READY")
-		pack.scv_release(ready, today.year, today.month, 10)
-		pack.make_pr(ready, wh, 7, 12, posting_date=str(day1))
-		run_doc = frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": pack.COMPANY,
-			"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE"})
-		run_doc.insert(ignore_permissions=True)
-		run_doc.submit()
-		run_doc.reload()
-		settled = lambda i: frappe.db.exists("Inventory Period Settlement", {"item_code": i, "cancelled": 0,
-			"period_year": today.year, "period_month": today.month})
-		check("4: the run settles the ready item and lists the late one in Remarks",
-			settled(ready) and not settled(late) and late in (run_doc.remarks or "")
-			and "first" in (run_doc.remarks or ""), run_doc.remarks)
+		# ---- 2 ------------------------------------------------------------------
+		sett = engine.close_period(year=prev.year, month=prev.month, sc=10, source=("Inventory Period", pp))
+		carry = frappe.db.get_value("Inventory Valuation Event", sett.sett_rev_event, ["posting_date", "total_sc"], as_dict=True)
+		check("2: the previous-open month settles; its carry is dated the open month's day 1",
+			sett and str(carry.posting_date) == str(day1) and flt(carry.total_sc) == -flt(sett.es_var))
+		pack.open_month_after(today)          # Open Next Period: the current month becomes previous-open
+		sett2 = engine.close_period(year=today.year, month=today.month, sc=10, source=("Inventory Period", cp))
+		nrow = frappe.db.get_value("Inventory Period Balance", {"company": pack.COMPANY, "item_code": it,
+			"period_year": nxt.year, "period_month": nxt.month}, ["reval_value", "closing_value"], as_dict=True)
+		check("2: once the next month is open the month settles, and its carry lands in that month's balance",
+			sett2 and nrow and abs(flt(nrow.reval_value) + flt(sett2.es_var)) < 0.01, f"{nrow} es {sett2.es_var}")
+
+		# ---- 3 ------------------------------------------------------------------
+		frozen = add_months(day1, -2)
+		pack.make_period(frozen.year, frozen.month, "SETTLED_FROZEN")
+		msg = _refusal(lambda: engine.close_period(year=frozen.year, month=frozen.month, sc=10,
+			source=("Inventory Period", cp)))
+		check("3: a frozen month cannot be settled", "is settled once" in msg or "settled" in msg, msg)
+
 	finally:
 		frappe.db.rollback(save_point="std_settle_order")
