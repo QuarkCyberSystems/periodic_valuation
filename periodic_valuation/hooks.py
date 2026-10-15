@@ -84,8 +84,13 @@ doc_events = {
 			# changed, before the stamp fills a blank view from the group default
 			"periodic_valuation.overrides.cancel_guard.validate_periodic_item",
 			"periodic_valuation.overrides.cancel_guard.stamp_settlement_view",
+			# the inventory account is fixed while the item holds stock (DR-69)
+			"periodic_valuation.overrides.account_guard.guard_inventory_account",
 		]
 	},
+	"Item Group": {"validate": "periodic_valuation.overrides.account_guard.guard_inventory_account"},
+	"Brand": {"validate": "periodic_valuation.overrides.account_guard.guard_inventory_account"},
+	"Company": {"validate": "periodic_valuation.overrides.account_guard.guard_inventory_account"},
 	# No-manual-drift rule: JEs cannot hit kernel-maintained inventory accounts
 	"Journal Entry": {
 		"validate": "periodic_valuation.overrides.journal_guard.block_manual_stock_journal",

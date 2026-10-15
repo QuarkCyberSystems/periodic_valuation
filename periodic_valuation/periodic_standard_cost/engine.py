@@ -187,6 +187,25 @@ def _materialize_if_pending(scv_name):
 	frappe.get_doc("Item Standard Cost Version", scv_name).materialize_boundary()
 
 
+def assert_month_settleable(company, year, month):
+	"""A month is settled once the next month is open - while it is the
+	previous-open month (DR-69; SAP: period-end settlement runs after the
+	period shift). The settlement's carry into the next month (Sett - Rev,
+	dated its day 1) then always lands in an open month; settling the OPEN
+	month posted that carry into a month with no period, and its balance
+	never received it (UAT, 08/09 and 11/10/2026)."""
+	status = frappe.db.get_value("Inventory Period",
+		{"company": company, "period_year": year, "period_month": month}, "status")
+	if status == "PREV_OPEN_UNSETTLED":
+		return
+	ny, nm = (year + 1, 1) if month == 12 else (year, month + 1)
+	frappe.throw(
+		_("{0}-{1:02d} is settled once {2}-{3:02d} is open (Open Next Period); it is {4} now.").format(
+			year, month, ny, nm, status or _("not an open period")),
+		title=_("Month Not Settleable Yet"),
+	)
+
+
 def std_reason_code(trans, reversal_of=None):
 	"""The valuation event's reason, named after the movement (client ticket
 	STD-006: every standard-cost event read "std_event")."""
@@ -902,6 +921,7 @@ class StdEngine:
 	def close_period(self, *, year, month, sc, source, entry_date=None, ref=None,
 			es_qty_override=None, out_qty_override=None, settlement_run=None):
 		self._assert_prior_fy_closed(year)
+		assert_month_settleable(self.company, year, month)
 		self._assert_previous_settled(year, month)
 		self._lock_for_settlement(year, month)
 		if self.is_period_locked(year, month):
