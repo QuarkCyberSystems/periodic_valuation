@@ -20,6 +20,12 @@ from periodic_valuation.tests.verify_std_design_tcs import scv_release, std_item
 CHECKS = []
 
 
+def pack_open(company, d):
+	from periodic_valuation.tests.uat_std_pack import open_month_after
+
+	open_month_after(d, company)
+
+
 def check(label, ok, detail=""):
 	CHECKS.append((label, bool(ok)))
 	print(("PASS " if ok else "FAIL ") + label + (f" - {detail}" if detail and not ok else ""))
@@ -46,6 +52,7 @@ def run(commit=False):
 	pr = make_pr(item, wh, 100, 12)
 	make_dn(item, wh, 20)
 	eng = StdEngine(company, item, wh)
+	pack_open(company, today)  # a month is settled while previous-open (DR-69)
 	sett = eng.close_period(year=today.year, month=today.month, sc=10, source=("Item", item))
 
 	# ---- back-year pair for the cross-FY report

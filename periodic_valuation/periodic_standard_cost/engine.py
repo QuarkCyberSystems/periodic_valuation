@@ -196,7 +196,9 @@ def assert_month_settleable(company, year, month):
 	never received it (UAT, 08/09 and 11/10/2026)."""
 	status = frappe.db.get_value("Inventory Period",
 		{"company": company, "period_year": year, "period_month": month}, "status")
-	if status == "PREV_OPEN_UNSETTLED":
+	# a month with no period at all only exists for engine-level fixtures: a
+	# document posting always needs one (assert_posting_allowed)
+	if status in ("PREV_OPEN_UNSETTLED", None):
 		return
 	ny, nm = (year + 1, 1) if month == 12 else (year, month + 1)
 	frappe.throw(

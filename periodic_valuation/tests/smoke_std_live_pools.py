@@ -99,11 +99,16 @@ def _run():
 				_pools(it, today) == (150.0, -150.0), str(_pools(it, today)))
 			check(f"{view} 8: the balance shows what the settlement engine reads now",
 				_pools(it, today) == _engine_pools(it, today), f"{_pools(it, today)} vs {_engine_pools(it, today)}")
+			# a month is settled while previous-open (DR-69): move the machine
+			# on for this check only, then back
+			frappe.db.savepoint("lp_settle")
+			pack.open_month_after(today)
 			sett = StdEngine(pack.COMPANY, it).close_period(year=today.year, month=today.month, sc=11,
 				source=("Inventory Period", cur_period))
 			check(f"{view} 5: at settlement the pools equal the settled pools",
 				_pools(it, today) == (flt(sett.ppv_pool, 2), flt(sett.rev_pool, 2)),
 				f"{_pools(it, today)} vs {sett.ppv_pool}/{sett.rev_pool}")
+			frappe.db.rollback(save_point="lp_settle")
 
 		# ---- 6: MTD carry into the next month ---------------------------------
 		it = pack.std_item("_STD-LIVEPOOL-CARRY")
@@ -152,6 +157,7 @@ def _run():
 				f"{cur.ytd_opening_qty}/{prv.opening_qty} {cur.ytd_closing_qty}/{cur.closing_qty}")
 			StdEngine(pack.COMPANY, it).close_period(year=prev.year, month=prev.month, sc=10,
 				source=("Inventory Period", prev_period))
+			pack.open_month_after(today)  # a month is settled while previous-open (DR-69)
 			sett = StdEngine(pack.COMPANY, it).close_period(year=today.year, month=today.month, sc=11,
 				source=("Inventory Period", cur_period))
 			check("7: YTD - once both months settle the current month shows the settled YTD pools",

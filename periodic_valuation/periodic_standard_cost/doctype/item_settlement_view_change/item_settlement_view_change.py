@@ -47,6 +47,19 @@ class ItemSettlementViewChange(Document):
 		for year, month in engine._periods_present():
 			if engine.is_period_locked(year, month):
 				continue
+			status = frappe.db.get_value("Inventory Period", {"company": self.company,
+				"period_year": year, "period_month": month}, "status")
+			if status == "OPEN":
+				# a month is settled once the next is open (DR-69): the OPEN
+				# month may hold only the previous settlement's carry; any
+				# movement there must settle under the old view first
+				if frappe.db.exists("Inventory Valuation Event", {**engine._scope_filters(),
+						"period_year": year, "period_month": month, "is_cancelled": 0,
+						"std_trans": ("not in", ("", "Sett - Rev", "Sett - Rev - Reverse")),
+						"total_sc": ("!=", 0)}):
+					frappe.throw(_("{0} has activity in the open month {1}-{2:02d}. Submit the view change once that month is previous-open (Open Next Period), so it settles under the current view first.").format(
+						self.item_code, year, month), title=_("Open Month Has Activity"))
+				continue
 			scv = get_active_standard_cost(
 				self.company, self.item_code, None, f"{year}-{month:02d}-01"
 			)

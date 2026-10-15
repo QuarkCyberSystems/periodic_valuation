@@ -15,6 +15,12 @@ from periodic_valuation.tests.smoke_kernel import ensure_masters, get_company
 from periodic_valuation.tests.smoke_std import ensure_std_masters
 
 CHECKS = []
+
+
+def pack_open(company, d):
+	from periodic_valuation.tests.uat_std_pack import open_month_after
+
+	open_month_after(d, company)
 ITEM = "_STDV-ITEM"
 
 
@@ -116,6 +122,7 @@ def run(commit=False):
 		check("MR21 blocked for STD", True)
 
 	# ---- Settlement Run: pool 200 (PPV) + 100 (PI diff) = 300; end 65 of 100
+	pack_open(company, today)  # a month is settled while previous-open (DR-69)
 	run_doc = frappe.get_doc({
 		"doctype": "Inventory Period Settlement Run", "company": company,
 		"period_year": today.year, "period_month": today.month,
@@ -181,8 +188,10 @@ def run_reversals(company, wh):
 	cxl.submit()
 	mirror = frappe.get_all("Inventory Valuation Event",
 		filters={"source_docname": cxl.name}, fields=["std_trans", "total_sc", "total_ac", "reversal_of"])
+	# the movement's mirror (a backdated original also has a companion)
+	mirror = [x for x in mirror if not x.std_trans.endswith(" - Rev")]
 	check("open-period reversal mirrors original (SC -1000 / AC -1200, linked)",
-		mirror and mirror[0].std_trans == "Rec" and flt(mirror[0].total_sc) == -1000
+		mirror and mirror[0].std_trans in ("Rec", "REC (BD)") and flt(mirror[0].total_sc) == -1000
 		and flt(mirror[0].total_ac) == -1200 and mirror[0].reversal_of, str(mirror))
 	gl = frappe.get_all("GL Entry", filters={"voucher_no": cxl.name, "is_cancelled": 0},
 		fields=["debit", "credit"])
@@ -430,6 +439,7 @@ def run_year_end(company, wh):
 	make_pr(item, wh, 50, 14)          # Rec: PPV 100 -> pool 400
 	make_dn(item, wh, 30)              # Iss at SC -> end 120
 	engine = StdEngine(company, item, wh)
+	pack_open(company, today)  # a month is settled while previous-open (DR-69)
 	sett = engine.close_period(year=today.year, month=today.month, sc=12,
 		source=("Stock Reconciliation", sr.name))
 	check("go-live month base includes Beg (es 320 / out 80)",
@@ -487,6 +497,8 @@ def run_year_end(company, wh):
 	# January's pool and rolls forward through SEQUENTIAL monthly settlements
 	sett2 = None
 	for m in range(1, today.month + 1):
+		if m == today.month:
+			pack_open(company, today)  # a month is settled while previous-open (DR-69)
 		sett2 = e2.close_period(year=today.year, month=m, sc=12,
 			source=("Stock Reconciliation", sr.name))
 	check("new-year sequential settles roll the carry (last var 300)",

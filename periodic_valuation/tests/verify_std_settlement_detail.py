@@ -138,12 +138,15 @@ def _run():
 		pack.make_pr(two, wh2, 10, 12, posting_date=str(add_days(prev, 3)))
 		pack.make_pr(two, wh, 3, 12, posting_date=str(o2))
 		run_doc = frappe.get_doc({"doctype": "Inventory Period Settlement Run", "company": pack.COMPANY,
-			"period_year": today.year, "period_month": today.month, "run_type": "INITIAL_CLOSE", "item_code": two})
+			"period_year": prev.year, "period_month": prev.month, "run_type": "INITIAL_CLOSE", "item_code": two})
 		run_doc.insert(ignore_permissions=True)
 		run_doc.submit()
 		run_doc.reload()
-		check("5: a run lists a company-level item once (refused: previous month first)",
-			len([ln for ln in (run_doc.remarks or "").splitlines() if "_STD-DETAIL-2WH" in ln]) == 1, run_doc.remarks)
+		setts = frappe.get_all("Inventory Period Settlement", filters={"item_code": two, "cancelled": 0,
+			"period_year": prev.year, "period_month": prev.month}, pluck="name")
+		check("5: a run visits a company-level item once, whatever warehouses its events name (one settlement, no failure lines)",
+			len(setts) == 1 and run_doc.scopes_settled == 1 and not (run_doc.remarks or "").strip(),
+			f"{setts} {run_doc.scopes_settled} {run_doc.remarks}")
 
 		# ---- 6: backfill patch ----------------------------------------------------
 		from periodic_valuation.patches.v1_0 import std_event_reasons_and_settlement_detail as patch
