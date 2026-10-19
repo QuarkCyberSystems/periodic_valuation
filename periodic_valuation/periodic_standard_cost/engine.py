@@ -595,8 +595,6 @@ class StdEngine:
 
 	def _post_gl(self, ive, trans, total_sc, total_ac, settlement=None, offset_override=None,
 			posting_date=None, fx_variance=0.0):
-		from erpnext.accounts.general_ledger import make_gl_entries
-
 		a = self.accounts()
 		legs = self._legs(trans, flt(total_sc), flt(total_ac), a, settlement, offset_override)
 		if trans == "LC" and r2(fx_variance):
@@ -607,29 +605,16 @@ class StdEngine:
 			offset = offset_override or a.grir
 			legs = [(a.ppv, flt(total_ac)), (fx_account, r2(fx_variance)),
 				(offset, -r2(flt(total_ac) + fx_variance))]
-		gl_map = []
-		cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
-		for account, amount in legs:
-			amount = r2(amount)
-			if not amount or not account:
-				continue
-			gl_map.append(frappe._dict({
-				"account": account,
-				"against": a.stock if account != a.stock else a.ppv,
-				"debit": amount if amount > 0 else 0,
-				"credit": -amount if amount < 0 else 0,
-				"debit_in_account_currency": amount if amount > 0 else 0,
-				"credit_in_account_currency": -amount if amount < 0 else 0,
-				"posting_date": posting_date or ive.posting_date,
-				"voucher_type": ive.source_doctype,
-				"voucher_no": ive.source_docname,
-				"company": self.company,
-				"cost_center": cost_center,
-				"remarks": _("STD event {0} ({1})").format(ive.name, trans),
-				"valuation_event_id": ive.name,
-			}))
-		if gl_map:
-			make_gl_entries(gl_map, merge_entries=False)
+		# each leg carries the event's source row attribution; a settlement
+		# event belongs to no row and stays on the company cost centre
+		from periodic_valuation.shared.event_gl import post_event_gl
+
+		post_event_gl(
+			ive,
+			[(account, amount, a.stock if account != a.stock else a.ppv) for account, amount in legs],
+			posting_date=posting_date or ive.posting_date, company=self.company,
+			remarks=_("STD event {0} ({1})").format(ive.name, trans),
+		)
 		# the period-close gates compare IVE.value_delta against inventory-account
 		# GL - record this event's net stock effect (B1 audit fix)
 		stock_net = sum(a2 for acct, a2 in legs if acct == a.stock)
@@ -1252,26 +1237,16 @@ class StdEngine:
 			t_sc_override=-flt(orig.total_sc), t_ac_override=-flt(orig.total_ac),
 			cost_version=orig.cost_version, post_gl=False, reversal_of=orig.name,
 		)
-		# GL: mirror the original's legs with sides swapped, on the reversal date
-		from erpnext.accounts.general_ledger import make_gl_entries
+		# GL: mirror the original's legs with sides swapped, on the reversal
+		# date - attribution included, on the reversing row being posted
+		from periodic_valuation.shared.event_gl import mirror_legs, post_event_gl
 
-		gl_map = []
-		cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
-		for g in frappe.get_all("GL Entry",
-				filters={"valuation_event_id": original_name, "is_cancelled": 0},
-				fields=["account", "debit", "credit"]):
-			gl_map.append(frappe._dict({
-				"account": g.account, "against": "",
-				"debit": flt(g.credit), "credit": flt(g.debit),
-				"debit_in_account_currency": flt(g.credit),
-				"credit_in_account_currency": flt(g.debit),
-				"posting_date": pst, "voucher_type": source[0], "voucher_no": source[1],
-				"company": self.company, "cost_center": cost_center,
-				"remarks": _("Exact reversal of {0}").format(original_name),
-				"valuation_event_id": mirror.name,
-			}))
-		if gl_map:
-			make_gl_entries(gl_map, merge_entries=False)
+		gl_map = post_event_gl(
+			mirror, mirror_legs(original_name, 1.0, "", source, source[2] if len(source) > 2 else None),
+			posting_date=pst,
+			voucher=(source[0], source[1]), company=self.company,
+			remarks=_("Exact reversal of {0}").format(original_name),
+		)
 		# the period-close gates read each event's inventory effect from
 		# value_delta; _post_gl stamps it for ordinary events, this path must too
 		stock_acct = self.accounts().stock
@@ -1318,10 +1293,7 @@ class StdEngine:
 		delta_ive = self.post(trans="Sett - Delta", posting_date=today, source=source,
 			entry_date=entry_date, ref=sett.name, t_sc_override=d_es, post_gl=False)
 
-		from erpnext.accounts.general_ledger import make_gl_entries
-
 		a = self.accounts()
-		cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
 
 		# The two allocation legs only net to zero while the quantity basis
 		# survives (new_es + new_out == variance). Reversing the very receipt that
@@ -1340,21 +1312,15 @@ class StdEngine:
 			ppv_part = r2(residual * (flt(sett.ppv_pool) / total_pool)) if total_pool else residual
 			pool_legs = [(a.ppv, ppv_part), (a.reserve, r2(residual - ppv_part))]
 
-		gl_map = []
-		for account, amount in ((a.stock, d_es), (a.cogs_adj, d_out), *pool_legs):
-			amount = r2(amount)
-			if not amount:
-				continue
-			gl_map.append(frappe._dict({
-				"account": account, "against": "",
-				"debit": amount if amount > 0 else 0, "credit": -amount if amount < 0 else 0,
-				"debit_in_account_currency": amount if amount > 0 else 0,
-				"credit_in_account_currency": -amount if amount < 0 else 0,
-				"posting_date": today, "voucher_type": source[0], "voucher_no": source[1],
-				"company": self.company, "cost_center": cost_center,
-				"remarks": _("Post-close allocation delta for {0}").format(sett.name),
-				"valuation_event_id": delta_ive.name,
-			}))
-		if gl_map:
-			make_gl_entries(gl_map, merge_entries=False)
+		# a settlement correction belongs to no voucher row: company cost
+		# centre, no dimensions (settlement variances stay as today)
+		from periodic_valuation.shared.event_gl import company_attribution, post_event_gl
+
+		where = company_attribution(self.company)
+		post_event_gl(
+			delta_ive,
+			[(account, amount, "", where) for account, amount in ((a.stock, d_es), (a.cogs_adj, d_out), *pool_legs)],
+			posting_date=today, voucher=(source[0], source[1]), company=self.company,
+			remarks=_("Post-close allocation delta for {0}").format(sett.name),
+		)
 		return delta_ive
