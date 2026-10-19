@@ -22,6 +22,7 @@
   "source_docname",
   "col_source",
   "source_detail_name",
+  "gl_attribution",
   "sec_valuation",
   "reason_code",
   "posting_intent",
@@ -176,6 +177,14 @@
    "fieldname": "source_detail_name",
    "fieldtype": "Data",
    "label": "Source Row",
+   "read_only": 1
+  },
+  {
+   "description": "What this event's GL legs carry: the source row's cost centre, project, accounting dimensions and row, or the company cost centre for an event of no voucher row. Recorded when the event first posts.",
+   "fieldname": "gl_attribution",
+   "fieldtype": "Code",
+   "label": "GL Attribution",
+   "options": "JSON",
    "read_only": 1
   },
   {
@@ -508,7 +517,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-15 12:00:00.000000",
+ "modified": "2026-10-19 05:39:53.937327",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Valuation Event",

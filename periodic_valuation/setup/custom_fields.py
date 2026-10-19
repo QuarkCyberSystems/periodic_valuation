@@ -267,6 +267,10 @@ def require_platform_capabilities():
 
 	try:
 		from qcs_platform.compat import require_capability
+		# the kernels' GL takes the voucher row's attribution from the
+		# platform (PA-028): a platform without it would pass this migrate
+		# and fail at the first routed posting
+		from qcs_platform.ledger import attribution  # noqa: F401
 	except ImportError:
 		frappe.throw(PLATFORM_TOO_OLD.format(PLATFORM_CONTRACT), title="Platform Too Old")
 	require_capability("periodic_valuation", *REQUIRES)

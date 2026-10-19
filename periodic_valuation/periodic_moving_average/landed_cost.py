@@ -104,8 +104,8 @@ def _reverse_landed_cost(lcv):
 	dated GL swap. The split is never re-run: coverage has moved on since the
 	original posted, so recomputing it would reverse a different amount than
 	was posted."""
-	from erpnext.accounts.general_ledger import make_gl_entries
-
+	from periodic_valuation.periodic_moving_average.kernel import floor_inventory_leg
+	from periodic_valuation.shared.event_gl import mirror_legs, post_event_gl
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 
 	original = lcv.get("cancellation_against")
@@ -119,7 +119,6 @@ def _reverse_landed_cost(lcv):
 	)
 	if not originals:
 		frappe.throw(_("No valuation events found for {0} to reverse.").format(original))
-	cost_center = frappe.get_cached_value("Company", lcv.company, "cost_center")
 	from periodic_valuation.periodic_moving_average.kernel import reverse_carry_revaluation
 
 	# the next-period revaluation legs (DR-53) reverse after the events that
@@ -132,7 +131,7 @@ def _reverse_landed_cost(lcv):
 				title=_("Double Reversal Blocked"))
 		if orig.reason_code == "carry_revaluation":
 			reverse_carry_revaluation(orig, source=("Landed Cost Voucher", lcv.name),
-				posting_date=lcv.posting_date, cost_center=cost_center)
+				posting_date=lcv.posting_date)
 			continue
 		# DR-44 floor: the reversal removes the landed cost from inventory, but
 		# never more than the scope still carries - consumption since the
@@ -182,40 +181,15 @@ def _reverse_landed_cost(lcv):
 		finally:
 			frappe.flags[KERNEL_FLAG] = False
 
-		gl_map = []
-		for g in frappe.get_all("GL Entry",
-				filters={"valuation_event_id": orig.name, "is_cancelled": 0},
-				fields=["account", "debit", "credit"]):
-			gl_map.append(frappe._dict({
-				"account": g.account, "against": "",
-				"debit": flt(g.credit), "credit": flt(g.debit),
-				"debit_in_account_currency": flt(g.credit),
-				"credit_in_account_currency": flt(g.debit),
-				"posting_date": lcv.posting_date, "voucher_type": "Landed Cost Voucher",
-				"voucher_no": lcv.name, "company": lcv.company, "cost_center": cost_center,
-				"remarks": _("Exact reversal of {0}").format(orig.name),
-				"valuation_event_id": mirror.name,
-			}))
+		# reverse what the original posted, attribution included, each leg
+		# on the row of this document that undoes it (PA-028)
+		legs = mirror_legs(orig.name, 1.0, "", lcv)
 		if prd_excess:
 			from periodic_valuation.shared.accounts import get_inventory_account
-			inv_acct = get_inventory_account(lcv.company, orig.item_code, orig.warehouse)
-			for g in gl_map:
-				if g["account"] == inv_acct and flt(g["credit"]):
-					g["credit"] = flt(g["credit"]) + prd_excess
-					g["credit_in_account_currency"] = g["credit"]
-					break
-			prd_acct = get_offset_account(lcv.company, orig.item_code, orig.warehouse, "prd")
-			gl_map.append(frappe._dict({
-				"account": prd_acct, "against": "",
-				"debit": 0, "credit": -prd_excess,
-				"debit_in_account_currency": 0, "credit_in_account_currency": -prd_excess,
-				"posting_date": lcv.posting_date, "voucher_type": "Landed Cost Voucher",
-				"voucher_no": lcv.name, "company": lcv.company, "cost_center": cost_center,
-				"remarks": _("DR-44 floor: uncovered share of the reversed landed cost"),
-				"valuation_event_id": mirror.name,
-			}))
-		if gl_map:
-			make_gl_entries(gl_map, merge_entries=False)
+			legs = floor_inventory_leg(legs, get_inventory_account(lcv.company, orig.item_code, orig.warehouse),
+				prd_excess, get_offset_account(lcv.company, orig.item_code, orig.warehouse, "prd"))
+		post_event_gl(mirror.name, legs, posting_date=lcv.posting_date, voucher=("Landed Cost Voucher", lcv.name),
+			company=lcv.company, remarks=_("Exact reversal of {0}").format(orig.name))
 		# restore the MAP scope state the original event moved - and, like the
 		# original, push it through every later period's carryover and mirror the
 		# stock-ledger row (DR-02). Without the cascade a reversal dated in the

@@ -468,41 +468,16 @@ def update_bin(scope, ipb, qty_delta, absolute=None):
 
 
 def post_gl(controller, posting_date, legs, ive_name, remarks=None):
-	"""legs: (account, signed_amount, against) - positive Dr, negative Cr."""
-	from erpnext.accounts.general_ledger import make_gl_entries
+	"""legs: (account, signed_amount, against[, attribution]) - positive Dr,
+	negative Cr. Posted on `controller`'s voucher; each leg carries the
+	voucher row's attribution (PA-028, shared.event_gl)."""
+	from periodic_valuation.shared.event_gl import post_event_gl
 
-	gl_map = []
-	for account, amount, against in legs:
-		amount = r2(amount)
-		if not amount:
-			continue
-		gl_map.append(
-			controller.get_gl_dict(
-				{
-					"account": account,
-					"against": against,
-					"debit": amount if amount > 0 else 0,
-					"credit": -amount if amount < 0 else 0,
-					# Inventory and its valuation offsets are always company
-					# currency (design: "inventory always base currency"), so
-					# the account-currency figures are the same numbers. The
-					# General Ledger report renders THESE fields - leaving them
-					# unset stores 0 and every kernel leg displays as $0.00,
-					# which finance reads as "no accounting entries" even
-					# though the base debit/credit are correct and balanced
-					# (client meeting 2026-08-12, screenshot of ACC-PINV GL).
-					"debit_in_account_currency": amount if amount > 0 else 0,
-					"credit_in_account_currency": -amount if amount < 0 else 0,
-					"posting_date": posting_date,
-					"remarks": remarks or _("PMA valuation event {0}").format(ive_name),
-					"valuation_event_id": ive_name,
-					"cost_center": controller.get("cost_center")
-					or frappe.get_cached_value("Company", controller.company, "cost_center"),
-				}
-			)
-		)
-	if gl_map:
-		make_gl_entries(gl_map, merge_entries=False)
+	post_event_gl(
+		ive_name, legs, posting_date=posting_date, controller=controller,
+		voucher=(controller.doctype, controller.name), company=controller.company,
+		remarks=remarks or _("PMA valuation event {0}").format(ive_name),
+	)
 
 
 # ----------------------------------------------------------------- main entry
@@ -1481,34 +1456,37 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	mirrored_sle = dict(sle)
 	mirrored_sle["actual_qty"] = qty
 	write_sle(controller, mirrored_sle, scope, ipb, r6(value + companion_value))
+	# the mirrors reverse what the original posted - its attribution with it,
+	# each leg on the cancellation row being posted
+	from periodic_valuation.shared.event_gl import mirror_legs
+
+	row = source[2] if len(source) > 2 else None  # the cancellation row being posted
 	for c, c_ive in companion_ives:
-		post_gl(
-			controller, posting_date,
-			[(g.account, r2((flt(g.credit) - flt(g.debit)) * share), inventory_account)
-				for g in frappe.get_all("GL Entry",
-					filters={"valuation_event_id": c.name, "is_cancelled": 0},
-					fields=["account", "debit", "credit"])],
-			c_ive,
-		)
+		post_gl(controller, posting_date, mirror_legs(c.name, share, inventory_account, controller, row), c_ive)
 	# mirror the original event's GL with swapped sides on the cancellation date,
 	# scaled to the share of the original this cancellation actually reverses
-	legs = []
-	for g in frappe.get_all(
-		"GL Entry",
-		filters={"valuation_event_id": orig.name, "is_cancelled": 0},
-		fields=["account", "debit", "credit"],
-	):
-		legs.append((g.account, r2((flt(g.credit) - flt(g.debit)) * share), inventory_account))
+	legs = mirror_legs(orig.name, share, inventory_account, controller, row)
 	if prd_floor:
 		# cap the inventory credit at the covered value; the shortfall credits
-		# PRD (DR-44). The offset side keeps the original's full amount.
-		for i, (acct, amt, against) in enumerate(legs):
-			if acct == inventory_account:
-				legs[i] = (acct, r2(amt - prd_floor), against)
-				break
-		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
-		legs.append((prd_account, r2(prd_floor), inventory_account))
+		# PRD (DR-44), on the same row. The offset side keeps the original's
+		# full amount.
+		legs = floor_inventory_leg(legs, inventory_account, prd_floor,
+			get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd"))
 	post_gl(controller, posting_date, legs, ive)
+
+
+def floor_inventory_leg(legs, inventory_account, floor, prd_account):
+	"""DR-44: take `floor` (negative - the part inventory cannot cover) off
+	the mirror's inventory leg and credit it to PRD, with that leg's
+	attribution. Legs are (account, amount, against, attribution)."""
+	legs = list(legs)
+	for i, (acct, amt, against, attribution) in enumerate(legs):
+		if acct == inventory_account:
+			legs[i] = (acct, r2(amt - floor), against, attribution)
+			legs.append((prd_account, r2(floor), inventory_account, attribution))
+			return legs
+	legs.append((prd_account, r2(floor), inventory_account))
+	return legs
 
 
 # ------------------------------------------------------------ backdated flow
@@ -1819,20 +1797,12 @@ def post_value_event(company, item_code, warehouse, *, source, posting_date, rea
 		legs.append((fx_account, fx_variance, offset_account))
 	legs.append((offset_account, -total_offset, inventory_account))
 
-	class _Ctl:  # minimal gl_dict context for standalone value events
-		def get_gl_dict(self, row):
-			row.setdefault("company", company)
-			row.setdefault("posting_date", posting_date)
-			row.setdefault("voucher_type", source[0])
-			row.setdefault("voucher_no", source[1])
-			return frappe._dict(row)
+	# a value event posts on its source document, with that row's attribution
+	# (PA-028) - a landed cost the receipt row's it lands on
+	from periodic_valuation.shared.event_gl import post_event_gl
 
-		def get(self, key, default=None):
-			return default
-
-	ctl = _Ctl()
-	ctl.company = company
-	post_gl(ctl, posting_date, legs, ive)
+	post_event_gl(ive, legs, posting_date=posting_date, company=company,
+		voucher=(source[0], source[1]), remarks=_("PMA valuation event {0}").format(ive))
 	if next_split:
 		_post_carry_revaluation(company, item_code, warehouse, source, ive, *next_split)
 	return ive
@@ -1916,13 +1886,13 @@ def _post_carry_revaluation(company, item_code, warehouse, source, carried_event
 	)
 
 
-def reverse_carry_revaluation(orig, *, source, posting_date, cost_center):
+def reverse_carry_revaluation(orig, *, source, posting_date):
 	"""Exact reversal of a carry_revaluation event (cancellation of the cost
 	adjustment that carried it): mirror its GL, give its value back to the
 	period it posted in - or the reversal's own, if later - and carry that
 	forward, as every other mirror in the reversal paths. Never re-derived
 	from today's state."""
-	from erpnext.accounts.general_ledger import make_gl_entries
+	from periodic_valuation.shared.event_gl import mirror_legs, post_event_gl
 
 	day = max(getdate(posting_date), getdate(orig.posting_date))
 	period = assert_posting_allowed(orig.company, day)
@@ -1942,18 +1912,9 @@ def reverse_carry_revaluation(orig, *, source, posting_date, cost_center):
 		}).insert(ignore_permissions=True)
 	finally:
 		frappe.flags[KERNEL_FLAG] = False
-	gl_map = [frappe._dict({
-		"account": g.account, "against": "",
-		"debit": flt(g.credit), "credit": flt(g.debit),
-		"debit_in_account_currency": flt(g.credit), "credit_in_account_currency": flt(g.debit),
-		"posting_date": day, "voucher_type": source[0], "voucher_no": source[1],
-		"company": orig.company, "cost_center": cost_center,
-		"remarks": _("Exact reversal of {0}").format(orig.name),
-		"valuation_event_id": mirror.name,
-	}) for g in frappe.get_all("GL Entry", filters={"valuation_event_id": orig.name, "is_cancelled": 0},
-		fields=["account", "debit", "credit"])]
-	if gl_map:
-		make_gl_entries(gl_map, merge_entries=False)
+	post_event_gl(mirror.name, mirror_legs(orig.name, 1.0, "", source), posting_date=day,
+		voucher=(source[0], source[1]), company=orig.company,
+		remarks=_("Exact reversal of {0}").format(orig.name))
 	scope = ScopeState(orig.company, orig.item_code, orig.warehouse)
 	ipb = scope.load(period)
 	ipb.reval_value = r6(flt(ipb.reval_value) + removal)

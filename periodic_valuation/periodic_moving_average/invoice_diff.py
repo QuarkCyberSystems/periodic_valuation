@@ -132,19 +132,19 @@ def _reverse_invoice_diff(doc):
 
 
 def _reverse_source_events(doc, original):
-	from erpnext.accounts.general_ledger import make_gl_entries
-
 	from periodic_valuation.periodic_moving_average.kernel import (
 		ScopeState,
 		_cascade_value_carryover,
+		floor_inventory_leg,
 		r2,
 		recompute_closing,
 		reverse_carry_revaluation,
 	)
+	from periodic_valuation.shared.accounts import get_offset_account
+	from periodic_valuation.shared.event_gl import mirror_legs, post_event_gl
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 	from periodic_valuation.shared.periods import assert_posting_allowed
 
-	cost_center = frappe.get_cached_value("Company", doc.company, "cost_center")
 	originals = frappe.get_all("Inventory Valuation Event",
 		filters={"source_doctype": "Purchase Invoice", "source_docname": original,
 			"is_cancelled": 0}, fields=["*"])
@@ -158,7 +158,7 @@ def _reverse_source_events(doc, original):
 				title=_("Double Reversal Blocked"))
 		if orig.reason_code == "carry_revaluation":
 			reverse_carry_revaluation(orig, source=("Purchase Invoice", doc.name),
-				posting_date=doc.posting_date, cost_center=cost_center)
+				posting_date=doc.posting_date)
 			continue
 		# DR-44 floor: never remove more value than the scope still carries;
 		# the uncovered share (consumed at the blended MAP since the original
@@ -208,40 +208,15 @@ def _reverse_source_events(doc, original):
 		finally:
 			frappe.flags[KERNEL_FLAG] = False
 
-		gl_map = []
-		for g in frappe.get_all("GL Entry",
-				filters={"valuation_event_id": orig.name, "is_cancelled": 0},
-				fields=["account", "debit", "credit"]):
-			gl_map.append(frappe._dict({
-				"account": g.account, "against": "",
-				"debit": flt(g.credit), "credit": flt(g.debit),
-				"debit_in_account_currency": flt(g.credit),
-				"credit_in_account_currency": flt(g.debit),
-				"posting_date": doc.posting_date, "voucher_type": "Purchase Invoice",
-				"voucher_no": doc.name, "company": doc.company, "cost_center": cost_center,
-				"remarks": _("Exact reversal of {0}").format(orig.name),
-				"valuation_event_id": mirror.name,
-			}))
+		# reverse what the original posted, attribution included, each leg
+		# on the row of this document that undoes it (PA-028)
+		legs = mirror_legs(orig.name, 1.0, "", doc)
 		if prd_excess:
-			from periodic_valuation.shared.accounts import get_inventory_account, get_offset_account
-			inv_acct = get_inventory_account(doc.company, orig.item_code, orig.warehouse)
-			for g in gl_map:
-				if g["account"] == inv_acct and flt(g["credit"]):
-					g["credit"] = flt(g["credit"]) + prd_excess
-					g["credit_in_account_currency"] = g["credit"]
-					break
-			prd_acct = get_offset_account(doc.company, orig.item_code, orig.warehouse, "prd")
-			gl_map.append(frappe._dict({
-				"account": prd_acct, "against": "",
-				"debit": 0, "credit": -prd_excess,
-				"debit_in_account_currency": 0, "credit_in_account_currency": -prd_excess,
-				"posting_date": doc.posting_date, "voucher_type": "Purchase Invoice",
-				"voucher_no": doc.name, "company": doc.company, "cost_center": cost_center,
-				"remarks": _("DR-44 floor: uncovered share of the reversed invoice difference"),
-				"valuation_event_id": mirror.name,
-			}))
-		if gl_map:
-			make_gl_entries(gl_map, merge_entries=False)
+			from periodic_valuation.shared.accounts import get_inventory_account
+			legs = floor_inventory_leg(legs, get_inventory_account(doc.company, orig.item_code, orig.warehouse),
+				prd_excess, get_offset_account(doc.company, orig.item_code, orig.warehouse, "prd"))
+		post_event_gl(mirror.name, legs, posting_date=doc.posting_date, voucher=("Purchase Invoice", doc.name),
+			company=doc.company, remarks=_("Exact reversal of {0}").format(orig.name))
 
 		if flt(orig.value_delta) and orig.reason_code in ("invoice_diff", "fx_adjust"):
 			period = assert_posting_allowed(doc.company, doc.posting_date)
