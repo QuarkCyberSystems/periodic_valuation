@@ -911,75 +911,86 @@ def _post_current(controller, scope, period, sle, is_cancellation, is_return):
 		)
 
 	elif kind in ("return_in", "return_out"):
-		policy = get_return_valuation(scope.company, controller.doctype)
-		# Whether the return is valued at the ORIGINAL cost is decided by the
-		# policy, not by whether the original event row could be located:
-		# _original_rate falls back to the return row's own rate (copied from the
-		# original document) when the event lookup misses, and that is still a
-		# with-reference valuation. The MAP rule below keys on this, so it must
-		# not be conflated with `reference_event` being found.
-		valued_at_reference = policy == "With Reference" and bool(controller.get("return_against"))
-		if valued_at_reference:
-			rate, reference_event = _original_rate(controller, sle)
-		else:
-			rate, reference_event = (flt(ipb.frozen_map) if ipb.is_negative else flt(ipb.moving_avg_price)), None
-		value = r2(qty * rate)  # signed with qty
-		# Net returns against their ORIGIN bucket (WA-0003-01 item 6, "same
-		# behaviour STD"): a purchase return reverses a receipt, so it nets
-		# down the In/receipt side; a sales return reverses an issue, so it
-		# nets down the Out/issue side. This mirrors STD's PR in_flag / SR
-		# out_flag. Closing qty/value, MAP and GL are unchanged - only the
-		# period-balance In/Out breakdown differs (previously returns were
-		# bucketed by physical direction, inflating the wrong side).
-		if qty > 0:
-			# sales return (goods in) -> reduce net issues (Out)
-			ipb.issue_qty = r6(flt(ipb.issue_qty) - qty)
-			ipb.issue_value = r6(flt(ipb.issue_value) - value)
-		else:
-			# purchase return (goods out) -> reduce net receipts (In)
-			ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
-			ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
-			# ...and the since-zero counter, which measures the SAME receipts
-			# (WA-0003-01 item 7). Once a purchase return nets down the receipt
-			# bucket, leaving the counter untouched makes the Period Balance
-			# contradict itself: receipt_qty says 800 received while
-			# total_received_since_zero says 1,000 for the same movements, so
-			# the audited receiving history would include goods that went back
-			# to the supplier. Floored at zero - a return can
-			# never imply negative receipts. A SALES return is deliberately not
-			# counted here: it reverses an issue, so it never entered this
-			# counter in the first place.
-			ipb.total_received_since_zero = r6(
-				max(0.0, flt(ipb.total_received_since_zero) + qty)
-			)
-		recompute_closing(ipb)
-		if not valued_at_reference:
-			# valued at the current MAP, so it cannot move it (signed plan,
-			# Return without Reference); a return
-			# at the original cost re-blends like a receipt and does move it
-			_pin_map(ipb, map_before)
-		_freeze_check(ipb)
-		reason = "return_with_ref" if reference_event else "return_no_ref"
-		movement = "return_in" if qty > 0 else "return_out"
-		offset = expense if movement == "return_in" else srbnb
-		sme, ive = write_events(
-			scope, ipb, source=source, posting_date=posting_date,
-			movement_type=movement, reason=reason, qty_delta=qty, value_delta=value,
-			map_before=map_before, reference_event=reference_event,
-			affects_map=1 if reference_event else 0, stock_uom=sle.get("stock_uom"),
-		)
-		scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
+		value, ive = _book_return(controller, scope, ipb, sle, source, posting_date, inventory_account, srbnb, expense)
 		write_sle(controller, sle, scope, ipb, value)
-		post_gl(
-			controller, posting_date,
-			[(inventory_account, value, offset), (offset, -value, inventory_account)],
-			ive,
-		)
 
 	elif kind == "cancellation":
 		_post_cancellation(controller, scope, period, ipb, sle, source, inventory_account, expense)
 
 	maybe_rounding_cleanup(controller, scope, ipb, source, posting_date, qty_scale=qty)
+
+
+def _book_return(controller, scope, ipb, sle, source, posting_date, inventory_account, srbnb, expense):
+	"""A return's own booking on `ipb` - the period it is dated in - with its
+	events and GL; returns (value, event). The SLE is the caller's: a
+	current-period return writes it on the same period, a backdated one
+	(meeting 19/10/2026) on the open period it carries into."""
+	qty = flt(sle.get("actual_qty"))
+	map_before = flt(ipb.moving_avg_price)
+	policy = get_return_valuation(scope.company, controller.doctype)
+	# Whether the return is valued at the ORIGINAL cost is decided by the
+	# policy, not by whether the original event row could be located:
+	# _original_rate falls back to the return row's own rate (copied from the
+	# original document) when the event lookup misses, and that is still a
+	# with-reference valuation. The MAP rule below keys on this, so it must
+	# not be conflated with `reference_event` being found.
+	valued_at_reference = policy == "With Reference" and bool(controller.get("return_against"))
+	if valued_at_reference:
+		rate, reference_event = _original_rate(controller, sle)
+	else:
+		rate, reference_event = (flt(ipb.frozen_map) if ipb.is_negative else flt(ipb.moving_avg_price)), None
+	value = r2(qty * rate)  # signed with qty
+	# Net returns against their ORIGIN bucket (WA-0003-01 item 6, "same
+	# behaviour STD"): a purchase return reverses a receipt, so it nets
+	# down the In/receipt side; a sales return reverses an issue, so it
+	# nets down the Out/issue side. This mirrors STD's PR in_flag / SR
+	# out_flag. Closing qty/value, MAP and GL are unchanged - only the
+	# period-balance In/Out breakdown differs (previously returns were
+	# bucketed by physical direction, inflating the wrong side).
+	if qty > 0:
+		# sales return (goods in) -> reduce net issues (Out)
+		ipb.issue_qty = r6(flt(ipb.issue_qty) - qty)
+		ipb.issue_value = r6(flt(ipb.issue_value) - value)
+	else:
+		# purchase return (goods out) -> reduce net receipts (In)
+		ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
+		ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
+		# ...and the since-zero counter, which measures the SAME receipts
+		# (WA-0003-01 item 7). Once a purchase return nets down the receipt
+		# bucket, leaving the counter untouched makes the Period Balance
+		# contradict itself: receipt_qty says 800 received while
+		# total_received_since_zero says 1,000 for the same movements, so
+		# the audited receiving history would include goods that went back
+		# to the supplier. Floored at zero - a return can
+		# never imply negative receipts. A SALES return is deliberately not
+		# counted here: it reverses an issue, so it never entered this
+		# counter in the first place.
+		ipb.total_received_since_zero = r6(
+			max(0.0, flt(ipb.total_received_since_zero) + qty)
+		)
+	recompute_closing(ipb)
+	if not valued_at_reference:
+		# valued at the current MAP, so it cannot move it (signed plan,
+		# Return without Reference); a return
+		# at the original cost re-blends like a receipt and does move it
+		_pin_map(ipb, map_before)
+	_freeze_check(ipb)
+	reason = "return_with_ref" if reference_event else "return_no_ref"
+	movement = "return_in" if qty > 0 else "return_out"
+	offset = expense if movement == "return_in" else srbnb
+	sme, ive = write_events(
+		scope, ipb, source=source, posting_date=posting_date,
+		movement_type=movement, reason=reason, qty_delta=qty, value_delta=value,
+		map_before=map_before, reference_event=reference_event,
+		affects_map=1 if reference_event else 0, stock_uom=sle.get("stock_uom"),
+	)
+	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
+	post_gl(
+		controller, posting_date,
+		[(inventory_account, value, offset), (offset, -value, inventory_account)],
+		ive,
+	)
+	return value, ive
 
 
 def _receipt_legs(scope, result, inventory_account, offset_account):
@@ -1499,11 +1510,13 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 	prior period's MAP, carried as booked, the current MAP re-derives (DR-46);
 	a current period that is or becomes negative re-prices the deficit at its
 	frozen MAP and a positive one is floored at zero value, difference to PRD.
+	Returns (DR-71): booked in the prior period as a return there is, carried
+	like the issue (purchase return) or receipt (sales return) they move.
 	"""
 	qty = flt(sle.get("actual_qty"))
-	if is_return or controller.get("is_cancellation"):
+	if controller.get("is_cancellation"):
 		frappe.throw(
-			_("Backdated returns/cancellations into a previous period are not supported; post into the current period."),
+			_("Backdated cancellations into a previous period are not supported; post into the current period."),
 		)
 
 	# lock order: previous then current
@@ -1514,6 +1527,27 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 	map_before_prior = flt(ipb_prior.moving_avg_price)
 	inventory_account = get_inventory_account(scope.company, scope.item_code, scope.physical_warehouse)
 	srbnb = frappe.get_cached_value("Company", scope.company, "stock_received_but_not_billed")
+
+	if is_return:
+		# a backdated return (client meeting 19/10/2026: "permitted as long as
+		# the period is not closed"): booked in its own month as a return of
+		# that month is (valued per the return policy, its origin bucket
+		# netted), then carried into the open month - a purchase return like a
+		# backdated issue, a sales return like a backdated receipt (DR-46 /
+		# DR-35 absorb rules)
+		prior_was_negative = bool(ipb_prior.is_negative)
+		expense = _voucher_expense_account(controller, sle) or srbnb
+		value, ive = _book_return(controller, scope, ipb_prior, sle, source, posting_date, inventory_account,
+			srbnb, expense)
+		if qty < 0:
+			absorb = _carry_issue_into_open(controller, scope, ipb_cur, open_period, qty, -value, ive,
+				inventory_account, source)
+		else:
+			absorb = _carry_receipt_into_open(controller, scope, ipb_cur, open_period, qty, r6(value / qty),
+				{"net_to_inventory": value, "receipt_value": value, "prd": 0}, prior_was_negative, ive,
+				inventory_account, source)
+		write_sle(controller, sle, scope, ipb_cur, value + absorb)
+		return
 
 	if qty <= 0:
 		# backdated issue at the prior period's MAP
