@@ -227,7 +227,7 @@ def run():
 			part = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr.name))
 			for row in part.items:
 				if row.item_code == asset_item:
-					row.qty = -1
+					row.qty = row.received_qty = -1
 			part.save(ignore_permissions=True)
 			try:
 				part.submit()
