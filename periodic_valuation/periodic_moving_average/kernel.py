@@ -1265,7 +1265,7 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 			"item_code": scope.item_code, "is_cancelled": 0,
 			**({"warehouse": scope.physical_warehouse} if scope.include_warehouse else {})},
 		fields=["name", "value_delta", "qty_basis", "reason_code", "prd_amount",
-			"inventory_portion", "expense_portion"],
+			"inventory_portion", "expense_portion", "movement_event_id"],
 		order_by="creation",
 	)
 	unreversed = [
@@ -1284,16 +1284,14 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 
 	posting_date = sle.get("posting_date")
 	map_before = flt(ipb.moving_avg_price)
-	# a copied cancellation (Stock Entry, Subcontracting Receipt, a return)
-	# carries the original's quantities and the kernel posts the mirror; a
-	# return-shaped one (receipt, delivery, invoice - STD-014) already
-	# carries the reversed sign
-	from periodic_valuation.periodic_moving_average.cancellation import is_return_shaped
-
-	qty = flt(sle.get("actual_qty")) if is_return_shaped(controller) else -flt(sle.get("actual_qty"))
-
 	want = abs(flt(sle.get("actual_qty")))
 	orig = next((e for e in unreversed if flt(e.qty_basis) == want), unreversed[0])
+	# the mirror moves the cancelled quantity the opposite way to the
+	# ORIGINAL movement - read from that movement, never from the shape of
+	# the cancellation document: a copied Stock Entry carries the original's
+	# sign, a return-shaped receipt cancellation (STD-014) the reversed one,
+	# an un-return (DR-72) the reversed one again
+	qty = _mirror_qty(orig, want, sle)
 
 	# A Create Cancellation is only eligible while the original's period is
 	# still OPEN or PREV_OPEN_UNSETTLED. Once the period is closed it stays
@@ -1484,6 +1482,18 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		legs = floor_inventory_leg(legs, inventory_account, prd_floor,
 			get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd"))
 	post_gl(controller, posting_date, legs, ive)
+
+
+def _mirror_qty(orig_event, want, sle):
+	"""`want` units in the direction opposite to the original event's
+	movement; a value-only original (no movement event) mirrors the row's
+	own quantity reversed, as a copied document carries it."""
+	moved = 0.0
+	if orig_event.get("movement_event_id"):
+		moved = flt(frappe.db.get_value("Stock Movement Event", orig_event.movement_event_id, "qty_delta"))
+	if not moved:
+		return -flt(sle.get("actual_qty"))
+	return -want if moved > 0 else want
 
 
 def floor_inventory_leg(legs, inventory_account, floor, prd_account):

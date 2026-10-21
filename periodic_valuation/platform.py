@@ -191,12 +191,13 @@ PLATFORM_CONTRACT = "0.2"
 # P6 in its own right: without its walk class a repost re-values kernel rows.
 # handover_source (D-079): the Item Cost Adjustment reads and takes pending
 # Material positions through qcs_platform.handover.
-REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "bases:valuation_sockets", "handover_source")
+# P10 (net returns): the un-return (DR-72) needs core's returned-quantity maps signed
+REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "P10", "bases:valuation_sockets", "handover_source")
 
 
 PLATFORM_TOO_OLD = (
 	"periodic_valuation is written against qcs_platform contract {0} (Build 0.2 step 2 or later: core patches "
-	"P1, P2, P2b, P4, P6 and the kernel-socket overrides); this qcs_platform predates it. Upgrade qcs_platform "
+	"P1, P2, P2b, P4, P6, P10 and the kernel-socket overrides); this qcs_platform predates it. Upgrade qcs_platform "
 	"together with this app and the erpnext checkout of the same step, then migrate (Build 0.2 §6.3)."
 )
 

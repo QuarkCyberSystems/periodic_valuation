@@ -11,8 +11,13 @@ cancellation's own posting date; both documents survive at docstatus 1.
 
 A receipt, delivery or invoice cancellation is built as the ERPNext return of
 the original, so it shows negative quantities and totals (client ticket
-STD-014, 08/10/2026). A cancellation can never be dated before the document
-it cancels.
+STD-014, 08/10/2026). The cancellation of a RETURN is the return's copy with
+every quantity and amount sign-flipped - an "un-return" (DR-72): it keeps
+`is_return` and `return_against`, so core nets the original's returned
+quantity and status back, and its positive rows pass core's return
+validation, which only measures negative ones (TSK-2026-00952 point 3:
+"Cannot return more than 0.0" on a full return's cancellation). A
+cancellation can never be dated before the document it cancels.
 """
 
 import frappe
@@ -56,9 +61,11 @@ def make_cancellation(doctype, name):
 
 	_block_if_has_dependents(doctype, name, original)
 
-	if doctype in RETURN_SHAPED and not original.get("is_return"):
-		# (a return is itself cancelled by a copy - ERPNext has no return of
-		# a return; is_return_shaped tells the two apart)
+	if doctype in RETURN_SHAPED and original.get("is_return"):
+		# ERPNext has no return of a return: the un-return is the return's
+		# copy with the signs reversed (DR-72, below)
+		cancellation = _un_return(original)
+	elif doctype in RETURN_SHAPED:
 		# A PI/SI reversal is a debit/credit note: this reverses the party
 		# accounting (creditor/debtor, SRBNB/GRIR) and nets the receipt's
 		# billing status natively, so the receipt returns to 'To Bill' and can
@@ -88,12 +95,48 @@ def make_cancellation(doctype, name):
 	return cancellation.name
 
 
-def is_return_shaped(doc):
-	"""A cancellation built as the native return of its original: its
-	quantities already carry the reversed sign. A copied cancellation (of a
-	Stock Entry, or of a return) carries the original's."""
-	return bool(doc.get("is_cancellation") and doc.get("is_return")
-		and doc.get("return_against") == doc.get("cancellation_against"))
+# the signed quantity and money fields a return carries negative; the
+# un-return flips each one it finds (a doctype without the field skips it)
+UN_RETURN_ROW_FIELDS = ("qty", "stock_qty", "received_qty", "received_stock_qty", "rejected_qty")
+UN_RETURN_DOC_FIELDS = ("discount_amount", "paid_amount", "base_paid_amount")
+
+
+def _un_return(original):
+	"""The cancellation of a return: its copy with every signed quantity and
+	amount reversed, `is_return` and `return_against` kept (DR-72).
+
+	Why not a copy as it is: core validates a return's negative rows against
+	what is still returnable on the original, and a full return left nothing
+	- the copy was refused as a further return ("Row #1: Cannot return more
+	than 0.0", TSK-2026-00952). Why not a plain receipt: core nets the
+	original's `returned_qty`, `per_returned` and status over the rows that
+	link to it (`purchase_receipt_item` / `dn_detail`, signed), which only a
+	return document feeds. The positive rows pass `validate_returned_items`
+	(it measures negative rows only), the status updater nets the original
+	back to un-returned, and the platform's net-returns patch (P10) keeps
+	core's returnable-quantity maps signed, so the original can be returned
+	again. The kernel reads the mirror's sign from the original event, never
+	from the document's shape.
+	"""
+	cancellation = frappe.copy_doc(original)
+	for row in cancellation.get("items") or []:
+		for fld in UN_RETURN_ROW_FIELDS:
+			if row.meta.has_field(fld) and flt(row.get(fld)):
+				row.set(fld, -flt(row.get(fld)))
+	for row in cancellation.get("packed_items") or []:
+		if flt(row.get("qty")):
+			row.qty = -flt(row.qty)
+	for tax in cancellation.get("taxes") or []:
+		if tax.get("charge_type") == "Actual" and flt(tax.get("tax_amount")):
+			tax.tax_amount = -flt(tax.tax_amount)
+	for fld in UN_RETURN_DOC_FIELDS:
+		if cancellation.meta.has_field(fld) and flt(cancellation.get(fld)):
+			cancellation.set(fld, -flt(cancellation.get(fld)))
+	for payment in cancellation.get("payments") or []:
+		for fld in ("amount", "base_amount"):
+			if flt(payment.get(fld)):
+				payment.set(fld, -flt(payment.get(fld)))
+	return cancellation
 
 
 def _retype_reversal(cancellation):

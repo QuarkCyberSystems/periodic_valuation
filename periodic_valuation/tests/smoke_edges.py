@@ -65,6 +65,22 @@ def make_transfer(item, qty, src, dst, posting_date=None):
 	return se
 
 
+def make_purchase_return(pr, qty, posting_date=None):
+	"""A return of `pr`'s first row (`qty` negative), submitted."""
+	ret = frappe.get_doc({
+		"doctype": "Purchase Receipt", "company": COMPANY, "supplier": pr.supplier,
+		"posting_date": posting_date or nowdate(), "set_posting_time": 1,
+		"is_return": 1, "return_against": pr.name,
+		"items": [{
+			"item_code": pr.items[0].item_code, "qty": qty, "rate": pr.items[0].rate,
+			"warehouse": pr.items[0].warehouse, "purchase_receipt_item": pr.items[0].name,
+		}],
+	})
+	ret.insert(ignore_permissions=True)
+	ret.submit()
+	return ret
+
+
 def ipb(item, warehouse=""):
 	rows = frappe.get_all(
 		"Inventory Period Balance",
@@ -709,16 +725,7 @@ def run(commit=False):
 	# (d) cancelling a purchase RETURN un-nets what the return netted
 	it = make_item("_SMK-CXRET")
 	pr = make_pr(it, wh, 100, 10)
-	ret = frappe.get_doc({
-		"doctype": "Purchase Receipt", "company": COMPANY, "supplier": "_SMK Supplier",
-		"posting_date": nowdate(), "is_return": 1, "return_against": pr.name,
-		"items": [{
-			"item_code": it, "qty": -30, "rate": 10, "warehouse": wh,
-			"purchase_receipt_item": pr.items[0].name,
-		}],
-	})
-	ret.insert(ignore_permissions=True)
-	ret.submit()
+	ret = make_purchase_return(pr, -30)
 	mid = ipb(it)
 	cn = make_cancellation("Purchase Receipt", ret.name)
 	frappe.get_doc("Purchase Receipt", cn).submit()
@@ -729,6 +736,86 @@ def run(commit=False):
 		and flt(c.closing_qty) == 100 and flt(c.closing_value, 2) == 1000,
 		f"after return in={mid.receipt_qty}/{mid.total_received_since_zero}; after cancel "
 		f"in={c.receipt_qty}/{c.total_received_since_zero} close={c.closing_qty}")
+
+	# (d2) the un-return (DR-72, TSK-2026-00952 point 3): the cancellation of
+	# a FULL return - nothing returnable is left on the original, so a copy
+	# validated as a further return was refused ("Cannot return more than
+	# 0.0"). The un-return carries the return's rows with the signs
+	# reversed, keeps is_return / return_against, nets the original's
+	# returned quantity and status back, mirrors the kernel events, and
+	# leaves the original returnable again (core's maps signed, P10).
+	it = make_item("_SMK-CXRET-FULL")
+	pr = make_pr(it, wh, 50, 10)
+	ret = make_purchase_return(pr, -50)
+	pr.reload()
+	check("full return: original fully returned (status Return Issued, per_returned 100)",
+		pr.status == "Return Issued" and flt(pr.per_returned) == 100 and flt(pr.items[0].returned_qty) == 50,
+		f"{pr.status} {pr.per_returned} {pr.items[0].returned_qty}")
+	cn = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", ret.name))
+	check("un-return: a return document with the signs reversed, against the same original",
+		cn.is_cancellation and cn.cancellation_against == ret.name and cn.is_return
+		and cn.return_against == pr.name and flt(cn.items[0].qty) == 50 and flt(cn.items[0].received_qty) == 50
+		and flt(cn.items[0].stock_qty) == 50 and flt(cn.grand_total) == 500
+		and cn.items[0].purchase_receipt_item == pr.items[0].name,
+		f"qty={cn.items[0].qty} recv={cn.items[0].received_qty} total={cn.grand_total} is_return={cn.is_return} against={cn.return_against}")
+	cn.submit()
+	c = ipb(it)
+	check("un-return: In and the counter back to 50, closing 50 / 500",
+		flt(c.receipt_qty) == 50 and flt(c.total_received_since_zero) == 50
+		and flt(c.closing_qty) == 50 and flt(c.closing_value, 2) == 500,
+		f"in={c.receipt_qty}/{c.total_received_since_zero} close={c.closing_qty}/{c.closing_value}")
+	ret_event = frappe.db.get_value("Inventory Valuation Event", {"source_docname": ret.name, "is_cancelled": 0}, "name")
+	mirror = frappe.get_all("Inventory Valuation Event", filters={"source_docname": cn.name, "is_cancelled": 0},
+		fields=["reason_code", "reversal_of", "qty_basis", "value_delta"])
+	check("un-return: one cancellation event mirroring the return's (+500, reversal_of)",
+		len(mirror) == 1 and mirror[0].reason_code == "cancellation" and mirror[0].reversal_of == ret_event
+		and flt(mirror[0].qty_basis) == 50 and flt(mirror[0].value_delta, 2) == 500, str(mirror))
+	sle = frappe.db.get_value("Stock Ledger Entry", {"voucher_no": cn.name, "is_cancelled": 0}, ["actual_qty", "qty_after_transaction"], as_dict=True)
+	check("un-return: the stock ledger row brings +50 back (50 after)", sle and flt(sle.actual_qty) == 50 and flt(sle.qty_after_transaction) == 50, str(sle))
+	pr.reload()
+	check("un-return: the original is no longer returned (returned_qty 0, per_returned 0, status To Bill)",
+		flt(pr.items[0].returned_qty) == 0 and flt(pr.per_returned) == 0 and pr.status == "To Bill",
+		f"{pr.status} {pr.per_returned} {pr.items[0].returned_qty}")
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+	again = make_return_doc("Purchase Receipt", pr.name)
+	check("un-return: a new return of the original defaults to the full quantity again (-50)",
+		flt(again.items[0].qty) == -50, f"{again.items[0].qty}")
+	ret2 = make_purchase_return(pr, -20)
+	c = ipb(it)
+	check("un-return: the original can be returned again (-20 accepted; In 30, closing 30 / 300)",
+		ret2.docstatus == 1 and flt(c.receipt_qty) == 30 and flt(c.closing_qty) == 30 and flt(c.closing_value, 2) == 300,
+		f"in={c.receipt_qty} close={c.closing_qty}/{c.closing_value}")
+	from periodic_valuation.tests.smoke_backdated_transfer import gl_vs_stock
+
+	stock, gl = gl_vs_stock(it, {get_inventory_account(COMPANY, it, wh)})
+	check("un-return: GL inventory equals stock value", stock == gl == 300, f"stock {stock} gl {gl}")
+
+	# (d3) the un-return of a SALES return (goods that came back go out again)
+	it = make_item("_SMK-CXSRET")
+	make_pr(it, wh, 100, 10)
+	dn = make_dn(it, wh, 40)
+	sret = frappe.get_doc({
+		"doctype": "Delivery Note", "company": COMPANY, "customer": "_SMK Customer",
+		"posting_date": nowdate(), "set_posting_time": 1, "is_return": 1, "return_against": dn.name,
+		"items": [{"item_code": it, "qty": -40, "rate": 25, "warehouse": wh, "dn_detail": dn.items[0].name}],
+	})
+	sret.insert(ignore_permissions=True)
+	sret.submit()
+	mid = ipb(it)
+	cn = frappe.get_doc("Delivery Note", make_cancellation("Delivery Note", sret.name))
+	check("sales un-return: positive return rows against the delivery", cn.is_return and cn.return_against == dn.name
+		and flt(cn.items[0].qty) == 40 and cn.items[0].dn_detail == dn.items[0].name, f"{cn.items[0].qty} {cn.return_against}")
+	cn.submit()
+	c = ipb(it)
+	dn.reload()
+	check("sales un-return: Out back to 40, closing 60; the delivery no longer returned",
+		flt(mid.issue_qty) == 0 and flt(mid.closing_qty) == 100
+		and flt(c.issue_qty) == 40 and flt(c.closing_qty) == 60 and flt(c.closing_value, 2) == 600
+		and flt(dn.per_returned) == 0 and flt(dn.items[0].returned_qty) == 0,
+		f"mid out={mid.issue_qty} close={mid.closing_qty}; after out={c.issue_qty} close={c.closing_qty} per_returned={dn.per_returned}")
+	sle = frappe.db.get_value("Stock Ledger Entry", {"voucher_no": cn.name, "is_cancelled": 0}, "actual_qty")
+	check("sales un-return: the stock ledger row takes 40 out again", flt(sle) == -40, str(sle))
 
 	# ============ valuation scope vs PHYSICAL warehouse (client approval
 	# comment 1, 2026-08-18): a count/reconciliation is a physical exercise on
