@@ -112,6 +112,39 @@ def _run():
 		check("3: cancelling a receipt reduces Receipts (back to 80), Issues untouched",
 			(r.receipt_qty, r.issue_qty, r.closing_qty) == (80, 20, 60), str(r))
 
+		# ---- 3b: the un-return of a FULL purchase return after a standard change
+		# (DR-72 on an STD item; TSK-2026-00952 point 3): the return's own
+		# Cancellation document carries positive return rows, goes through
+		# _post_cancellation_std, puts the Receipts back and ends at the
+		# standard in force now (DR-66); the original is returnable again
+		it2 = pack.std_item("_STD-BUCKETS-UNRET")
+		pack.scv_release(it2, today.year, today.month, 10)
+		rec3 = pack.make_pr(it2, wh, 100, 10, posting_date=str(day1))
+		ret3 = _return("Purchase Receipt", rec3.name, 100)
+		r = _row(it2, today)
+		check("3b: a full purchase return empties Receipts and stock (0 / 0)", (r.receipt_qty, r.closing_qty) == (0, 0), str(r))
+		pack.scv_release(it2, today.year, today.month, 12)
+		cx3 = _cancel(ret3)
+		r = _row(it2, today)
+		rec3.reload()
+		check("3b: the un-return is a positive return document against the original",
+			cx3.is_return and cx3.return_against == rec3.name and flt(cx3.items[0].qty) == 100, f"{cx3.items[0].qty} {cx3.return_against}")
+		check("3b: Receipts back to 100, closing 100 at the current standard 12 (1,200), Issues 0",
+			(r.receipt_qty, r.issue_qty, r.closing_qty, r.closing_value) == (100, 0, 100, 1200), str(r))
+		a = pack.acct()
+		stock_gl = flt(frappe.db.sql("""select coalesce(sum(g.debit - g.credit), 0) from `tabGL Entry` g
+			join `tabInventory Valuation Event` e on e.name = g.valuation_event_id
+			where e.item_code = %s and g.account = %s and g.is_cancelled = 0""", (it2, a.stock))[0][0], 2)
+		check("3b: stock GL equals the closing value", stock_gl == flt(r.closing_value, 2), f"gl {stock_gl} close {r.closing_value}")
+		check("3b: the original is returnable again (returned_qty 0, per_returned 0, To Bill)",
+			flt(rec3.items[0].returned_qty) == 0 and flt(rec3.per_returned) == 0 and rec3.status == "To Bill",
+			f"{rec3.status} {rec3.per_returned} {rec3.items[0].returned_qty}")
+		ret_event = frappe.db.get_value("Inventory Valuation Event", {"source_docname": ret3.name, "is_cancelled": 0, "qty_adj": ("!=", 0)}, "name")
+		mirror = frappe.get_all("Inventory Valuation Event", filters={"source_docname": cx3.name, "is_cancelled": 0, "qty_adj": ("!=", 0)},
+			fields=["reason_code", "reversal_of", "qty_adj"])
+		check("3b: the movement event is an exact reversal of the return's (+100, reversal_of)",
+			len(mirror) == 1 and mirror[0].reversal_of == ret_event and flt(mirror[0].qty_adj) == 100, str(mirror))
+
 		# ---- 4: backdated receipt -> carryover -------------------------------------
 		for view in ("MTD", "YTD"):
 			b = pack.std_item(f"_STD-CARRY-{view}", view=view)

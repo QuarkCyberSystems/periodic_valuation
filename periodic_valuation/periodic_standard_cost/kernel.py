@@ -204,6 +204,15 @@ def _post_cancellation_std(controller, engine, sle, period):
 	orig_detail = row and (
 		row.get("purchase_receipt_item") or row.get("dn_detail") or row.get("delivery_note_item")
 	)
+	if orig_detail and not frappe.db.exists(controller.doctype + " Item", {"name": orig_detail, "parent": original}):
+		# an un-return (DR-72) is the return's copy: its row link names the
+		# GRAND-original's row, not the return's; the return's own row is the
+		# one at the same position (copy_doc keeps the order)
+		rows = controller.get("items") or []
+		position = next((i for i, x in enumerate(rows) if x.name == detail), None)
+		originals_rows = frappe.get_all(controller.doctype + " Item", filters={"parent": original},
+			pluck="name", order_by="idx")
+		orig_detail = originals_rows[position] if position is not None and position < len(originals_rows) else None
 	filters = {
 		"source_doctype": controller.doctype, "source_docname": original,
 		"item_code": engine.item_code, "is_cancelled": 0,
