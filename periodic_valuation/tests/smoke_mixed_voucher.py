@@ -214,6 +214,32 @@ def run():
 
 		_reverses("PR routed + auto-created asset",
 			_pr([_row(MAP_ITEM, 10, 5), _row(asset_item, 1, 5000, asset_location=tc._location())]), assets_reversed)
+
+		# an asset row is reversed whole: a Cancellation edited to give back
+		# part of it is refused, and the receipt's assets stand
+		from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+
+		frappe.db.savepoint("mix_part")
+		try:
+			pr = _pr([_row(MAP_ITEM, 10, 5), _row(asset_item, 2, 5000, asset_location=tc._location())])
+			pr.insert(ignore_permissions=True)
+			pr.submit()
+			part = frappe.get_doc("Purchase Receipt", make_cancellation("Purchase Receipt", pr.name))
+			for row in part.items:
+				if row.item_code == asset_item:
+					row.qty = -1
+			part.save(ignore_permissions=True)
+			try:
+				part.submit()
+				check("PR routed + asset row: a partial reversal of the asset row is refused", False, "submitted")
+			except frappe.ValidationError as e:
+				standing = frappe.db.count("Asset", {"purchase_receipt": pr.name, "docstatus": 1})
+				check("PR routed + asset row: a partial reversal of the asset row is refused, the assets stand",
+					"reversal must carry the whole row" in str(e) and standing == 2, f"{standing} standing; {str(e)[:120]}")
+		except Exception as e:  # noqa
+			check("PR routed + asset row: partial reversal case ran", False, str(e)[:200])
+		finally:
+			frappe.db.rollback(save_point="mix_part")
 	else:
 		check("PR routed + auto-created asset (asset_enterprise not installed) - skipped", True)
 
