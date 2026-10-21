@@ -1,15 +1,22 @@
-"""Interim mixed-voucher refusal (D-030 term 2), now raised by qcs_platform's
-dispatcher from this app's `posts_rows` answer -
+"""Mixed vouchers (D-030 term 2, as narrowed by D-095), raised by
+qcs_platform's dispatcher from each owner's `posts_rows` answer -
 bench --site <site> execute periodic_valuation.tests.smoke_mixed_voucher.run
 
-Proves the four shapes the 2026-09-17 probes showed cannot be reversed are
-refused at validate, that routed-only and core-only vouchers are untouched,
-that a project dimension alone is not "mixed", and that the fixture flag
-builds the refused shape. Rolled back.
+A Purchase Receipt or Delivery Note may carry routed rows beside rows
+another owner posts for itself: its Cancellation is ERPNext's own return
+document (STD-014), on which every owner reverses its own rows - core its
+FIFO, service and fixed-asset rows, project accounting its AuC row as a
+negative row of its own, asset_enterprise the assets the receipt created
+(the platform's `receipt_reversal_assets` socket, at the Cancellation's
+submit). Proved here end to end: each pair nets to zero in the GL and the
+stock ledger. Still refused at validate: a Stock Entry (its Cancellation is
+a copy - core would post its rows again) and an invoice with a fixed-asset
+row (the debit note copies asset_enterprise's allocation, probe (b)).
+Rolled back.
 """
 
 import frappe
-from frappe.utils import nowdate
+from frappe.utils import flt, nowdate
 
 from periodic_valuation.tests.smoke_kernel import ITEM as MAP_ITEM, check, ensure_masters, get_company
 
@@ -98,6 +105,46 @@ def _allowed(label, doc):
 		check(label, False, str(e)[:160])
 
 
+def _net(names):
+	gl = frappe.db.sql(
+		"""select account, sum(debit - credit) v from `tabGL Entry` where voucher_no in %s and is_cancelled = 0
+		group by account having abs(sum(debit - credit)) > 0.005""", (tuple(names),), as_dict=True)
+	sle = frappe.db.sql(
+		"""select item_code, sum(actual_qty) q, sum(stock_value_difference) v from `tabStock Ledger Entry`
+		where voucher_no in %s and is_cancelled = 0 group by item_code
+		having abs(sum(actual_qty)) > 0.0001 or abs(sum(stock_value_difference)) > 0.005""", (tuple(names),), as_dict=True)
+	return gl, sle
+
+
+def _reverses(label, doc, after=None):
+	"""Admitted at save; Create Cancellation is the return; it submits and the
+	pair nets to zero in the GL and the stock ledger."""
+	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+
+	frappe.db.savepoint("mix_rev")
+	try:
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		cancellation = frappe.get_doc(doc.doctype, make_cancellation(doc.doctype, doc.name))
+		cancellation.submit()
+		gl, sle = _net([doc.name, cancellation.name])
+		check(f"{label}: admitted, reversed by its Cancellation (a return), every owner nets to zero",
+			cancellation.is_return and not gl and not sle, f"gl {gl} sle {sle}")
+		if after:
+			after(doc, cancellation)
+	except Exception as e:  # noqa
+		check(f"{label}: admitted and reversed", False, str(e)[:200])
+	finally:
+		frappe.db.rollback(save_point="mix_rev")
+
+
+def _in_stock(*items):
+	for item in items:
+		pr = _pr([_row(item, 20, 7)])
+		pr.insert(ignore_permissions=True)
+		pr.submit()
+
+
 def run():
 	frappe.set_user("Administrator")
 	ensure_masters()
@@ -106,17 +153,7 @@ def run():
 		{"doctype": "Location", "location_name": f"{TAG} Location"}).insert(ignore_permissions=True).name
 	co = _company()
 
-	# --- refused shapes (probes (d), (a), (b))
-	_refused("PR routed + FIFO row refused (probe d)", _pr([_row(MAP_ITEM, 10, 5), _row(fifo, 5, 8)]))
-	_refused("PR routed + fixed-asset row refused (probe a)",
-		_pr([_row(MAP_ITEM, 10, 5), _row(fa, 1, 1000, asset_location=loc)]))
-	dn = frappe.get_doc({
-		"doctype": "Delivery Note", "company": co, "customer": "_SMK Customer",
-		"posting_date": nowdate(), "set_posting_time": 1,
-		"items": [_row(MAP_ITEM, 1, 20), _row(fifo, 1, 20)],
-	})
-	dn.set_missing_values()
-	_refused("DN routed + FIFO row refused", dn)
+	# --- still refused: the copy-reversed Stock Entry, the invoice with an asset row
 	se = frappe.get_doc({
 		"doctype": "Stock Entry", "company": co, "stock_entry_type": "Material Receipt",
 		"posting_date": nowdate(), "set_posting_time": 1,
@@ -125,7 +162,7 @@ def run():
 			{"item_code": fifo, "qty": 1, "basic_rate": 8, "t_warehouse": _wh()},
 		],
 	})
-	_refused("SE routed + FIFO row refused", se)
+	_refused("SE routed + FIFO row refused (its Cancellation is a copy)", se)
 	pi = frappe.get_doc({
 		"doctype": "Purchase Invoice", "company": co, "supplier": "_SMK Supplier",
 		"posting_date": nowdate(), "set_posting_time": 1, "bill_no": f"{TAG}-1", "bill_date": nowdate(),
@@ -134,7 +171,10 @@ def run():
 	pi.set_missing_values()
 	_refused("PI routed + fixed-asset row refused (probe b)", pi)
 
-	# --- provisional accounting: a service row becomes core-posted
+	# --- admitted and reversed per owner (D-095)
+	_reverses("PR routed + FIFO row (probe d)", _pr([_row(MAP_ITEM, 10, 5), _row(fifo, 5, 8)]))
+	_reverses("PR routed + fixed-asset row, no asset created",
+		_pr([_row(MAP_ITEM, 10, 5), _row(fa, 1, 1000, asset_location=loc)]))
 	prov_acc_before = frappe.db.get_value("Company", co, "default_provisional_account")
 	frappe.db.set_value("Company", co, {
 		"enable_provisional_accounting_for_non_stock_items": 1,
@@ -142,45 +182,71 @@ def run():
 			"Account", {"company": co, "root_type": "Liability", "is_group": 0, "account_type": ("in", ("", None))}, "name"),
 	}, update_modified=False)
 	frappe.clear_cache(doctype="Company")
-	_refused("PR routed + service row refused when provisional accounting is on",
+	_reverses("PR routed + service row under provisional accounting",
 		_pr([_row(MAP_ITEM, 10, 5), _row(svc, 1, 50)]))
 	frappe.db.set_value("Company", co, {
 		"enable_provisional_accounting_for_non_stock_items": 0, "default_provisional_account": prov_acc_before,
 	}, update_modified=False)
 	frappe.clear_cache(doctype="Company")
-	_allowed("PR routed + service row allowed when provisional accounting is off",
-		_pr([_row(MAP_ITEM, 10, 5), _row(svc, 1, 50)]))
 
-	# --- other owners answer through the hook
-	if "project_accounting" in frappe.get_installed_apps():
-		project = frappe.db.get_value("Project Accounting", {"company": co, "project_type": "Capex"}, "name")
-		if project:
-			_refused("PR routed + AuC-intent row refused (probe a, PA answers)",
-				_pr([_row(MAP_ITEM, 10, 5), _row(svc, 1, 700,
-					asset_purchase_intent="Standalone Asset Under Construction", project_accounting=project)]))
-		else:
-			check("PR routed + AuC-intent row (no Capex project on site) - skipped", True)
+	frappe.db.savepoint("mix_dn")
+	_in_stock(MAP_ITEM, fifo)
+	dn = frappe.get_doc({
+		"doctype": "Delivery Note", "company": co, "customer": "_SMK Customer",
+		"posting_date": nowdate(), "set_posting_time": 1,
+		"items": [_row(MAP_ITEM, 1, 20), _row(fifo, 1, 20)],
+	})
+	dn.set_missing_values()
+	_reverses("DN routed + FIFO row", dn)
+	frappe.db.rollback(save_point="mix_dn")
+
+	installed = frappe.get_installed_apps()
+	if "asset_enterprise" in installed:
+		from asset_enterprise.setup import verify_tc as tc
+
+		cat = tc._category(co, "TC IT Equipment", suspense=tc._plain(co, "Liability"))
+		asset_item = tc._item(cat, "TC-IT-ITEM")
+
+		def assets_reversed(doc, cancellation):
+			assets = frappe.get_all("Asset", filters={"purchase_receipt": doc.name}, fields=["name", "docstatus"])
+			check("PR routed + auto-created asset: the Cancellation's submit reversed the receipt's asset",
+				bool(assets) and all(a.docstatus == 2 for a in assets), str(assets))
+
+		_reverses("PR routed + auto-created asset",
+			_pr([_row(MAP_ITEM, 10, 5), _row(asset_item, 1, 5000, asset_location=tc._location())]), assets_reversed)
+	else:
+		check("PR routed + auto-created asset (asset_enterprise not installed) - skipped", True)
+
+	if "project_accounting" in installed:
+		from project_accounting.tests.smoke import phase28_auc_object_routing as phase28
+
+		env28 = phase28._env(co)
+
+		def auc_negative_row(doc, cancellation):
+			rows = frappe.get_all("AuC Source Detail", filters={"source_document": ("in", [doc.name, cancellation.name]),
+				"docstatus": 1}, fields=["source_document", "amount_added_to_auc", "auc_object", "project_accounting"])
+			by = {r.source_document: r for r in rows}
+			ok = (doc.name in by and cancellation.name in by
+				and flt(by[cancellation.name].amount_added_to_auc) == -flt(by[doc.name].amount_added_to_auc)
+				and by[cancellation.name].auc_object == by[doc.name].auc_object
+				and by[cancellation.name].project_accounting == by[doc.name].project_accounting)
+			check("PR routed + AuC row: project accounting books its own negative row, named by the Cancellation", ok, str(rows))
+
+		_reverses("PR routed + AuC-intent row", frappe.get_doc({
+			"doctype": "Purchase Receipt", "company": co, "supplier": env28.supplier,
+			"posting_date": nowdate(), "set_posting_time": 1,
+			"items": [
+				_row(MAP_ITEM, 1, 10),
+				{"item_code": env28.item, "qty": 1, "rate": 700, "asset_purchase_intent": "Component of Larger Asset",
+					"auc_object": env28.machinery_object, "project_accounting": env28.project, "cost_center": env28.cost_center},
+			],
+		}), auc_negative_row)
 	else:
 		check("PR routed + AuC-intent row (project_accounting not installed) - skipped", True)
 
 	# --- untouched shapes
 	_allowed("PR routed-only allowed", _pr([_row(MAP_ITEM, 10, 5)]))
 	_allowed("PR FIFO-only allowed", _pr([_row(fifo, 5, 8)]))
-	_allowed("PR FIFO + fixed-asset (no routed row) allowed",
-		_pr([_row(fifo, 5, 8), _row(fa, 1, 1000, asset_location=loc)]))
-	if frappe.get_meta("Purchase Receipt Item").has_field("project_accounting"):
-		# a project may enforce its own cost centre / warehouse (PA policy) -
-		# pick one that does not, so the only rule under test is the mixed-voucher one
-		project = frappe.db.get_value(
-			"Project Accounting",
-			{"company": co, "enforce_project_cost_center": 0, "enforce_project_warehouse": 0},
-			"name",
-		)
-		if project:
-			_allowed("PR routed + project dimension (no own posting) allowed",
-				_pr([_row(MAP_ITEM, 10, 5, project_accounting=project)]))
-		else:
-			check("PR routed + project dimension (no unenforced project on site) - skipped", True)
 	si = frappe.get_doc({
 		"doctype": "Sales Invoice", "company": co, "customer": "_SMK Customer",
 		"posting_date": nowdate(), "set_posting_time": 1,
@@ -189,22 +255,29 @@ def run():
 	si.set_missing_values()
 	_allowed("SI routed + FIFO row allowed (return-reversed: core rows reverse natively)", si)
 
-	# --- the fixture flag builds the refused shape; reversing it is then refused
-	# with the "predates this rule" text, not "raise a separate voucher"
+	# --- a Stock Entry built under the fixture flag predates the rule; its
+	# Cancellation is refused with the reversal text, not "separate documents"
 	frappe.flags.qcs_allow_mixed_voucher = True
 	try:
-		mixed = _pr([_row(MAP_ITEM, 10, 5), _row(fifo, 5, 8)])
-		_allowed("flag qcs_allow_mixed_voucher builds routed + FIFO PR", mixed)
+		mixed = frappe.get_doc({
+			"doctype": "Stock Entry", "company": co, "stock_entry_type": "Material Receipt",
+			"posting_date": nowdate(), "set_posting_time": 1,
+			"items": [
+				{"item_code": MAP_ITEM, "qty": 1, "basic_rate": 5, "t_warehouse": _wh()},
+				{"item_code": fifo, "qty": 1, "basic_rate": 8, "t_warehouse": _wh()},
+			],
+		})
+		_allowed("flag qcs_allow_mixed_voucher builds routed + FIFO Stock Entry", mixed)
 		mixed.submit()
 	finally:
 		frappe.flags.qcs_allow_mixed_voucher = False
 	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
 
 	try:
-		make_cancellation("Purchase Receipt", mixed.name)
-		check("Create Cancellation of a pre-rule mixed PR refused", False, "cancellation created")
+		make_cancellation("Stock Entry", mixed.name)
+		check("Create Cancellation of a pre-rule mixed Stock Entry refused", False, "cancellation created")
 	except frappe.ValidationError as e:
-		check("Create Cancellation of a pre-rule mixed PR refused with the reversal text",
+		check("Create Cancellation of a pre-rule mixed Stock Entry refused with the reversal text",
 			"predates this rule" in str(e) and "do not reverse it by hand" in str(e), str(e)[:160])
 
 	from periodic_valuation.tests import smoke_kernel
