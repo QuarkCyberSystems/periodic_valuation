@@ -9,9 +9,10 @@ FIFO, service and fixed-asset rows, project accounting its AuC row as a
 negative row of its own, asset_enterprise the assets the receipt created
 (the platform's `receipt_reversal_assets` socket, at the Cancellation's
 submit). Proved here end to end: each pair nets to zero in the GL and the
-stock ledger. Still refused at validate: a Stock Entry (its Cancellation is
-a copy - core would post its rows again) and an invoice with a fixed-asset
-row (the debit note copies asset_enterprise's allocation, probe (b)).
+stock ledger. Still refused at validate: a Stock Entry and a receipt that
+is itself a return (their Cancellation is a copy - core would post its rows
+again) and an invoice with a fixed-asset row (the debit note copies
+asset_enterprise's allocation, probe (b)).
 Rolled back.
 """
 
@@ -269,6 +270,43 @@ def run():
 		}), auc_negative_row)
 	else:
 		check("PR routed + AuC-intent row (project_accounting not installed) - skipped", True)
+
+	# --- a receipt that is itself a return has no return of its own: its
+	# Cancellation is a copy core would post again on (D-095 review, BLOCK 1).
+	# A mixed return is refused at save; one built before the rule cannot be
+	# reversed by hand
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+	from periodic_valuation.periodic_moving_average.cancellation import make_cancellation
+
+	frappe.db.savepoint("mix_ret")
+	try:
+		pr = _pr([_row(MAP_ITEM, 10, 5), _row(fifo, 5, 8)])
+		pr.insert(ignore_permissions=True)
+		pr.submit()
+		ret = make_return_doc("Purchase Receipt", pr.name)
+		for row in ret.items:
+			row.qty = row.received_qty = -1
+		_refused("a mixed return of a mixed receipt is refused at save (its Cancellation would be a copy)", ret)
+		frappe.flags.qcs_allow_mixed_voucher = True
+		try:
+			old = make_return_doc("Purchase Receipt", pr.name)
+			for row in old.items:
+				row.qty = row.received_qty = -1
+			old.insert(ignore_permissions=True)
+			old.submit()
+		finally:
+			frappe.flags.qcs_allow_mixed_voucher = False
+		try:
+			make_cancellation("Purchase Receipt", old.name)
+			check("Create Cancellation of a pre-rule mixed return refused", False, "cancellation created")
+		except frappe.ValidationError as e:
+			check("Create Cancellation of a pre-rule mixed return refused with the reversal text",
+				"predates this rule" in str(e), str(e)[:160])
+	except Exception as e:  # noqa
+		check("mixed return cases ran", False, str(e)[:200])
+	finally:
+		frappe.flags.qcs_allow_mixed_voucher = False
+		frappe.db.rollback(save_point="mix_ret")
 
 	# --- untouched shapes
 	_allowed("PR routed-only allowed", _pr([_row(MAP_ITEM, 10, 5)]))
