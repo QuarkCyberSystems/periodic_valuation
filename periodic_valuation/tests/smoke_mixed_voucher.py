@@ -305,7 +305,14 @@ def run():
 		ret = make_return_doc("Purchase Receipt", pr.name)
 		for row in ret.items:
 			row.qty = row.received_qty = -1
-		_refused("a mixed return of a mixed receipt is refused at save (its Cancellation would be a copy)", ret)
+		try:
+			ret.insert(ignore_permissions=True)
+			check("a mixed return of a mixed receipt is refused at save (its Cancellation would be a copy)", False, "saved")
+		except frappe.ValidationError as e:
+			text = str(e)
+			check("a mixed return is refused, saying to return each kind of item on its own return",
+				"Return them on separate returns" in text and MAP_ITEM in text and fifo in text
+				and "predates this rule" not in text, text[:200])
 		frappe.flags.qcs_allow_mixed_voucher = True
 		try:
 			old = make_return_doc("Purchase Receipt", pr.name)
