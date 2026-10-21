@@ -268,6 +268,25 @@ def run():
 					"auc_object": env28.machinery_object, "project_accounting": env28.project, "cost_center": env28.cost_center},
 			],
 		}), auc_negative_row)
+		if "asset_enterprise" in installed:
+			def fasd_follows_asset(doc, cancellation):
+				assets = frappe.get_all("Asset", filters={"purchase_receipt": doc.name}, fields=["name", "docstatus"])
+				fasd = frappe.get_all("Final Asset Source Detail", filters={"source_document": doc.name},
+					fields=["name", "docstatus", "final_asset"])
+				check("PR routed + Direct Standalone asset: the asset and PA's Final Asset Source Detail are both reversed",
+					bool(assets) and all(a.docstatus == 2 for a in assets) and bool(fasd) and all(f.docstatus == 2 for f in fasd),
+					f"assets {assets} fasd {fasd}")
+
+			_reverses("PR routed + Direct Standalone asset row", frappe.get_doc({
+				"doctype": "Purchase Receipt", "company": co, "supplier": env28.supplier,
+				"posting_date": nowdate(), "set_posting_time": 1,
+				"items": [
+					_row(MAP_ITEM, 1, 10),
+					{"item_code": asset_item, "qty": 1, "rate": 5000, "asset_location": tc._location(),
+						"asset_purchase_intent": "Direct Standalone Asset – Ready for Use",
+						"project_accounting": env28.project, "cost_center": env28.cost_center},
+				],
+			}), fasd_follows_asset)
 	else:
 		check("PR routed + AuC-intent row (project_accounting not installed) - skipped", True)
 
