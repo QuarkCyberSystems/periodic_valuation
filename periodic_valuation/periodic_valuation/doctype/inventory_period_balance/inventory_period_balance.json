@@ -27,6 +27,9 @@
   "receipt_value",
   "issue_qty",
   "issue_value",
+  "reversed_from_previous_qty",
+  "reversed_from_previous_value",
+  "reversed_in_later_qty",
   "col_buckets",
   "adjust_qty",
   "adjust_value",
@@ -45,6 +48,8 @@
   "col_ytd",
   "ytd_issue_qty",
   "ytd_issue_value",
+  "ytd_reversed_from_previous_qty",
+  "ytd_reversed_from_previous_value",
   "ytd_adjust_qty",
   "ytd_adjust_value",
   "col_ytd2",
@@ -210,6 +215,29 @@
    "read_only": 1
   },
   {
+   "fieldname": "reversed_from_previous_qty",
+   "fieldtype": "Float",
+   "label": "Reversed From Previous Periods Qty",
+   "precision": "6",
+   "read_only": 1,
+   "description": "Standard cost: issues of earlier periods reversed or returned in this one. Part of the Available Qty the settlement shares the variance over; not a receipt."
+  },
+  {
+   "fieldname": "reversed_from_previous_value",
+   "fieldtype": "Currency",
+   "label": "Reversed From Previous Periods Value",
+   "read_only": 1,
+   "description": "Their inventory value, at this period's standard."
+  },
+  {
+   "fieldname": "reversed_in_later_qty",
+   "fieldtype": "Float",
+   "label": "Reversed in Later Periods Qty",
+   "precision": "6",
+   "read_only": 1,
+   "description": "Standard cost: issues of this period reversed or returned in a later one. Their expense there follows this period's issue cost (Rev Fut-Re); not part of this period's closing."
+  },
+  {
    "fieldname": "col_buckets",
    "fieldtype": "Column Break"
   },
@@ -322,6 +350,19 @@
    "fieldname": "ytd_issue_value",
    "fieldtype": "Currency",
    "label": "YTD Issue Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_reversed_from_previous_qty",
+   "fieldtype": "Float",
+   "label": "YTD Reversed From Previous Periods Qty",
+   "precision": "6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ytd_reversed_from_previous_value",
+   "fieldtype": "Currency",
+   "label": "YTD Reversed From Previous Periods Value",
    "read_only": 1
   },
   {
@@ -489,7 +530,7 @@
  "is_submittable": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-08 22:00:00.000000",
+ "modified": "2026-10-22 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Inventory Period Balance",

@@ -137,7 +137,21 @@ def _post_entry(controller, sle, is_return):
 			source=source, cost_version=scv.name)
 		value = r2(qty * sc)
 	else:
-		# sales return (SR intent): new movement at posting-date STD (phase-1 rule)
+		# a return of an issue of an earlier period (DR-74): SR - Future - In,
+		# expense reversed at the issue's own cost, the difference to the
+		# Revaluation Reserve
+		from periodic_valuation.periodic_standard_cost.previous_period_returns import (
+			earlier_period,
+			post_previous_period_return,
+			referenced_issue,
+		)
+
+		orig = referenced_issue(controller, sle, engine)
+		if orig and earlier_period(engine, orig, posting_date):
+			post_previous_period_return(controller, engine, sle, period, orig, qty, posting_date, source)
+			return
+		# sales return (SR intent): new movement at posting-date STD (phase-1
+		# rule) - within the issue's period, or naming no issue
 		trans = "SR"
 		engine.post(trans=trans, posting_date=posting_date, qty=qty, sc=sc, ac=sc,
 			source=source, cost_version=scv.name)
@@ -150,6 +164,12 @@ def _post_entry(controller, sle, is_return):
 		# balance is written, so a later month's row it may open is seeded
 		# from a closing that already holds the movement (STD-015)
 		_post_companion_if_needed(engine, controller, sle, companion[0], companion[1], sc, source, today)
+	elif is_return and cross_month:
+		# DR-73: a backdated return is bridged into the current period, as a
+		# backdated receipt or issue is
+		from periodic_valuation.periodic_standard_cost.previous_period_returns import bridge_backdated_return
+
+		bridge_backdated_return(engine, sle, qty, sc, source, today)
 	if not cross_month:
 		_bridge_release_switch(engine, posting_date, qty, sc, source, today)
 
@@ -238,6 +258,27 @@ def _post_cancellation_std(controller, engine, sle, period):
 	)
 	from periodic_valuation.shared.periods import get_period
 
+	from periodic_valuation.periodic_standard_cost.previous_period_returns import (
+		ISSUE_PRIMARIES,
+		earlier_period,
+		post_previous_period_return,
+		uncount_reversed_later,
+	)
+
+	# DR-74: an issue of an earlier period reversed in a later one comes back
+	# as SR - Future (inventory at today's standard, the expense at the
+	# issue's own cost) - not as a mirror netting this period's issues. Its
+	# backdate bridge, if it had one, stays: it is part of what the issue
+	# cost, and SR - Future reverses that cost in full
+	if len(primaries) == 1 and primaries[0].std_trans in ISSUE_PRIMARIES \
+			and earlier_period(engine, primaries[0], cd):
+		orig = primaries[0]
+		# linked to the issue by reference, not as an exact reversal (it is
+		# priced at today's standard); a second Cancellation of the document is
+		# refused by make_cancellation
+		post_previous_period_return(controller, engine, sle, period, orig, abs(flt(orig.qty_adj)), cd, source)
+		return
+
 	# 1. exact reversal. The movement posts on the cancellation's own date
 	# (STD-014; Apr-22 decision 8) at the ORIGINAL standard cost. The rows
 	# that bridged a backdated original into a later month (its "- Rev"
@@ -288,6 +329,8 @@ def _post_cancellation_std(controller, engine, sle, period):
 		if not same(m) and flt(m.total_sc):
 			book_revaluation(engine, getdate(m.posting_date), flt(m.total_sc), source, stock_uom=sle.get("stock_uom"))
 
+	if primaries and primaries[0].std_trans in PREVIOUS_RETURN_FAMILY:
+		uncount_reversed_later(engine, primaries[0], primaries[0].qty_adj)
 	if qty and primaries:
 		_revalue_returned_quantity(engine, controller, sle, source, primaries[0], qty, cd, mirror_period,
 			other_mirrors)
@@ -603,6 +646,7 @@ def _assert_stock_available(engine, qty_needed):
 
 RECEIPT_FAMILY = ("Beg", "Rec", "REC (BD)", "REC (BY)", "PR")
 ISSUE_FAMILY = ("Iss", "Issue (BD)", "Issue (BY)", "SR")
+PREVIOUS_RETURN_FAMILY = ("SR - Future",)
 
 
 def bucket_of(trans):
@@ -610,16 +654,24 @@ def bucket_of(trans):
 	not by the direction of its quantity (client ticket STD-013, 08/10/2026:
 	"the purchase return should affect the receipt value and cancelling the
 	issue should affect the issue value, like in MAP" - DR-31): a purchase
-	return nets Receipts, a sales return nets Issues."""
+	return nets Receipts, a sales return nets Issues. An issue of an earlier
+	period reversed or returned in this one is neither: Reversed From
+	Previous Periods (DR-74)."""
 	if trans in RECEIPT_FAMILY:
 		return "receipt"
 	if trans in ISSUE_FAMILY:
 		return "issue"
+	if trans in PREVIOUS_RETURN_FAMILY:
+		return "previous_return"
 	return None
 
 
 def _book_bucket(ipb, bucket, qty, value):
 	"""qty / value are the signed stock movement (+ in, - out)."""
+	if bucket == "previous_return":
+		ipb.reversed_from_previous_qty = flt(ipb.reversed_from_previous_qty) + qty
+		ipb.reversed_from_previous_value = r2(flt(ipb.reversed_from_previous_value) + value)
+		return
 	if bucket == "receipt" or (bucket is None and qty > 0):
 		ipb.receipt_qty = flt(ipb.receipt_qty) + qty
 		ipb.receipt_value = r2(flt(ipb.receipt_value) + value)

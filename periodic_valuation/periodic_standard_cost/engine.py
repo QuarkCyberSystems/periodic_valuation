@@ -225,6 +225,7 @@ def std_reason_code(trans, reversal_of=None):
 		"Beg": "opening", "Rec": "receipt", "REC (BD)": "receipt", "REC (BY)": "receipt",
 		"Iss": "issue", "Issue (BD)": "issue", "Issue (BY)": "issue",
 		"PR": "purchase_return", "SR": "sales_return", "LC": "landed_cost",
+		"SR - Future": "previous_period_return", "Rev Fut-Re": "previous_return_adjust",
 		"SC+": "count_diff", "SC-": "count_diff",
 		"Rev Beg": "revaluation", "REV In": "revaluation", "REV out": "revaluation",
 		"Rev Rel": "revaluation", "Rev End": "revaluation",
@@ -259,7 +260,7 @@ def _derive_std_intent(trans, reversal_of=None):
 	if trans in SETT_FAMILY or trans.endswith("Rev") or trans.startswith("Rev") \
 			or trans in ("REV In", "REV out", "REV out Reverse"):
 		return "SYSTEM_GENERATED"
-	if trans in ("PR", "SR"):
+	if trans in ("PR", "SR", "SR - Future"):
 		return "RETURN_WITH_REFERENCE"
 	return "NEW_CURRENT_STD_MOVEMENT"
 
@@ -475,7 +476,8 @@ class StdEngine:
 			frappe.db.set_value("Inventory Period Balance", row.name, values, update_modified=False)
 
 	YTD_SUMS = ("receipt_qty", "receipt_value", "issue_qty", "issue_value",
-		"adjust_qty", "adjust_value", "reval_value")
+		"adjust_qty", "adjust_value", "reval_value",
+		"reversed_from_previous_qty", "reversed_from_previous_value")
 
 	def _ytd_balance(self, year, month):
 		"""Client ticket STD-013, reopened 08/10/2026 ("all fields in the period
@@ -552,7 +554,8 @@ class StdEngine:
 			return [(a.stock, s), (offset_override or a.stock_adj, -s)]
 		if trans == "SC-":
 			return [(offset_override or a.stock_adj, -s), (a.stock, s)]
-		if trans in ("Rev Beg", "REV In", "Rev End", "Rev Rel", "Rev Reverse", "REC (BD) - Rev", "REC (BY) - Rev"):
+		if trans in ("Rev Beg", "REV In", "Rev End", "Rev Rel", "Rev Reverse", "REC (BD) - Rev", "REC (BY) - Rev",
+				"Return - Rev"):
 			return [(a.stock, s), (a.reserve, -s)]
 		if trans in ("REV out", "REV out Reverse"):
 			# t_sc convention: -(delta x out_qty). SC increase (delta>0) -> s<0 ->
@@ -804,7 +807,7 @@ class StdEngine:
 			for e in self.events({"period_year": ent.year, "period_month": ent.month}):
 				if getdate(e.posting_date) > ent or not flt(e.qty_adj):
 					continue
-				if e.std_trans in ("Rec", "REC (BD)", "REC (BY)", "PR"):
+				if e.std_trans in ("Rec", "REC (BD)", "REC (BY)", "PR", "SR - Future"):
 					in_qty += flt(e.qty_adj)
 				elif e.std_trans in ("Iss", "Issue (BD)", "Issue (BY)", "SC-", "SR", "SC+"):
 					out_qty += -flt(e.qty_adj)
@@ -822,7 +825,7 @@ class StdEngine:
 			# are part of the state being revalued
 			if getdate(e.posting_date) > ent or not flt(e.qty_adj):
 				continue
-			if e.std_trans in ("Rec", "REC (BD)", "REC (BY)", "PR"):
+			if e.std_trans in ("Rec", "REC (BD)", "REC (BY)", "PR", "SR - Future"):
 				in_qty += flt(e.qty_adj)
 			elif e.std_trans in ("Iss", "Issue (BD)", "Issue (BY)", "SC-"):
 				out_qty += -flt(e.qty_adj)
@@ -1024,6 +1027,11 @@ class StdEngine:
 			update_modified=False)
 		self._stamp_ipb_settlement(sett, year, month, sc)
 		self._absorb_settlement_value(sett, year, month, es_var)
+		# DR-74: the settled period's issue cost is final now - an issue of it
+		# reversed in a later period follows (Rev Fut-Re)
+		from periodic_valuation.periodic_standard_cost.previous_period_returns import sync_previous_period_returns
+
+		sync_previous_period_returns(self)
 		return frappe.get_doc("Inventory Period Settlement", sett.name)
 
 	def _switch_revaluations(self, year, month, end_qty):
@@ -1205,6 +1213,9 @@ class StdEngine:
 				"actual_value_after_settlement": 0, "actual_unit_cost_after_settlement": 0,
 			}, update_modified=False)
 		self._absorb_settlement_value(sett, ty, tm, flt(sett.es_var), sign=-1)
+		from periodic_valuation.periodic_standard_cost.previous_period_returns import sync_previous_period_returns
+
+		sync_previous_period_returns(self)
 		return reverse_event, rev_reverse_event
 
 

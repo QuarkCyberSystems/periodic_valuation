@@ -149,6 +149,11 @@ class ItemStandardCostVersion(Document):
 		from periodic_valuation.periodic_moving_average.kernel import ScopeState
 
 		ScopeState(self.company, self.item_code, self.warehouse).ensure_open_rows()
+		# DR-74: a change for an earlier month re-prices its issues - one of
+		# them reversed in a later month follows (Rev Fut-Re)
+		from periodic_valuation.periodic_standard_cost.previous_period_returns import sync_scope
+
+		sync_scope(self.company, self.item_code, self.warehouse)
 		return name
 
 	def _release(self):

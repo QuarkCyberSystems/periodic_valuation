@@ -53,6 +53,16 @@ TRANS_FLAGS = {
 	# YTD only: the earlier month's REV out, reversed with the rest of its
 	# triplet (the current YTD triplet re-measures that consumption)
 	"REV out Reverse":    Flags("Out", 0, 1, 0, 0, 0),
+	# DR-74 (client 22/10/2026, workbook "SR - Futre" / "Rev Fut-Re"): an
+	# issue of an earlier period reversed or returned in this one comes back
+	# as In - part of the Available QTY the settlement shares over - and its
+	# difference to today's standard feeds the revaluation pool; its later
+	# re-pricing (Rev Fut-Re) moves no quantity, only the pool
+	"SR - Future":        Flags("In",  1, 0, 0, 0, 1),
+	"Rev Fut-Re":         Flags("In",  1, 0, 0, 0, 1),
+	# DR-73: a return dated in the previous open period, bridged into the
+	# current one (as REC (BD) - Rev; signed by direction)
+	"Return - Rev":       Flags("In",  1, 0, 0, 0, 1),
 	"Sett":               Flags("",    0, 0, 1, 0, 0),
 	"Sett - Rev":         Flags("",    0, 0, 1, 0, 0),
 	"Sett - Reverse":     Flags("",    0, 0, 1, 0, 0),

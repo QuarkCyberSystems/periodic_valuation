@@ -186,13 +186,16 @@ class ScopeState:
 
 
 def recompute_closing(ipb):
+	# reversed_from_previous: a standard-cost item's issues of an earlier
+	# period that came back in this one (DR-74); 0 on a moving-average row
 	ipb.closing_qty = r6(
 		flt(ipb.opening_qty) + flt(ipb.carryover_qty) + flt(ipb.receipt_qty)
-		- flt(ipb.issue_qty) + flt(ipb.adjust_qty)
+		- flt(ipb.issue_qty) + flt(ipb.adjust_qty) + flt(ipb.get("reversed_from_previous_qty"))
 	)
 	ipb.closing_value = r6(
 		flt(ipb.opening_value) + flt(ipb.carryover_value) + flt(ipb.receipt_value)
 		- flt(ipb.issue_value) + flt(ipb.adjust_value) + flt(ipb.reval_value) + flt(ipb.prd_value)
+		+ flt(ipb.get("reversed_from_previous_value"))
 	)
 	if flt(ipb.closing_qty) > 0:
 		ipb.moving_avg_price = r6(flt(ipb.closing_value) / flt(ipb.closing_qty))
