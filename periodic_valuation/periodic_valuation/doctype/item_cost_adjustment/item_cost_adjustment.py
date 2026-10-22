@@ -71,7 +71,7 @@ class ItemCostAdjustment(Document):
 				frappe.throw(_("Row #{0}: the amount takes the pending position's sign ({1}).").format(
 					row.idx, frappe.format(row.pending_amount, "Currency")))
 			total += flt(row.amount)
-		self.total_amount = flt(total, 2)
+		self.total_amount = flt(total, self.precision("total_amount"))
 
 	def before_submit(self):
 		if self.get("is_cancellation"):
@@ -100,8 +100,9 @@ class ItemCostAdjustment(Document):
 
 		basis = flt(row.basis_qty) or ANY_STOCK_ON_HAND
 		ratio = get_coverage_ratio(self.company, row.item_code, row.warehouse, basis, as_of=self.posting_date)
-		row.inventory_amount = flt(flt(row.amount) * ratio, 2)
-		row.expense_amount = flt(flt(row.amount) - row.inventory_amount, 2)
+		places = row.precision("inventory_amount")
+		row.inventory_amount = flt(flt(row.amount) * ratio, places)
+		row.expense_amount = flt(flt(row.amount) - row.inventory_amount, places)
 		post_value_event(
 			self.company,
 			row.item_code,
