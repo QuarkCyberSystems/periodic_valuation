@@ -50,7 +50,7 @@ def handle_landed_cost(lcv):
 		)
 
 	if lcv.get("is_cancellation"):
-		_reverse_landed_cost(lcv)
+		reverse_cost_events(lcv)
 		return True
 
 	std_rows = [row for row in routed if methods[row.name] == "Periodic Standard Cost"]
@@ -99,9 +99,10 @@ def handle_landed_cost(lcv):
 	return True
 
 
-def _reverse_landed_cost(lcv):
-	"""Cancellation LCV: mirror the ORIGINAL voucher's valuation events with a
-	dated GL swap. The split is never re-run: coverage has moved on since the
+def reverse_cost_events(lcv):
+	"""A Cancellation document of a value-only cost charge - a Landed Cost
+	Voucher, an Item Cost Adjustment - mirrors the ORIGINAL document's
+	valuation events with a dated GL swap. The split is never re-run: coverage has moved on since the
 	original posted, so recomputing it would reverse a different amount than
 	was posted."""
 	from periodic_valuation.periodic_moving_average.kernel import floor_inventory_leg
@@ -113,7 +114,7 @@ def _reverse_landed_cost(lcv):
 		frappe.throw(_("Cancellation document must reference the original via Cancellation Against."))
 	originals = frappe.get_all(
 		"Inventory Valuation Event",
-		filters={"source_doctype": "Landed Cost Voucher", "source_docname": original,
+		filters={"source_doctype": lcv.doctype, "source_docname": original,
 			"is_cancelled": 0},
 		fields=["*"],
 	)
@@ -130,7 +131,7 @@ def _reverse_landed_cost(lcv):
 			frappe.throw(_("{0} is already reversed.").format(orig.name),
 				title=_("Double Reversal Blocked"))
 		if orig.reason_code == "carry_revaluation":
-			reverse_carry_revaluation(orig, source=("Landed Cost Voucher", lcv.name),
+			reverse_carry_revaluation(orig, source=(lcv.doctype, lcv.name),
 				posting_date=lcv.posting_date)
 			continue
 		# DR-44 floor: the reversal removes the landed cost from inventory, but
@@ -164,7 +165,7 @@ def _reverse_landed_cost(lcv):
 				"period_month": frappe.utils.getdate(lcv.posting_date).month,
 				"posting_date": lcv.posting_date,
 				"entry_date": frappe.utils.now_datetime(),
-				"source_doctype": "Landed Cost Voucher", "source_docname": lcv.name,
+				"source_doctype": lcv.doctype, "source_docname": lcv.name,
 				"source_detail_name": orig.source_detail_name,
 				"reason_code": "cancellation", "std_trans": orig.std_trans,
 				"qty_basis": 0,
@@ -188,7 +189,7 @@ def _reverse_landed_cost(lcv):
 			from periodic_valuation.shared.accounts import get_inventory_account
 			legs = floor_inventory_leg(legs, get_inventory_account(lcv.company, orig.item_code, orig.warehouse),
 				prd_excess, get_offset_account(lcv.company, orig.item_code, orig.warehouse, "prd"))
-		post_event_gl(mirror.name, legs, posting_date=lcv.posting_date, voucher=("Landed Cost Voucher", lcv.name),
+		post_event_gl(mirror.name, legs, posting_date=lcv.posting_date, voucher=(lcv.doctype, lcv.name),
 			company=lcv.company, remarks=_("Exact reversal of {0}").format(orig.name))
 		# restore the MAP scope state the original event moved - and, like the
 		# original, push it through every later period's carryover and mirror the
@@ -209,8 +210,8 @@ def _reverse_landed_cost(lcv):
 			ipb = scope.load(period)
 			ipb.reval_value = r2(flt(ipb.reval_value) + removal)
 			recompute_closing(ipb)
-			scope.save(ipb, source=("Landed Cost Voucher", lcv.name))
+			scope.save(ipb, source=(lcv.doctype, lcv.name))
 			_cascade_value_carryover(scope, period, qty_delta=0.0,
-				value_delta=removal, source=("Landed Cost Voucher", lcv.name))
-			write_value_sle(scope, ipb, source=("Landed Cost Voucher", lcv.name, orig.source_detail_name),
+				value_delta=removal, source=(lcv.doctype, lcv.name))
+			write_value_sle(scope, ipb, source=(lcv.doctype, lcv.name, orig.source_detail_name),
 				posting_date=lcv.posting_date, value_delta=removal)

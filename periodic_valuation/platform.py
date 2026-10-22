@@ -32,6 +32,7 @@ GOVERNED = (
 	"Sales Invoice",
 	"Subcontracting Receipt",
 	"Landed Cost Voucher",
+	"Item Cost Adjustment",
 	"Stock Reconciliation",
 )
 # append-only event rows, and the kernel-maintained period balance
@@ -188,7 +189,9 @@ PLATFORM_CONTRACT = "0.2"
 # every capability those sockets need, in the platform's one vocabulary
 # (§4.0 (9)): a patch id, or `bases:<capability>` for the overrides' bases.
 # P6 in its own right: without its walk class a repost re-values kernel rows.
-REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "bases:valuation_sockets")
+# handover_source (D-079): the Item Cost Adjustment reads and takes pending
+# Material positions through qcs_platform.handover.
+REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "bases:valuation_sockets", "handover_source")
 
 
 PLATFORM_TOO_OLD = (

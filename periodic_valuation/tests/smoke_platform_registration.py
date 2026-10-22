@@ -59,6 +59,8 @@ class Fixtures:
 					"supplier": pr.supplier, "grand_total": pr.grand_total}],
 				"taxes": [{"description": "freight", "amount": 5, "expense_account": expense}]})
 			doc.get_items_from_purchase_receipts()
+		elif doctype == "Item Cost Adjustment":
+			return self._item_cost_adjustment(item, submit)
 		elif doctype == "Stock Reconciliation":
 			self._stock(item)
 			doc = frappe.get_doc({"doctype": doctype, "company": self.company, "purpose": "Stock Reconciliation",
@@ -72,6 +74,23 @@ class Fixtures:
 		doc.insert()
 		if submit:
 			doc.submit()
+		return doc
+
+	def _item_cost_adjustment(self, item, submit):
+		"""Posted against the ICA suite's stub source (this app imports no
+		allocating app)."""
+		from periodic_valuation.tests.smoke_item_cost_adjustment import StubSource, _account, source
+
+		self._stock(item)
+		stub = StubSource(self.company, _account(self.company), frappe.get_cached_value("Company", self.company, "cost_center"))
+		stub.add("PLAT-ICA", item, 5.0, self.wh)
+		with source(stub):
+			doc = frappe.get_doc({"doctype": "Item Cost Adjustment", "company": self.company, "posting_date": nowdate(),
+				"items": [{"handover_key": "PLAT-ICA", "item_code": item, "warehouse": self.wh, "amount": 5.0,
+					"pending_amount": 5.0, "allocation_account": stub.account, "cost_center": stub.cost_center}]})
+			doc.insert(ignore_permissions=True)
+			if submit:
+				doc.submit()
 		return doc
 
 	def _stock(self, item):
@@ -90,7 +109,8 @@ class Fixtures:
 		return self._doc(doctype, MAP_ITEM, submit=False)
 
 	def ungoverned(self, doctype):
-		if doctype in ("Subcontracting Receipt",):
+		# an Item Cost Adjustment refuses an item outside periodic valuation
+		if doctype in ("Subcontracting Receipt", "Item Cost Adjustment"):
 			return None
 		return self._doc(doctype, self.fifo, submit=True)
 

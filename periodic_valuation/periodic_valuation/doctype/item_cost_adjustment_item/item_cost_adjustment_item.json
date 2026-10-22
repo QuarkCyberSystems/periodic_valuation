@@ -1,0 +1,139 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-22 12:00:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "receiver_type",
+  "handover_key",
+  "item_code",
+  "warehouse",
+  "bucket",
+  "pending_amount",
+  "amount",
+  "cb1",
+  "allocation_account",
+  "cost_center",
+  "valuation_method",
+  "basis_qty",
+  "inventory_amount",
+  "expense_amount"
+ ],
+ "fields": [
+  {
+   "default": "MATERIAL",
+   "fieldname": "receiver_type",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Receiver Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "handover_key",
+   "fieldtype": "Data",
+   "label": "Allocation Position",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "columns": 1,
+   "fieldname": "bucket",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bucket",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "pending_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Pending",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount to Take",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "allocation_account",
+   "fieldtype": "Link",
+   "label": "Allocation Account (credited)",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center",
+   "read_only": 1
+  },
+  {
+   "fieldname": "valuation_method",
+   "fieldtype": "Data",
+   "label": "Valuation Method",
+   "read_only": 1
+  },
+  {
+   "description": "Moving Average items: the quantity of the allocation month's receipts, against which on-hand stock is compared (Cost Adjustment tree). Blank reads the month's receipts.",
+   "fieldname": "basis_qty",
+   "fieldtype": "Float",
+   "label": "Quantity the Cost Applies To"
+  },
+  {
+   "fieldname": "inventory_amount",
+   "fieldtype": "Currency",
+   "label": "To Inventory",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "expense_amount",
+   "fieldtype": "Currency",
+   "label": "To Price Difference / Variance",
+   "no_copy": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-22 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Item Cost Adjustment Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

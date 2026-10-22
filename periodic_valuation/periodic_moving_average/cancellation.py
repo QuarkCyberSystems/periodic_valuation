@@ -32,6 +32,7 @@ CANCELLABLE = (
 	"Sales Invoice",
 	"Subcontracting Receipt",
 	"Landed Cost Voucher",
+	"Item Cost Adjustment",
 )
 
 
