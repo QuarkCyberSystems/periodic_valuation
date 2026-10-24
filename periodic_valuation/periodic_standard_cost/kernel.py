@@ -785,3 +785,16 @@ def on_purchase_invoice_submit_std(doc, item, pr_row):
 		t_sc_override=0, t_ac_override=price_component, cost_version=scv.name, post_gl=False,
 		exchange_rate_at_receipt=receipt_fx, fx_variance=fx_variance)
 	engine._post_gl(ive, "LC", 0, price_component, offset_override=srbnb, fx_variance=fx_variance)
+
+
+def post_actual_cost_adjustment(company, item_code, warehouse, *, source, posting_date, amount, offset_account):
+	"""An actual-cost movement on an STD item from another module's document
+	(the LC route, as an invoice price difference): it enters the variance
+	pool, inventory stays at standard; the GL offset is `offset_account`.
+	Returns the Inventory Valuation Event."""
+	engine = StdEngine(company, item_code, warehouse)
+	scv = get_active_standard_cost(company, item_code, warehouse, posting_date)
+	ive = engine.post(trans="LC", posting_date=posting_date, source=source, t_sc_override=0, t_ac_override=r2(amount),
+		cost_version=scv.name, post_gl=False)
+	engine._post_gl(ive, "LC", 0, r2(amount), offset_override=offset_account)
+	return ive.name if hasattr(ive, "name") else ive

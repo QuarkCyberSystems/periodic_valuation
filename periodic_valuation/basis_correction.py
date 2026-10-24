@@ -40,22 +40,18 @@ def basis_correction(action, pre, destination, delta, clearing_account):
 		return ("Inventory Valuation Event", _last_event(pre))
 	source = (pre.doctype, pre.name, pre.origin_slice)
 	if method == "Periodic Standard Cost":
-		from periodic_valuation.periodic_standard_cost.kernel import StdEngine, get_active_standard_cost
+		from periodic_valuation.periodic_standard_cost.kernel import post_actual_cost_adjustment
 
-		engine = StdEngine(pre.company, item, warehouse)
-		scv = get_active_standard_cost(pre.company, item, warehouse, pre.posting_date)
-		ive = engine.post(trans="LC", posting_date=pre.posting_date, source=source, t_sc_override=0,
-			t_ac_override=flt(delta), cost_version=scv.name, post_gl=False)
-		engine._post_gl(ive, "LC", 0, flt(delta), offset_override=clearing_account)
-		return ("Inventory Valuation Event", ive.name if hasattr(ive, "name") else ive)
-	from periodic_valuation.periodic_moving_average.kernel import get_coverage_ratio, post_value_event
+		return ("Inventory Valuation Event", post_actual_cost_adjustment(pre.company, item, warehouse, source=source,
+			posting_date=pre.posting_date, amount=flt(delta), offset_account=clearing_account))
+	from periodic_valuation.periodic_moving_average.kernel import get_coverage_ratio, post_value_event, r2
 
 	# the stock quantity this application stands for: the slice's quantity in its share of the slice's principal
 	qty = flt(destination.get("stock_qty")) * flt(pre.source_qty) / flt(destination.get("principal") or 1)
 	ratio = get_coverage_ratio(pre.company, item, warehouse, qty, as_of=pre.posting_date)
-	inventory_portion = flt(flt(delta) * ratio, 2)
+	inventory_portion = r2(flt(delta) * ratio)
 	ive = post_value_event(pre.company, item, warehouse, source=source, posting_date=pre.posting_date, reason="invoice_diff",
-		value_delta=inventory_portion, expense_portion=flt(flt(delta) - inventory_portion, 2), offset_account=clearing_account)
+		value_delta=inventory_portion, expense_portion=r2(flt(delta) - inventory_portion), offset_account=clearing_account)
 	return ("Inventory Valuation Event", ive)
 
 
