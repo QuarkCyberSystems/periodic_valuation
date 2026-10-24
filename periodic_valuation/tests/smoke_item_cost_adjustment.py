@@ -13,13 +13,17 @@ Standard Cost item keeps its standard and the cost joins the variance
 pool; every leg credits the line's allocation account on the line's cost
 centre; a take beyond pending, a non-periodic item and a site with no
 source are refused; native cancel is refused and the Cancellation mirrors
-the events and releases the take. Rolled back.
+the events and releases the take. The quantity a Moving Average line
+applies to defaults to the allocation month's receipts, and with none any
+stock on hand carries the whole amount (CAR-29); an allocation from a month
+whose inventory period has since closed is taken in the open month, never
+into the closed one (TC-064). Rolled back.
 """
 
 import contextlib
 
 import frappe
-from frappe.utils import flt, nowdate
+from frappe.utils import add_months, flt, get_first_day, nowdate
 
 from qcs_platform import registry
 from qcs_platform.contracts import PendingLine
@@ -48,21 +52,21 @@ class StubSource:
 		self.company, self.account, self.cost_center = company, account, cost_center
 		self.positions, self.taken, self.released = {}, [], []
 
-	def add(self, key, item, amount, warehouse=None):
-		self.positions[key] = (item, warehouse, amount)
+	def add(self, key, item, amount, warehouse=None, allocated_on=None):
+		self.positions[key] = (item, warehouse, amount, allocated_on or nowdate())
 
 	def pending(self, receiver_type, company, filters):
 		return [
 			PendingLine(receiver_type="MATERIAL", key=k, company=company, object_doctype="Item", object_name=item,
 				amount=amount, account=self.account, cost_center=self.cost_center, bucket="POWER",
-				context={"warehouse": wh, "last_posting_date": nowdate()})
-			for k, (item, wh, amount) in self.positions.items()
+				context={"warehouse": wh, "last_posting_date": on})
+			for k, (item, wh, amount, on) in self.positions.items()
 			if not filters.get("object") or filters["object"] == item
 		]
 
 	def consume(self, document, lines):
 		for line in lines:
-			pending = self.positions.get(line.key, (None, None, 0))[2]
+			pending = self.positions.get(line.key, (None, None, 0, None))[2]
 			if abs(line.amount) > abs(pending) + 0.005:
 				frappe.throw(f"{line.key}: {line.amount} is beyond the pending {pending} (VR-040)")
 		self.taken.append((document.name, tuple((l.key, l.amount) for l in lines)))
@@ -197,6 +201,8 @@ def _run():
 			check("an item valued outside periodic valuation is refused", "periodic-valuation item" in str(exc), str(exc)[:150])
 
 		_std_case(company, wh, stub, account)
+		_coverage_default(company, wh, stub, account)
+		_closed_month(company, wh, stub, account)
 
 		# ---- never cancelled; the Cancellation mirrors and releases -------
 		frappe.db.savepoint("pv_ica_cancel")
@@ -257,3 +263,70 @@ def _std_case(company, wh, stub, account):
 		flt(row.expense_amount) == 300.0 and not flt(row.inventory_amount) and events and events[0].std_trans == "LC",
 		f"{row.expense_amount} {events}")
 	check("Standard Cost: the allocation account is credited", sum(flt(x.credit) for x in _legs(doc, account)) == 300.0)
+
+
+def _coverage_default(company, wh, stub, account):
+	"""CAR-29: Get Pending fills the quantity with the allocation month's
+	receipts of the item; a month with none leaves it blank, and blank
+	means any stock on hand carries the whole amount."""
+	item = make_item("_ICA-MAP-DEFAULT")
+	make_pr(item, wh, 100, 10)
+	make_dn(item, wh, 60)  # 40 on hand of 100 received this month
+	stub.add("K-DEFAULT", item, 1_000.0, wh)
+	line = next(l for l in frappe.get_attr(f"{PATH}.get_pending")(company)["lines"] if l["handover_key"] == "K-DEFAULT")
+	check("CAR-29 the quantity defaults to the allocation month's receipts (100)", flt(line["basis_qty"]) == 100, line["basis_qty"])
+	doc = _new(company, {"K-DEFAULT": None})
+	doc.submit()
+	doc.reload()
+	row = doc.items[0]
+	check("CAR-29 left as defaulted: 40 % to inventory, 60 % to price difference",
+		flt(row.inventory_amount) == 400.0 and flt(row.expense_amount) == 600.0, f"{row.inventory_amount} {row.expense_amount}")
+
+	quiet = make_item("_ICA-MAP-QUIET")
+	make_pr(quiet, wh, 50, 10)
+	stub.add("K-QUIET", quiet, 200.0, wh, allocated_on=str(add_months(get_first_day(nowdate()), -12)))
+	line = next(l for l in frappe.get_attr(f"{PATH}.get_pending")(company)["lines"] if l["handover_key"] == "K-QUIET")
+	check("CAR-29 a month with no receipt leaves the quantity blank", not flt(line["basis_qty"]), line["basis_qty"])
+	doc = _new(company, {"K-QUIET": None})
+	doc.submit()
+	doc.reload()
+	check("CAR-29 blank: the stock on hand carries the whole amount", flt(doc.items[0].inventory_amount) == 200.0,
+		doc.items[0].inventory_amount)
+
+
+def _closed_month(company, wh, stub, account):
+	"""TC-064: the allocation was posted in a month whose inventory period
+	has since closed. The Item Cost Adjustment is refused there and posts in
+	the open month; the take clears the position."""
+	from periodic_valuation.shared.periods import get_period
+
+	last_month = add_months(get_first_day(nowdate()), -1)
+	period = get_period(company, last_month)
+	if period:
+		frappe.db.set_value("Inventory Period", period.name, "status", "SETTLED_FROZEN", update_modified=False)
+	else:
+		period = frappe.get_doc({"doctype": "Inventory Period", "company": company, "start_date": str(last_month),
+			"status": "SETTLED_FROZEN"})
+		period.flags.ignore_validate = True
+		period.insert(ignore_permissions=True)
+		frappe.db.set_value("Inventory Period", period.name, "status", "SETTLED_FROZEN", update_modified=False)
+	item = make_item("_ICA-MAP-CLOSED")
+	make_pr(item, wh, 10, 10)
+	stub.add("K-CLOSED", item, 100.0, wh, allocated_on=str(last_month))
+	frappe.db.savepoint("pv_ica_closed")
+	try:
+		doc = _new(company, {"K-CLOSED": None})
+		doc.posting_date = str(last_month)
+		doc.save(ignore_permissions=True)
+		doc.submit()
+		check("TC-064 a take dated in the closed month is refused", False, "submitted")
+	except frappe.ValidationError as exc:
+		check("TC-064 a take dated in the closed month is refused", "no longer accepts postings" in str(exc), str(exc)[:160])
+	frappe.db.rollback(save_point="pv_ica_closed")
+	taken = len(stub.taken)
+	doc = _new(company, {"K-CLOSED": None})
+	doc.submit()
+	doc.reload()
+	check("TC-064 it posts in the open month", str(doc.posting_date) == nowdate() and flt(doc.items[0].inventory_amount) == 100.0,
+		f"{doc.posting_date} {doc.items[0].inventory_amount}")
+	check("TC-064 the take clears the position", len(stub.taken) == taken + 1 and stub.taken[-1][0] == doc.name, str(stub.taken[-1:]))
