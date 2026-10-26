@@ -1,6 +1,6 @@
 {
  "app": "periodic_valuation",
- "creation": "2026-10-26 12:00:00.000000",
+ "creation": "2026-10-26 15:00:00.000000",
  "docstatus": 0,
  "doctype": "Workspace Sidebar",
  "header_icon": "periodic_valuation",
@@ -59,7 +59,6 @@
   {
    "type": "Section Break",
    "label": "Standard Cost",
-   "link_type": "DocType",
    "icon": "ruler",
    "collapsible": 1,
    "indent": 1,
@@ -132,7 +131,6 @@
   {
    "type": "Section Break",
    "label": "Moving Average",
-   "link_type": "DocType",
    "icon": "trending-up",
    "collapsible": 1,
    "indent": 1,
@@ -178,7 +176,6 @@
   {
    "type": "Section Break",
    "label": "Periods",
-   "link_type": "DocType",
    "icon": "calendar",
    "collapsible": 1,
    "indent": 1,
@@ -215,7 +212,6 @@
   {
    "type": "Section Break",
    "label": "Valuation Ledger",
-   "link_type": "DocType",
    "icon": "database",
    "collapsible": 1,
    "indent": 1,
@@ -243,7 +239,6 @@
   {
    "type": "Section Break",
    "label": "Reports",
-   "link_type": "DocType",
    "icon": "sheet",
    "collapsible": 1,
    "indent": 1,
@@ -307,7 +302,6 @@
   {
    "type": "Section Break",
    "label": "Settings",
-   "link_type": "DocType",
    "icon": "settings",
    "collapsible": 1,
    "indent": 1,
@@ -351,7 +345,7 @@
    "idx": 37
   }
  ],
- "modified": "2026-10-26 12:00:00.000000",
+ "modified": "2026-10-26 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Periodic Valuation",
  "name": "Periodic Valuation",
