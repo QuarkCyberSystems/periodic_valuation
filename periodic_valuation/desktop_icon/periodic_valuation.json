@@ -1,0 +1,21 @@
+{
+ "app": "periodic_valuation",
+ "creation": "2026-10-26 12:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "periodic_valuation",
+ "icon_type": "Link",
+ "idx": 3,
+ "label": "Periodic Valuation",
+ "link_to": "Periodic Valuation",
+ "link_type": "Workspace Sidebar",
+ "modified": "2026-10-26 12:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "Periodic Valuation",
+ "owner": "Administrator",
+ "parent_icon": "ERPNext",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1
+}

@@ -1,0 +1,361 @@
+{
+ "app": "periodic_valuation",
+ "creation": "2026-10-26 12:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Workspace Sidebar",
+ "header_icon": "periodic_valuation",
+ "idx": 0,
+ "items": [
+  {
+   "type": "Link",
+   "label": "Home",
+   "link_type": "Workspace",
+   "link_to": "Periodic Valuation",
+   "child": 0,
+   "collapsible": 1,
+   "icon": "home",
+   "idx": 1
+  },
+  {
+   "type": "Link",
+   "label": "Inventory Periods",
+   "link_type": "DocType",
+   "link_to": "Inventory Period",
+   "child": 0,
+   "collapsible": 1,
+   "icon": "calendar-range",
+   "idx": 2
+  },
+  {
+   "type": "Link",
+   "label": "Period Close",
+   "link_type": "DocType",
+   "link_to": "Inventory Period Close",
+   "child": 0,
+   "collapsible": 1,
+   "icon": "lock",
+   "idx": 3
+  },
+  {
+   "type": "Link",
+   "label": "Settlement Runs",
+   "link_type": "DocType",
+   "link_to": "Inventory Period Settlement Run",
+   "child": 0,
+   "collapsible": 1,
+   "icon": "play",
+   "idx": 4
+  },
+  {
+   "type": "Link",
+   "label": "Item Cost Adjustment",
+   "link_type": "DocType",
+   "link_to": "Item Cost Adjustment",
+   "child": 0,
+   "collapsible": 1,
+   "icon": "coins",
+   "idx": 5
+  },
+  {
+   "type": "Section Break",
+   "label": "Standard Cost",
+   "link_type": "DocType",
+   "icon": "ruler",
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1,
+   "idx": 6
+  },
+  {
+   "type": "Link",
+   "label": "Item Standard Cost Version",
+   "link_type": "DocType",
+   "link_to": "Item Standard Cost Version",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 7
+  },
+  {
+   "type": "Link",
+   "label": "Standard Cost Estimate",
+   "link_type": "DocType",
+   "link_to": "Standard Cost Estimate",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 8
+  },
+  {
+   "type": "Link",
+   "label": "Costing Variant",
+   "link_type": "DocType",
+   "link_to": "Standard Cost Costing Variant",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 9
+  },
+  {
+   "type": "Link",
+   "label": "Item Settlement View Change",
+   "link_type": "DocType",
+   "link_to": "Item Settlement View Change",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 10
+  },
+  {
+   "type": "Link",
+   "label": "Bulk Item Settlement View Change",
+   "link_type": "DocType",
+   "link_to": "Bulk Item Settlement View Change",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 11
+  },
+  {
+   "type": "Link",
+   "label": "Inventory Period Settlement",
+   "link_type": "DocType",
+   "link_to": "Inventory Period Settlement",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 12
+  },
+  {
+   "type": "Link",
+   "label": "STD Year End Close",
+   "link_type": "DocType",
+   "link_to": "STD Year End Close",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 13
+  },
+  {
+   "type": "Section Break",
+   "label": "Moving Average",
+   "link_type": "DocType",
+   "icon": "trending-up",
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1,
+   "idx": 14
+  },
+  {
+   "type": "Link",
+   "label": "Stock Revaluation",
+   "link_type": "DocType",
+   "link_to": "Stock Revaluation",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 15
+  },
+  {
+   "type": "Link",
+   "label": "Stock Count",
+   "link_type": "DocType",
+   "link_to": "Stock Count",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 16
+  },
+  {
+   "type": "Link",
+   "label": "Landed Cost Voucher",
+   "link_type": "DocType",
+   "link_to": "Landed Cost Voucher",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 17
+  },
+  {
+   "type": "Link",
+   "label": "Purchase Receipt",
+   "link_type": "DocType",
+   "link_to": "Purchase Receipt",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 18
+  },
+  {
+   "type": "Section Break",
+   "label": "Periods",
+   "link_type": "DocType",
+   "icon": "calendar",
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1,
+   "idx": 19
+  },
+  {
+   "type": "Link",
+   "label": "Inventory Period Reopen",
+   "link_type": "DocType",
+   "link_to": "Inventory Period Reopen",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 20
+  },
+  {
+   "type": "Link",
+   "label": "Period Balances",
+   "link_type": "DocType",
+   "link_to": "Inventory Period Balance",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 21
+  },
+  {
+   "type": "Link",
+   "label": "Balance Snapshots",
+   "link_type": "DocType",
+   "link_to": "Inventory Period Balance Snapshot",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 22
+  },
+  {
+   "type": "Section Break",
+   "label": "Valuation Ledger",
+   "link_type": "DocType",
+   "icon": "database",
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1,
+   "idx": 23
+  },
+  {
+   "type": "Link",
+   "label": "Valuation Events",
+   "link_type": "DocType",
+   "link_to": "Inventory Valuation Event",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 24
+  },
+  {
+   "type": "Link",
+   "label": "Movement Events",
+   "link_type": "DocType",
+   "link_to": "Stock Movement Event",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 25
+  },
+  {
+   "type": "Section Break",
+   "label": "Reports",
+   "link_type": "DocType",
+   "icon": "sheet",
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1,
+   "idx": 26
+  },
+  {
+   "type": "Link",
+   "label": "Inventory Book vs Reference",
+   "link_type": "Report",
+   "link_to": "Inventory Book vs Reference",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 27
+  },
+  {
+   "type": "Link",
+   "label": "Settlement Register",
+   "link_type": "Report",
+   "link_to": "Settlement Register",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 28
+  },
+  {
+   "type": "Link",
+   "label": "Cross Fiscal Year Late Entries",
+   "link_type": "Report",
+   "link_to": "Cross Fiscal Year Late Entries",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 29
+  },
+  {
+   "type": "Link",
+   "label": "Stock Ledger",
+   "link_type": "Report",
+   "link_to": "Stock Ledger Enterprise",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 30
+  },
+  {
+   "type": "Link",
+   "label": "Stock Balance",
+   "link_type": "Report",
+   "link_to": "Stock Balance",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 31
+  },
+  {
+   "type": "Link",
+   "label": "General Ledger",
+   "link_type": "Report",
+   "link_to": "General Ledger Enterprise",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 32
+  },
+  {
+   "type": "Section Break",
+   "label": "Settings",
+   "link_type": "DocType",
+   "icon": "settings",
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1,
+   "idx": 33
+  },
+  {
+   "type": "Link",
+   "label": "Standard Cost Settings",
+   "link_type": "DocType",
+   "link_to": "Periodic Standard Cost Settings",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 34
+  },
+  {
+   "type": "Link",
+   "label": "Moving Average Settings",
+   "link_type": "DocType",
+   "link_to": "Periodic Moving Average Settings",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 35
+  },
+  {
+   "type": "Link",
+   "label": "Item Default Warehouse Account",
+   "link_type": "DocType",
+   "link_to": "Item Default Warehouse Account",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 36
+  },
+  {
+   "type": "Link",
+   "label": "Item Group Default Warehouse Account",
+   "link_type": "DocType",
+   "link_to": "Item Group Default Warehouse Account",
+   "child": 1,
+   "collapsible": 1,
+   "idx": 37
+  }
+ ],
+ "modified": "2026-10-26 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Periodic Valuation",
+ "name": "Periodic Valuation",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "Periodic Valuation"
+}
