@@ -131,7 +131,9 @@ def _reverse_invoice_diff(doc):
 	_reverse_source_events(doc, original)
 
 
-def _reverse_source_events(doc, original):
+def _reverse_source_events(doc, original, source_doctype="Purchase Invoice"):
+	"""Mirror every standing valuation event `original` (a `source_doctype`)
+	produced, on the reversing document `doc`."""
 	from periodic_valuation.periodic_moving_average.kernel import (
 		ScopeState,
 		_cascade_value_carryover,
@@ -146,7 +148,7 @@ def _reverse_source_events(doc, original):
 	from periodic_valuation.shared.periods import assert_posting_allowed
 
 	originals = frappe.get_all("Inventory Valuation Event",
-		filters={"source_doctype": "Purchase Invoice", "source_docname": original,
+		filters={"source_doctype": source_doctype, "source_docname": original,
 			"is_cancelled": 0}, fields=["*"])
 	# the next-period revaluation legs (DR-53) reverse after the events that
 	# carried them, so each primary mirror reads the state it left
@@ -157,7 +159,7 @@ def _reverse_source_events(doc, original):
 			frappe.throw(_("{0} is already reversed.").format(orig.name),
 				title=_("Double Reversal Blocked"))
 		if orig.reason_code == "carry_revaluation":
-			reverse_carry_revaluation(orig, source=("Purchase Invoice", doc.name),
+			reverse_carry_revaluation(orig, source=(doc.doctype, doc.name),
 				posting_date=doc.posting_date)
 			continue
 		# DR-44 floor: never remove more value than the scope still carries;
@@ -190,7 +192,7 @@ def _reverse_source_events(doc, original):
 				"period_month": frappe.utils.getdate(doc.posting_date).month,
 				"posting_date": doc.posting_date,
 				"entry_date": frappe.utils.now_datetime(),
-				"source_doctype": "Purchase Invoice", "source_docname": doc.name,
+				"source_doctype": doc.doctype, "source_docname": doc.name,
 				"source_detail_name": orig.source_detail_name,
 				"reason_code": "cancellation", "std_trans": orig.std_trans,
 				"qty_basis": 0,
@@ -215,7 +217,7 @@ def _reverse_source_events(doc, original):
 			from periodic_valuation.shared.accounts import get_inventory_account
 			legs = floor_inventory_leg(legs, get_inventory_account(doc.company, orig.item_code, orig.warehouse),
 				prd_excess, get_offset_account(doc.company, orig.item_code, orig.warehouse, "prd"))
-		post_event_gl(mirror.name, legs, posting_date=doc.posting_date, voucher=("Purchase Invoice", doc.name),
+		post_event_gl(mirror.name, legs, posting_date=doc.posting_date, voucher=(doc.doctype, doc.name),
 			company=doc.company, remarks=_("Exact reversal of {0}").format(orig.name))
 
 		if flt(orig.value_delta) and orig.reason_code in ("invoice_diff", "fx_adjust"):
@@ -224,7 +226,7 @@ def _reverse_source_events(doc, original):
 			ipb = scope.load(period)
 			ipb.reval_value = r2(flt(ipb.reval_value) + removal)
 			recompute_closing(ipb)
-			scope.save(ipb, source=("Purchase Invoice", doc.name))
+			scope.save(ipb, source=(doc.doctype, doc.name))
 			# ...and push the same delta through every LATER period's carryover,
 			# exactly as the forward posting does. Without this the reversal
 			# lands only in its own period: the original invoice-diff cascaded
@@ -237,10 +239,10 @@ def _reverse_source_events(doc, original):
 				scope, period,
 				qty_delta=0.0,
 				value_delta=removal,
-				source=("Purchase Invoice", doc.name),
+				source=(doc.doctype, doc.name),
 			)
 			# ...and mirror the original's stock-ledger row (DR-02), or core stock
 			# reports keep the reversed amount forever
 			from periodic_valuation.periodic_moving_average.kernel import write_value_sle
-			write_value_sle(scope, ipb, source=("Purchase Invoice", doc.name, orig.source_detail_name),
+			write_value_sle(scope, ipb, source=(doc.doctype, doc.name, orig.source_detail_name),
 				posting_date=doc.posting_date, value_delta=removal)

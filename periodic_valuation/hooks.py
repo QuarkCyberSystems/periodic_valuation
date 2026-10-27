@@ -53,6 +53,9 @@ scheduler_events = {
 # row, the interim mixed-voucher rule) are answered by this app's
 # LedgerAdapter through qcs_platform's dispatcher - see platform.py. Only
 # effect hooks stay here.
+# GA-0009-01 GAP-054: a non-monetary advance's basis correction on stock this app values (platform socket)
+basis_correction_owners = ["periodic_valuation.basis_correction.basis_correction"]
+
 doc_events = {
 	"Stock Entry": {
 		"validate": [
