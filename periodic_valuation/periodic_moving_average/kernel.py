@@ -935,11 +935,19 @@ def _book_return(controller, scope, ipb, sle, source, posting_date, inventory_ac
 	# with-reference valuation. The MAP rule below keys on this, so it must
 	# not be conflated with `reference_event` being found.
 	valued_at_reference = policy == "With Reference" and bool(controller.get("return_against"))
+	prd = 0.0
 	if valued_at_reference:
-		rate, reference_event = _original_rate(controller, sle)
+		rate, reference_event, prd_per_unit = _original_rate(controller, sle)
+		# a receipt into negative stock (or one crossing zero) put only the
+		# frozen-MAP share into inventory and its price difference to PRD
+		# (MAP-002, DR-60); the return reverses it unit for unit: the offset at
+		# the original rate, inventory at the receipt's inventory rate, the
+		# price difference back out of PRD (client ticket TSK-2026-00994)
+		prd = r2(qty * prd_per_unit) if qty < 0 else 0.0
 	else:
 		rate, reference_event = (flt(ipb.frozen_map) if ipb.is_negative else flt(ipb.moving_avg_price)), None
-	value = r2(qty * rate)  # signed with qty
+	gross = r2(qty * rate)  # signed with qty; the offset (GR/IR or expense)
+	value = r2(gross - prd)  # the inventory effect
 	# Net returns against their ORIGIN bucket (WA-0003-01 item 6, "same
 	# behaviour STD"): a purchase return reverses a receipt, so it nets
 	# down the In/receipt side; a sales return reverses an issue, so it
@@ -952,9 +960,13 @@ def _book_return(controller, scope, ipb, sle, source, posting_date, inventory_ac
 		ipb.issue_qty = r6(flt(ipb.issue_qty) - qty)
 		ipb.issue_value = r6(flt(ipb.issue_value) - value)
 	else:
-		# purchase return (goods out) -> reduce net receipts (In)
+		# purchase return (goods out) -> reduce net receipts (In). The receipt
+		# bucket carried the GROSS value of a receipt into negative stock, its
+		# price difference in the PRD bucket - mirror both (as a cancellation)
 		ipb.receipt_qty = r6(flt(ipb.receipt_qty) + qty)
-		ipb.receipt_value = r6(flt(ipb.receipt_value) + value)
+		ipb.receipt_value = r6(flt(ipb.receipt_value) + gross)
+		if prd:
+			ipb.prd_value = r6(flt(ipb.prd_value) - prd)
 		# ...and the since-zero counter, which measures the SAME receipts
 		# (WA-0003-01 item 7). Once a purchase return nets down the receipt
 		# bucket, leaving the counter untouched makes the Period Balance
@@ -981,15 +993,16 @@ def _book_return(controller, scope, ipb, sle, source, posting_date, inventory_ac
 	sme, ive = write_events(
 		scope, ipb, source=source, posting_date=posting_date,
 		movement_type=movement, reason=reason, qty_delta=qty, value_delta=value,
-		map_before=map_before, reference_event=reference_event,
+		map_before=map_before, reference_event=reference_event, prd_amount=prd,
 		affects_map=1 if reference_event else 0, stock_uom=sle.get("stock_uom"),
 	)
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
-	post_gl(
-		controller, posting_date,
-		[(inventory_account, value, offset), (offset, -value, inventory_account)],
-		ive,
-	)
+	legs = [(inventory_account, value, offset)]
+	if prd:
+		prd_account = get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd")
+		legs.append((prd_account, prd, offset))
+	legs.append((offset, -gross, inventory_account))
+	post_gl(controller, posting_date, legs, ive)
 	return value, ive
 
 
@@ -1224,7 +1237,12 @@ def _voucher_expense_account(controller, sle):
 
 
 def _original_rate(controller, sle):
-	"""Rate + valuation event of the original document row a return references."""
+	"""(rate, valuation event, price difference per unit) of the original
+	document row a return references. The rate is the original document's -
+	for a receipt, what the supplier charged per unit: the inventory value plus
+	the price difference a receipt into negative stock (or one crossing zero)
+	sent to PRD (MAP-002, DR-60). Read from the row's own movement event, not
+	a system row of the same document row (a backdate's prd_split)."""
 	detail = sle.get("voucher_detail_no")
 	original_detail = None
 	for row in controller.get("items") or []:
@@ -1237,16 +1255,20 @@ def _original_rate(controller, sle):
 			break
 	ive = None
 	if original_detail:
-		ive = frappe.db.get_value(
+		rows = frappe.get_all(
 			"Inventory Valuation Event",
-			{"source_detail_name": original_detail, "is_cancelled": 0},
-			["name", "value_delta", "qty_basis"],
-			as_dict=True,
+			filters={"source_detail_name": original_detail, "is_cancelled": 0,
+				"reason_code": ("in", ("receipt", "receipt_neg", "receipt_cross_zero", "issue", "transfer"))},
+			fields=["name", "value_delta", "qty_basis", "prd_amount"],
+			order_by="creation asc", limit=1,
 		)
+		ive = rows[0] if rows else None
 	if ive and flt(ive.qty_basis):
-		return abs(flt(ive.value_delta) / flt(ive.qty_basis)), ive.name
+		qty = flt(ive.qty_basis)
+		prd_per_unit = flt(ive.prd_amount) / qty
+		return abs(flt(ive.value_delta) / qty) + prd_per_unit, ive.name, prd_per_unit
 	# fallback: the return row's own rate (copied from the original document)
-	return flt(sle.get("incoming_rate")) or flt(sle.get("outgoing_rate")), None
+	return flt(sle.get("incoming_rate")) or flt(sle.get("outgoing_rate")), None, 0.0
 
 
 def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_account, expense):
