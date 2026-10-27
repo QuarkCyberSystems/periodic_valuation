@@ -24,3 +24,4 @@ periodic_valuation.patches.v1_0.inherited_cost_markers
 periodic_valuation.patches.v1_0.open_later_std_rows
 periodic_valuation.patches.v1_0.dr68_complete_open_period_balances
 periodic_valuation.patches.v1_0.dr69_reconcile_open_periods
+periodic_valuation.patches.v1_0.dr70_since_zero_counter
