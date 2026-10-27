@@ -1139,6 +1139,11 @@ def _freeze_check(ipb):
 	if flt(ipb.closing_qty) < 0 and not ipb.is_negative:
 		ipb.is_negative = 1
 		ipb.frozen_map = flt(ipb.moving_avg_price)
+		# the quantity just went through zero on its way down: nothing has been
+		# received since (DR-70, client tickets STD-022 / TSK-2026-00981, MH
+		# #63 showed 15 at -15). Receipts while negative add from here; a
+		# crossing receipt restarts at its excess (_apply_receipt)
+		ipb.total_received_since_zero = 0
 	elif flt(ipb.closing_qty) >= 0:
 		ipb.is_negative = 0
 		ipb.frozen_map = 0
