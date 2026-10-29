@@ -1274,8 +1274,13 @@ def _original_rate(controller, sle):
 	return flt(sle.get("incoming_rate")) or flt(sle.get("outgoing_rate")), None, 0.0
 
 
-def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_account, expense):
-	"""Dated mirror of the original document's events; original stays intact."""
+def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_account, expense, backdated=False):
+	"""Dated mirror of the original document's events; original stays intact.
+
+	`backdated` (DR-75): the Cancellation of a Material Issue dated in the
+	previous open period - booked here on that period's balance, then carried
+	into the open period by the caller, which also writes the SLE; returns
+	(mirrored qty, mirrored value, the mirror's event)."""
 	original = controller.get("cancellation_against")
 	if not original:
 		frappe.throw(_("Cancellation document must reference the original via Cancellation Against."))
@@ -1322,6 +1327,8 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 	# sign, a return-shaped receipt cancellation (STD-014) the reversed one,
 	# an un-return (DR-72) the reversed one again
 	qty = _mirror_qty(orig, want, sle)
+	if backdated:
+		_assert_backdated_issue_cancellation(controller, orig)
 
 	# A Create Cancellation is only eligible while the original's period is
 	# still OPEN or PREV_OPEN_UNSETTLED. Once the period is closed it stays
@@ -1376,6 +1383,14 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		)
 		if not frappe.db.exists("Inventory Valuation Event", {"reversal_of": c.name, "is_cancelled": 0})
 	]
+	if backdated and companions:
+		# a backdated original left its day-1 legs in the open period; they
+		# unwind there, with a cancellation posted in the open period
+		frappe.throw(
+			_("{0} was itself posted into a previous period and carried into the current one; its "
+			  "cancellation posts in the current period.").format(original),
+			title=_("Cancellation Date"),
+		)
 	companion_value = 0.0
 	for c in companions:
 		c.mirror = r6(-flt(c.value_delta) * share)
@@ -1492,9 +1507,10 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		)
 		companion_ives.append((c, c_ive))
 	scope.save(ipb, caused_by=ive, movement_event=sme, source=source)
-	mirrored_sle = dict(sle)
-	mirrored_sle["actual_qty"] = qty
-	write_sle(controller, mirrored_sle, scope, ipb, r6(value + companion_value))
+	if not backdated:
+		mirrored_sle = dict(sle)
+		mirrored_sle["actual_qty"] = qty
+		write_sle(controller, mirrored_sle, scope, ipb, r6(value + companion_value))
 	# the mirrors reverse what the original posted - its attribution with it,
 	# each leg on the cancellation row being posted
 	from periodic_valuation.shared.event_gl import mirror_legs
@@ -1512,6 +1528,19 @@ def _post_cancellation(controller, scope, period, ipb, sle, source, inventory_ac
 		legs = floor_inventory_leg(legs, inventory_account, prd_floor,
 			get_offset_account(scope.company, scope.item_code, scope.physical_warehouse, "prd"))
 	post_gl(controller, posting_date, legs, ive)
+	return qty, r6(value + companion_value), ive
+
+
+def _assert_backdated_issue_cancellation(controller, orig):
+	"""DR-75 (Vivek, 29/10/2026; TSK-2026-01005): a Cancellation may be dated
+	in the previous open period only for a Material Issue (a capitalization's
+	or repair's issue reversed with it); every other Cancellation posts in
+	the current period (DR-71). Never before the original: the Cancellation
+	document's own date rule (cancellation.py)."""
+	if controller.doctype != "Stock Entry" or orig.reason_code != "issue":
+		frappe.throw(
+			_("Backdated cancellations into a previous period are not supported; post into the current period."),
+		)
 
 
 def _mirror_qty(orig_event, want, sle):
@@ -1552,12 +1581,11 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 	frozen MAP and a positive one is floored at zero value, difference to PRD.
 	Returns (DR-71): booked in the prior period as a return there is, carried
 	like the issue (purchase return) or receipt (sales return) they move.
+	A Material Issue's Cancellation (DR-75): booked in the prior period as the
+	issue's mirror, carried like a receipt; every other Cancellation posts in
+	the current period.
 	"""
 	qty = flt(sle.get("actual_qty"))
-	if controller.get("is_cancellation"):
-		frappe.throw(
-			_("Backdated cancellations into a previous period are not supported; post into the current period."),
-		)
 
 	# lock order: previous then current
 	ipb_prior = scope.load(prior_period)
@@ -1567,6 +1595,24 @@ def _post_backdated(controller, scope, prior_period, open_period, sle, is_return
 	map_before_prior = flt(ipb_prior.moving_avg_price)
 	inventory_account = get_inventory_account(scope.company, scope.item_code, scope.physical_warehouse)
 	srbnb = frappe.get_cached_value("Company", scope.company, "stock_received_but_not_billed")
+
+	if controller.get("is_cancellation"):
+		# DR-75: only a Material Issue's Cancellation reaches back (checked in
+		# _post_cancellation): booked in the previous period as the issue's
+		# exact mirror, netting its Out bucket there, then carried into the
+		# open period like a backdated sales return (DR-71 / DR-35)
+		prior_was_negative = bool(ipb_prior.is_negative)
+		expense = _voucher_expense_account(controller, sle) or srbnb
+		back_qty, value, ive = _post_cancellation(controller, scope, prior_period, ipb_prior, sle, source,
+			inventory_account, expense, backdated=True)
+		absorb = _carry_receipt_into_open(controller, scope, ipb_cur, open_period, back_qty,
+			r6(value / back_qty) if back_qty else 0,
+			{"net_to_inventory": value, "receipt_value": value, "prd": 0}, prior_was_negative, ive,
+			inventory_account, source)
+		mirrored_sle = dict(sle)
+		mirrored_sle["actual_qty"] = back_qty
+		write_sle(controller, mirrored_sle, scope, ipb_cur, r6(value + absorb))
+		return
 
 	if is_return:
 		# a backdated return (client meeting 19/10/2026: "permitted as long as
