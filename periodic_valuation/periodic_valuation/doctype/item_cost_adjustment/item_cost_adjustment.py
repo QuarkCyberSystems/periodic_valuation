@@ -42,6 +42,9 @@ ANY_STOCK_ON_HAND = 1e-9
 class ItemCostAdjustment(Document):
 	def validate(self):
 		if self.get("is_cancellation"):
+			refusal = raised_by_push_refusal(frappe.get_doc(self.doctype, self.cancellation_against))
+			if refusal:
+				frappe.throw(refusal, title=_("Cancelled With Its Run"))
 			return
 		from erpnext.stock.utils import get_valuation_method
 
@@ -142,6 +145,87 @@ class ItemCostAdjustment(Document):
 
 		reverse_cost_events(self)
 		handover.release(frappe.get_doc(self.doctype, self.cancellation_against))
+
+
+RAISED_BY_FIELD = "raised_by_document"
+
+
+class MaterialReceiver:
+	"""A cost allocation run hands its Material positions here as it posts
+	(CAR-38, bench D-111): one Item Cost Adjustment on the run's date, a row
+	per position - each credits its own account on its own cost centre -
+	valued under each item's method and submitted inside the run's
+	transaction. A refusal (an item outside periodic valuation, a closed
+	month) refuses the run's Post with this module's words."""
+
+	app = "periodic_valuation"
+	id = "periodic_valuation.item_cost_adjustment"
+	receiver_type = RECEIVER_TYPE
+	doctypes = ("Item Cost Adjustment",)
+
+	def raise_documents(self, company, lines, posting_date, reference):
+		rows = []
+		for line in lines:
+			if not flt(line.amount):
+				continue
+			context = line.context or {}
+			rows.append(
+				{
+					"handover_key": line.key,
+					"item_code": line.object_name,
+					"warehouse": context.get("warehouse"),
+					"bucket": line.bucket,
+					"pending_amount": line.amount,
+					"amount": line.amount,
+					"allocation_account": line.account,
+					"cost_center": line.cost_center,
+					"basis_qty": month_receipts(company, line.object_name, context.get("warehouse"),
+						context.get("last_posting_date")),
+				}
+			)
+		if not rows:
+			return []
+		ica = frappe.get_doc(
+			{
+				"doctype": "Item Cost Adjustment",
+				"company": company,
+				"posting_date": posting_date,
+				"items": rows,
+				RAISED_BY_FIELD: f"{reference[0]} {reference[1]}",
+				"remarks": _("Raised by {0} {1}").format(_(reference[0]), reference[1]),
+			}
+		)
+		ica.flags.ignore_permissions = True
+		ica.insert()
+		ica.submit()
+		return [(ica.doctype, ica.name)]
+
+	def reverse_document(self, doctype, name, reference):
+		"""The adjustment's own Cancellation, as Create Cancellation makes it."""
+		from periodic_valuation.periodic_moving_average.cancellation import _make_cancellation
+
+		existing = frappe.db.get_value(doctype, {"cancellation_against": name, "is_cancellation": 1, "docstatus": 1})
+		if existing:
+			return existing
+		cancellation = frappe.get_doc(doctype, _make_cancellation(doctype, name, check_permission=False))
+		cancellation.flags.ignore_permissions = True
+		cancellation.submit()
+		return cancellation.name
+
+
+def raised_by_push_refusal(original):
+	"""An adjustment a run raised is cancelled with its run (CAR-38)."""
+	raised_by = original.get(RAISED_BY_FIELD)
+	if not raised_by:
+		return None
+	from qcs_platform import handover
+
+	context = handover.raising()
+	if context and context[0] == "reverse" and f"{context[1]} {context[2]}" == raised_by:
+		return None
+	return _("{0} was raised by {1} and is cancelled with it: reverse the run, or correct its cycle.").format(
+		original.name, raised_by
+	)
 
 
 @frappe.whitelist()

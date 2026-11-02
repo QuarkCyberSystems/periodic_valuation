@@ -43,11 +43,19 @@ CANCELLABLE = (
 
 @frappe.whitelist()
 def make_cancellation(doctype, name):
+	return _make_cancellation(doctype, name, check_permission=True)
+
+
+def _make_cancellation(doctype, name, check_permission=True):
+	"""`check_permission=False` is for a document raised by another app's
+	posting and undone by that app's reversal (CAR-38): its user holds the
+	reversing app's role, not this doctype's cancel permission."""
 	if doctype not in CANCELLABLE:
 		frappe.throw(_("{0} does not support Cancellation documents.").format(_(doctype)))
 
 	original = frappe.get_doc(doctype, name)
-	original.check_permission("cancel")
+	if check_permission:
+		original.check_permission("cancel")
 
 	if original.docstatus != 1:
 		frappe.throw(_("Only submitted documents can be cancelled."))
@@ -90,7 +98,7 @@ def make_cancellation(doctype, name):
 	for fld in ("bill_date", "bill_no", "due_date"):
 		if cancellation.meta.has_field(fld):
 			cancellation.set(fld, None)
-	cancellation.flags.ignore_permissions = False
+	cancellation.flags.ignore_permissions = not check_permission
 	cancellation.insert()
 	return cancellation.name
 
