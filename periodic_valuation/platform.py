@@ -192,7 +192,8 @@ PLATFORM_CONTRACT = "0.2"
 # handover_source (D-079): the Item Cost Adjustment reads and takes pending
 # Material positions through qcs_platform.handover.
 # P10 (net returns): the un-return (DR-72) needs core's returned-quantity maps signed
-REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "P10", "bases:valuation_sockets", "handover_source")
+# handover_receiver: a cost allocation run pushes Material positions to the Item Cost Adjustment (CAR-38)
+REQUIRES = ("P1", "P2", "P2b", "P4", "P6", "P10", "bases:valuation_sockets", "handover_source", "handover_receiver")
 
 
 PLATFORM_TOO_OLD = (
@@ -203,6 +204,10 @@ PLATFORM_TOO_OLD = (
 
 
 def get_registration():
+	from periodic_valuation.periodic_valuation.doctype.item_cost_adjustment.item_cost_adjustment import (
+		MaterialReceiver,
+	)
+
 	try:
 		return Registration(
 			app="periodic_valuation",
@@ -212,6 +217,7 @@ def get_registration():
 			period_authorities=(InventoryPeriodAuthority(),),
 			requires=REQUIRES,
 			platform_contract=PLATFORM_CONTRACT,
+			handover_receivers=(MaterialReceiver(),),
 		)
 	except TypeError as exc:
 		# a platform before Build 0.2 step 0 has no requires / platform_contract:
