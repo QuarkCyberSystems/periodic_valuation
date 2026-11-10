@@ -187,6 +187,17 @@ def _materialize_if_pending(scv_name):
 	frappe.get_doc("Item Standard Cost Version", scv_name).materialize_boundary()
 
 
+def refresh_event_pools(ive):
+	"""A standard-cost event written outside StdEngine.post - the exact
+	reversal of an invoice difference or a landed cost - moves its month's
+	PPV and revaluation pools as well; refresh the balance's pools as post()
+	does (STD-013). Client ticket TSK-2026-01095: a cancelled invoice's 300
+	left the PPV Pool at 800 while the settlement read 500."""
+	if not ive.get("std_trans"):
+		return
+	StdEngine(ive.company, ive.item_code, ive.warehouse).refresh_ipb_pools(ive.period_year, ive.period_month)
+
+
 def assert_month_settleable(company, year, month):
 	"""A month is settled once the next month is open - while it is the
 	previous-open month (DR-69; SAP: period-end settlement runs after the
