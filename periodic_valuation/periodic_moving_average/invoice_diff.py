@@ -144,6 +144,7 @@ def _reverse_source_events(doc, original, source_doctype="Purchase Invoice"):
 	)
 	from periodic_valuation.shared.accounts import get_offset_account
 	from periodic_valuation.shared.event_gl import mirror_legs, post_event_gl
+	from periodic_valuation.periodic_standard_cost.engine import refresh_event_pools
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 	from periodic_valuation.shared.periods import assert_posting_allowed
 
@@ -219,6 +220,7 @@ def _reverse_source_events(doc, original, source_doctype="Purchase Invoice"):
 				prd_excess, get_offset_account(doc.company, orig.item_code, orig.warehouse, "prd"))
 		post_event_gl(mirror.name, legs, posting_date=doc.posting_date, voucher=(doc.doctype, doc.name),
 			company=doc.company, remarks=_("Exact reversal of {0}").format(orig.name))
+		refresh_event_pools(mirror)
 
 		if flt(orig.value_delta) and orig.reason_code in ("invoice_diff", "fx_adjust"):
 			period = assert_posting_allowed(doc.company, doc.posting_date)

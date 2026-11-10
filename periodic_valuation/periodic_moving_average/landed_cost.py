@@ -107,6 +107,7 @@ def reverse_cost_events(lcv):
 	was posted."""
 	from periodic_valuation.periodic_moving_average.kernel import floor_inventory_leg
 	from periodic_valuation.shared.event_gl import mirror_legs, post_event_gl
+	from periodic_valuation.periodic_standard_cost.engine import refresh_event_pools
 	from periodic_valuation.shared.immutable import KERNEL_FLAG
 
 	original = lcv.get("cancellation_against")
@@ -191,6 +192,7 @@ def reverse_cost_events(lcv):
 				prd_excess, get_offset_account(lcv.company, orig.item_code, orig.warehouse, "prd"))
 		post_event_gl(mirror.name, legs, posting_date=lcv.posting_date, voucher=(lcv.doctype, lcv.name),
 			company=lcv.company, remarks=_("Exact reversal of {0}").format(orig.name))
+		refresh_event_pools(mirror)
 		# restore the MAP scope state the original event moved - and, like the
 		# original, push it through every later period's carryover and mirror the
 		# stock-ledger row (DR-02). Without the cascade a reversal dated in the
