@@ -23,7 +23,7 @@ frappe.ui.form.on("Inventory Period Settlement", {
 		if (frm.doc.cancelled) return;
 		frm.add_custom_button(__("Reverse Settlement"), () => {
 			frappe.confirm(
-				__("Reverse this settlement? The period reopens for corrections and must be re-settled. Allowed for the previous month only."),
+				__("Reverse this settlement? The period reopens for corrections and must be re-settled. Allowed while the month is still open (not yet closed)."),
 				() => {
 					frappe.call({
 						method: "reverse", doc: frm.doc, freeze: true,

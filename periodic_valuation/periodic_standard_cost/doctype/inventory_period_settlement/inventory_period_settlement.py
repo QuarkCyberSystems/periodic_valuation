@@ -15,7 +15,7 @@ class InventoryPeriodSettlement(Document):
 
 	@frappe.whitelist()
 	def reverse(self):
-		"""Sett-Reverse this settlement (previous month only). Reopens the
+		"""Sett-Reverse this settlement (its month still open). Reopens the
 		period for corrections; a Settlement Run re-closes it afterwards."""
 		self.check_permission("write")
 		if self.cancelled:

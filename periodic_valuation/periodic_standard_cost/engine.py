@@ -28,6 +28,7 @@ from frappe.utils import flt, getdate, now_datetime
 
 from periodic_valuation.periodic_standard_cost.config import BD_BY_PRIMARIES, SETT_FAMILY, flags_for
 from periodic_valuation.shared.immutable import KERNEL_FLAG
+from periodic_valuation.shared.periods import POSTING_ALLOWED_STATES
 
 
 def r2(x):
@@ -1180,11 +1181,29 @@ class StdEngine:
 		ty, tm = sett.period_year, sett.period_month
 		# DR-08 is a boundary against OLD settlements: reversible while the
 		# settlement is the current or immediately-previous month; anything
-		# older takes the forward-correction path.
-		prev_ok = (
-			(ty == ent.year and tm in (ent.month, ent.month - 1))
-			or (ty == ent.year - 1 and tm == 12 and ent.month == 1)
-		)
+		# older takes the forward-correction path. The current and previous
+		# months are the period machine's OPEN and PREV_OPEN_UNSETTLED months
+		# (DR-64/68), not calendar months: a month still open is reversible
+		# however long ago it was, a frozen one never is (client ticket
+		# TSK-2026-01150, 24/11/2026: September, still PREV_OPEN_UNSETTLED,
+		# was refused because the calendar had moved to November). An engine
+		# call that states its own entry date, or a month with no period
+		# (engine fixtures), keeps the calendar test.
+		status = None if entry_date else frappe.db.get_value("Inventory Period",
+			{"company": self.company, "period_year": ty, "period_month": tm}, "status")
+		if status:
+			prev_ok = status in POSTING_ALLOWED_STATES
+		else:
+			prev_ok = (
+				(ty == ent.year and tm in (ent.month, ent.month - 1))
+				or (ty == ent.year - 1 and tm == 12 and ent.month == 1)
+			)
+		if status and not prev_ok:
+			frappe.throw(
+				_("{0}-{1:02d} is {2}: only a settlement of a month that is still open can be reversed.").format(
+					ty, tm, status),
+				exc=SettReverseRuleViolation, title=_("Month Closed"),
+			)
 		if not prev_ok:
 			raise SettReverseRuleViolation(
 				_(
