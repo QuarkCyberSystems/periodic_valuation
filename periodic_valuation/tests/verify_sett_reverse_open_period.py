@@ -55,7 +55,7 @@ def _refusal(fn):
 
 def _gl_by_account(events):
 	rows = frappe.db.sql("""select account, sum(debit - credit) from `tabGL Entry`
-		where is_cancelled = 0 and voucher_detail_no in %(ev)s group by account""", {"ev": tuple(events)})
+		where is_cancelled = 0 and valuation_event_id in %(ev)s group by account""", {"ev": tuple(events)})
 	return {a: flt(v, 2) for a, v in rows}
 
 

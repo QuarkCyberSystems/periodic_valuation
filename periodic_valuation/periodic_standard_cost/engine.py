@@ -1199,10 +1199,10 @@ class StdEngine:
 				or (ty == ent.year - 1 and tm == 12 and ent.month == 1)
 			)
 		if status and not prev_ok:
-			raise SettReverseRuleViolation(
+			frappe.throw(
 				_("{0}-{1:02d} is {2}: only a settlement of a month that is still open can be reversed.").format(
 					ty, tm, status),
-				title=_("Month Closed"),
+				exc=SettReverseRuleViolation, title=_("Month Closed"),
 			)
 		if not prev_ok:
 			raise SettReverseRuleViolation(
