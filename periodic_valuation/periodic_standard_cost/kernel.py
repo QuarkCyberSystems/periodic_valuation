@@ -115,15 +115,14 @@ def _post_entry(controller, sle, is_return):
 		value = r2(qty * sc)
 		companion = (trans, qty)
 	elif qty < 0 and not is_return:
-		block_setting = get_std_setting(company, "block_negative_stock_std")
-		if flt(1 if block_setting is None else block_setting):
-			_assert_stock_available(engine, -qty)
+		_block_negative_stock(engine, -qty)
 		trans = "Issue (BY)" if (cross_month and cross_fy) else ("Issue (BD)" if cross_month else "Iss")
 		engine.post(trans=trans, posting_date=posting_date, qty=-qty, sc=sc,
 			source=source, cost_version=scv.name, offset_account=_asset_issue_account(controller, sle))
 		value = r2(qty * sc)
 		companion = (trans, -qty)
 	elif is_return and qty < 0:
+		_block_negative_stock(engine, -qty)
 		# purchase return (PR intent): stock leg at SC; AC = the returned row's
 		# actual rate (sle.incoming_rate is 0 for outgoing returns), so the
 		# PPV pool gives back the original variance (workbook PR row)
@@ -278,6 +277,12 @@ def _post_cancellation_std(controller, engine, sle, period):
 		# refused by make_cancellation
 		post_previous_period_return(controller, engine, sle, period, orig, abs(flt(orig.qty_adj)), cd, source)
 		return
+
+	# a cancellation that takes quantity out - a receipt's, a sales return's -
+	# is held to the same negative-stock block as an issue (DR-10)
+	out_qty = sum(flt(r.qty_adj) for r in orig_rows)
+	if out_qty > 0:
+		_block_negative_stock(engine, out_qty)
 
 	# 1. exact reversal. The movement posts on the cancellation's own date
 	# (STD-014; Apr-22 decision 8) at the ORIGINAL standard cost. The rows
@@ -625,6 +630,18 @@ def book_revaluation(engine, day, amount, source, standard_cost=None, stock_uom=
 	write_value_sle(ensure_physical_warehouse(scope), ipb,
 		source=(source[0], source[1], source[2] if len(source) > 2 else None),
 		posting_date=day, value_delta=amount, stock_uom=stock_uom)
+
+
+def _block_negative_stock(engine, qty_out):
+	"""DR-10 / STD design premise #7: a standard-cost posting may not take the
+	scope's quantity below zero while Block Negative Stock is on - every
+	posting that takes quantity out, not issues only (client ticket
+	TSK-2026-01151, 24/11/2026: MH S51 returned 100 to the supplier with 50
+	on hand and went to -50; settlement splits by closing / input quantity,
+	which a negative closing makes meaningless)."""
+	block_setting = get_std_setting(engine.company, "block_negative_stock_std")
+	if flt(1 if block_setting is None else block_setting):
+		_assert_stock_available(engine, qty_out)
 
 
 def _assert_stock_available(engine, qty_needed):
